@@ -85,7 +85,12 @@ FIELD_ALIASES = {
     "grade": "格", "text": "抽出", "match": "照合", "location": "所在", "section_kind": "節の種類",
     "before": "前", "sentence": "含む文", "after": "後", "also_found_in": "他の文献で一致",
     "approved_fingerprint": "承認時の指紋", "approved_text": "承認時の本文",
+    "approval_note": "承認の理由", "approved_evidence": "承認時の根拠",
+    "returned_reason": "差し戻しの理由", "returned_fingerprint": "差し戻し時の指紋", "returned_evidence": "差し戻し時の根拠",
+    "summary_check": "要約の確認", "summary_check_fingerprint": "要約の確認時の指紋",
 }
+# @ 行のうち、導く欄ではなく道具が書く記録（derive は消さず、導き直しの比較にも入れない）
+RECORD_FIELDS = {"承認時の指紋", "承認時の本文", "承認時の根拠", "差し戻し時の指紋", "差し戻し時の根拠", "要約の確認時の指紋"}
 FIELD_NAMES_EN = {v: k for k, v in FIELD_ALIASES.items()}
 VALUE_ALIASES = {
     "強さ": {"observation": "観察", "suggestion": "示唆", "claim": "主張", "generalization": "一般化", "conditional": "条件付き"},
@@ -94,6 +99,7 @@ VALUE_ALIASES = {
     "種類": {"pointer": "指示", "claim": "主張"},
     "承認": {"none": "未"},
 }
+RETURNED = "差し戻し"  # 承認の欄の値。英語の原稿では returned とも書ける（_approval_state で読む）
 OUTPUT_LANG = "ja"
 
 
@@ -172,6 +178,8 @@ class Source:
         self.path = path
         self.raw = path.read_text(encoding="utf-8", errors="replace")
         self.web = None
+        # 頭書き（Web の写しと OCR の <!-- … -->）は本文ではない。前後の文の切り出しから外す
+        self.body_start = self.raw.find("-->") + 3 if self.raw.startswith("<!--") and "-->" in self.raw else 0
         if self.raw.startswith("<!-- snapshot"):  # Web の写しの頭書き
             head = self.raw[:self.raw.find("-->")]
             self.web = dict(re.findall(r"^(\w+): (.*)$", head, re.M))
@@ -355,9 +363,11 @@ SENT_END = re.compile(r"(?<=[.!?。．！？])[\"”’)]*\s+|(?<=[。．！？]
 
 def context(src, a, b, limit=300):
     """一致した箇所の前の文、逐語が文の途中で切れているときはその文全体、後の文。"""
-    lo, hi = max(0, a - 2000), min(len(src.raw), b + 2000)
+    lo, hi = max(src.body_start, a - 2000), min(len(src.raw), b + 2000)
     win = src.raw[lo:hi]
     ends = [m.end() + lo for m in SENT_END.finditer(win)]
+    if src.web:  # Web の写しは、句点の無い題や項目が多い。空行も文の区切りとする
+        ends += [m.end() + lo for m in re.finditer(r"\n[ \t]*\n", win)]
     ends += [h[3] for h in src.headings if lo <= h[3] < hi]  # 見出しの行末も文の区切り
     ends.sort()
     starts_before = [e for e in ends if e <= a]
@@ -550,12 +560,16 @@ def parse_blocks(path):
             name = FIELD_ALIASES.get(name, name)
             value = m.group(3).strip()
             value = VALUE_ALIASES.get(name, {}).get(value, value)
-            (cur["derived"] if m.group(1) else cur["fields"])[name] = value
+            if m.group(1) and name in RECORD_FIELDS:
+                cur.setdefault("records", {})[name] = value
+            else:
+                (cur["derived"] if m.group(1) else cur["fields"])[name] = value
     return head, blocks
 
 
 def rewrite_derived(path, head_derived, block_derived):
-    """@ 行を除いて、各区切りの末尾に新しい @ 行を置く。"""
+    """導く欄の @ 行を除いて、各区切りの末尾に新しい @ 行を置く。記録の @ 行（RECORD_FIELDS）は残す。"""
+    record_names = RECORD_FIELDS | {FIELD_NAMES_EN.get(n, n) for n in RECORD_FIELDS}
     lines = path.read_text(encoding="utf-8").splitlines()
     segs, cur = [], []
     for ln in lines:
@@ -566,7 +580,7 @@ def rewrite_derived(path, head_derived, block_derived):
     segs.append(cur)
     out = []
     for si, seg in enumerate(segs):
-        body = [ln for ln in seg if not ln.startswith("@")]
+        body = [ln for ln in seg if not ln.startswith("@") or ln[1:].split(":")[0].strip() in record_names]
         while body and not body[-1].strip():
             body.pop()
         if si == 0:
@@ -716,6 +730,54 @@ def fingerprint(sentence):
     return hashlib.sha1(s.encode("utf-8")).hexdigest()[:8]
 
 
+def evidence_hash(refs, excerpts):
+    """引用の根拠（抜き書きの ID と逐語）の指紋。根拠を足したり逐語を直したりすると変わる。"""
+    s = "\n".join(f"{r}\t{re.sub(r'\s', '', excerpts.get(r, {}).get('逐語', ''))}" for r in sorted(refs))
+    return hashlib.sha1(s.encode("utf-8")).hexdigest()[:8]
+
+
+def summary_fingerprint(fields):
+    """抜き書きの、人が確かめる欄（逐語・要約・言っていないこと・強さ）の指紋。"""
+    s = "\n".join(re.sub(r"\s", "", fields.get(n, "")) for n in ("逐語", "強さ", "要約", "言っていないこと"))
+    return hashlib.sha1(s.encode("utf-8")).hexdigest()[:8]
+
+
+REF_RE = re.compile(r"(?<![\w#])(?:([\w.-]+)#)?(e\d+)(?![\w])")
+
+
+def refs_in(value, keys):
+    """欄の文字列の中の抜き書きへの参照を (書かれた形, 候補の ID の並び) で返す。
+    key の無い e3 は、keys（同じ文献、または引用の根拠の文献）のどれかの e3 を指すとみなす。"""
+    out = []
+    for m in REF_RE.finditer(value):
+        if m.group(1):
+            out.append((m.group(0), [f"{m.group(1)}#{m.group(2)}"]))
+        elif keys:
+            out.append((m.group(0), [f"{k}#{m.group(2)}" for k in keys]))
+    return out
+
+
+def approval_state(f, rec, fp, ev):
+    """(状態, 補足)。状態は 未承認 / 承認済 / 要再確認 / 差し戻し / 差し戻し後に直された。"""
+    appr = f.get("承認", "未") or "未"
+    head = appr.split()[0]
+    if head in (RETURNED, "returned"):
+        reason = f.get("差し戻しの理由", "")
+        if rec.get("差し戻し時の指紋") == fp and rec.get("差し戻し時の根拠", ev) == ev:
+            return "差し戻し", reason
+        return "差し戻し後に直された", reason
+    if head == "未":
+        return "未承認", ""
+    changed = []
+    if rec.get("承認時の指紋") != fp:
+        changed.append("本文")
+    if rec.get("承認時の根拠") and rec["承認時の根拠"] != ev:  # 根拠の記録が無い古い承認は本文だけを見る
+        changed.append("根拠")
+    if changed:
+        return "要再確認", "・".join(changed)
+    return "承認済", head
+
+
 def heading_at(text, off):
     hs = [m for m in re.finditer(r"^#{1,4} .*$", text[:off], re.M)]
     return hs[-1].group(0).lstrip("# ").strip() if hs else ""
@@ -740,6 +802,7 @@ def run_check():
     res = derive_excerpts(bib, cache)
     excerpts = {}
     states = {}
+    exc_where, summary_checked = [], {}
     for path, (hd, bd) in res.items():
         head, blocks = parse_blocks(path)
         key = head["title"]
@@ -777,6 +840,23 @@ def run_check():
                 infos.append(f"{w}: 原典の{d['節の種類']}の節にある文。原典の著者の主張でない可能性")
             excerpts[bid] = f
             states[bid] = (st, confirmed)
+            exc_where.append((w, key, f))
+            if f.get("要約の確認"):
+                if b.get("records", {}).get("要約の確認時の指紋") != summary_fingerprint(f):
+                    notes.append(f"{w}: 要約の確認の後に欄が変わった。確認し直す")
+                else:
+                    summary_checked[f["要約の確認"].split()[0]] = summary_checked.get(f["要約の確認"].split()[0], 0) + 1
+            else:
+                summary_checked["未確認"] = summary_checked.get("未確認", 0) + 1
+
+    # 欄の中の抜き書きへの参照（key#e3、同じ文献の中なら e3）は実在すること。
+    # 言っていないことや解釈が原文の別の箇所に依るなら、その箇所を抜き書きにして ID で指す（§16.2 の 4）
+    for w, key, f in exc_where:
+        for name in ("要約", "言っていないこと"):
+            for shown, cands in refs_in(f.get(name, ""), [key]):
+                if not any(c in excerpts for c in cands):
+                    errors.append(f"{w}: {name}が指す抜き書き '{shown}' が無い")
+    infos.append("抜き書きの要約の確認: " + " / ".join(f"{k} {v}" for k, v in sorted(summary_checked.items())))
 
     # 引用
     if CIT.exists():
@@ -824,6 +904,11 @@ def run_check():
             for r in refs:
                 if r not in excerpts:
                     errors.append(f"{w}: 抜き書き '{r}' が無い")
+            ref_keys = list(dict.fromkeys(r.split("#")[0] for r in refs))
+            for name in ("理由", "解釈"):
+                for shown, cands in refs_in(f.get(name, ""), ref_keys):
+                    if not any(c in excerpts for c in cands):
+                        errors.append(f"{w}: {name}が指す抜き書き '{shown}' が無い")
             for name in ("理由", "原文との差", "記入"):
                 if not f.get(name):
                     errors.append(f"{w}: 欄 '{name}' が空")
@@ -842,17 +927,18 @@ def run_check():
                 same = [p for p in pool if any(is_cjk(c) for c in p) == qcjk]
                 if same and not any(normalize(q, "alnum")[0] in normalize(p, "alnum")[0] for p in same):
                     errors.append(f"{w}: 本文の引用「{q[:30]}…」が抜き書きの逐語に無い")
-            appr = f.get("承認", "未")
-            if appr == "未" or not appr:
-                counts["未承認"] += 1
+            state, extra = approval_state(f, b.get("records", {}), fp, evidence_hash(refs, excerpts))
+            counts[state] = counts.get(state, 0) + 1
+            if state == "未承認":
                 notes.append(f"{w}: 未承認（{heading_at(text, ids_in_text[cid][0])}）")
-            elif b["derived"].get("承認時の指紋") != fp:
-                counts["要再確認"] += 1
-                notes.append(f"{w}: 承認の後に本文が変わった。要再確認")
+            elif state == "要再確認":
+                notes.append(f"{w}: 承認の後に{extra}が変わった。要再確認")
+            elif state == "差し戻し":
+                notes.append(f"{w}: 差し戻し。書き手が直すのを待っている（{extra}）")
+            elif state == "差し戻し後に直された":
+                notes.append(f"{w}: 差し戻しの後に直された。確認を待っている（差し戻しの理由: {extra}）")
             else:
-                counts["承認済"] += 1
-                who = appr.split()[0]
-                approvers[who] = approvers.get(who, 0) + 1
+                approvers[extra] = approvers.get(extra, 0) + 1
             for r in refs:
                 st, ok = states.get(r, ("", False))
                 if (st.startswith("近似一致") or st.startswith("照合不能")) and not ok:
@@ -862,7 +948,9 @@ def run_check():
         for cid in ids_in_text:
             if cid not in block_ids:
                 errors.append(f"{target}: 〔{cid}〕に対応するブロックが無い")
-        infos.append(f"引用: 主張 承認済 {counts['承認済']} / 要再確認 {counts['要再確認']} / 未承認 {counts['未承認']}、指示 {counts['指示']}")
+        returned = counts.get("差し戻し", 0) + counts.get("差し戻し後に直された", 0)
+        infos.append(f"引用: 主張 承認済 {counts['承認済']} / 要再確認 {counts['要再確認']} / 未承認 {counts['未承認']}"
+                     + (f" / 差し戻し {returned}" if returned else "") + f"、指示 {counts['指示']}")
     else:
         counts, target = {}, None
 
@@ -870,7 +958,7 @@ def run_check():
     for st, _ in states.values():
         summary[st] = summary.get(st, 0) + 1
     return {"errors": errors, "notes": notes, "infos": infos, "excerpt_states": summary, "excerpts": len(states),
-            "citations": counts, "approvers": approvers, "grades": grades, "texts": sorted(used),
+            "citations": counts, "approvers": approvers, "summary_checks": summary_checked, "grades": grades, "texts": sorted(used),
             "manuscript": str(target) if target else None}
 
 
@@ -922,33 +1010,249 @@ def cmd_grade(args):
     print(f"--- {total} 件のうち、機械で照合できるもの {ok} 件（{round(100 * ok / max(1, total))}%）")
 
 
-def cmd_approve(args):
-    head, blocks = parse_blocks(CIT)
-    target = Path(head["fields"].get("対象", ""))
-    text = mask_comments(target.read_text(encoding="utf-8"))
-    offs = [off for cid, off, _ in manuscript_marks(text) if cid == args.cid]
-    if len(offs) != 1:
-        sys.exit(f"原稿に〔{args.cid}〕がちょうど一つ無い（{len(offs)} 箇所）")
-    sent = sentence_at(text, offs[0])
-    today = datetime.date.today().isoformat()
-    lines = CIT.read_text(encoding="utf-8").splitlines()
+def load_excerpt_fields():
+    """{key#eN: 書く欄}。derive をせずに読む（承認と review が使う）。"""
+    res = {}
+    for path in sorted(EXC_DIR.glob("*.md")):
+        head, blocks = parse_blocks(path)
+        for b in blocks:
+            res[f"{head['title']}#{b['id']}"] = b["fields"]
+    return res
+
+
+def _replace_block_lines(path, bid, drop_re, new_lines):
+    """path の ## bid のブロックから drop_re に当たる行を除き、ブロックの末尾に new_lines を置く。"""
+    lines = path.read_text(encoding="utf-8").splitlines()
     out, inblock, done = [], False, False
     for ln in lines:
         if ln.startswith("## "):
             if inblock and not done:
-                out.extend(_approval_lines(args.by, today, sent))
+                while out and not out[-1].strip():
+                    out.pop()
+                out.extend(new_lines + [""])
                 done = True
-            inblock = ln[3:].strip() == args.cid
-        if inblock and re.match(r"^@?(承認|approval|approved_)", ln):
+            inblock = ln[3:].strip() == bid
+        if inblock and re.match(drop_re, ln):
             continue
-        if inblock and not ln.strip() and not done:
-            out.extend(_approval_lines(args.by, today, sent))
-            done = True
         out.append(ln)
     if inblock and not done:
-        out.extend(_approval_lines(args.by, today, sent))
-    CIT.write_text("\n".join(out) + "\n", encoding="utf-8", newline="\n")
-    print(f"承認を記録: {args.cid} {args.by} {today} 指紋={fingerprint(sent)}")
+        while out and not out[-1].strip():
+            out.pop()
+        out.extend(new_lines)
+    path.write_text("\n".join(out) + "\n", encoding="utf-8", newline="\n")
+
+
+def _citation_now(cid):
+    """(本文の文, 本文の指紋, 根拠の指紋, ブロックの欄)。"""
+    head, blocks = parse_blocks(CIT)
+    target = Path(head["fields"].get("対象", ""))
+    text = mask_comments(target.read_text(encoding="utf-8"))
+    offs = [off for c, off, _ in manuscript_marks(text) if c == cid]
+    if len(offs) != 1:
+        sys.exit(f"原稿に〔{cid}〕がちょうど一つ無い（{len(offs)} 箇所）")
+    block = next((b for b in blocks if b["id"] == cid), None)
+    if block is None:
+        sys.exit(f"{CIT.as_posix()} に {cid} のブロックが無い")
+    sent = sentence_at(text, offs[0])
+    refs = [r.strip() for r in block["fields"].get("抜き書き", "").split(",") if r.strip()]
+    return sent, fingerprint(sent), evidence_hash(refs, load_excerpt_fields()), block["fields"]
+
+
+APPROVAL_LINE_RE = r"^@?(承認|差し戻し|approval|approved_|returned_)"
+
+
+def cmd_approve(args):
+    """承認か差し戻しを記録する。承認は人の指示があるときだけ行う（AI が自分の書いた引用を承認しない）。"""
+    sent, fp, ev, f = _citation_now(args.cid)
+    today = datetime.date.today().isoformat()
+    if args.send_back:
+        if not args.note:
+            sys.exit("差し戻しには --note で理由を書く")
+        new = [f"{out_name('承認')}: {RETURNED} {args.by} {today}", f"{out_name('差し戻しの理由')}: {args.note}",
+               f"@{out_name('差し戻し時の指紋')}: {fp}", f"@{out_name('差し戻し時の根拠')}: {ev}"]
+        msg = f"差し戻しを記録: {args.cid} {args.by} {today}"
+    else:
+        new = [f"{out_name('承認')}: {args.by} {today}"]
+        if args.note:
+            new.append(f"{out_name('承認の理由')}: {args.note}")
+        new += [f"@{out_name('承認時の指紋')}: {fp}", f"@{out_name('承認時の根拠')}: {ev}",
+                f"@{out_name('承認時の本文')}: {sent}"]
+        msg = f"承認を記録: {args.cid} {args.by} {today} 指紋={fp} 根拠={ev}"
+    _replace_block_lines(CIT, args.cid, APPROVAL_LINE_RE, new)
+    print(msg)
+
+
+def _page_image(key, bib, src, quote, outdir):
+    """根拠の逐語がある頁を PNG にする。PDF が無ければ None。"""
+    label, a, _ = locate(quote, src)
+    if a is None:
+        return None
+    pdf = None
+    for name in bib[key]["pdfs"]:
+        if (TXT_DIR / (Path(name).stem + ".txt")) == src.path:
+            pdf = PDF_DIR / name
+    if pdf is None and (WEB_DIR / f"{key}.pdf").exists():
+        pdf = WEB_DIR / f"{key}.pdf"
+    if pdf is None or not pdf.exists():
+        return None
+    import pymupdf
+    page = src.page_of(a)
+    out = Path(outdir) / f"{key}_p{page}.png"
+    if not out.exists():
+        out.parent.mkdir(parents=True, exist_ok=True)
+        pymupdf.open(pdf)[page - 1].get_pixmap(dpi=150).save(out)
+    return out
+
+
+def review_data(cids=None, images=None, include_done=False):
+    """人の確認に要る材料を、引用ごとの辞書の並びで返す（review の md と JSON、外の表示が使う）。
+
+    原稿の順に並べる。cids を渡せばそれだけ、渡さなければ確認待ちのもの（include_done なら承認済と指示も）。
+    """
+    bib = parse_bib()
+    cache = {}
+    res = derive_excerpts(bib, cache)
+    exc = {}
+    for path, (hd, bd) in res.items():
+        head, blocks = parse_blocks(path)
+        for b in blocks:
+            exc[f"{head['title']}#{b['id']}"] = (b["fields"], bd.get(b["id"], {}), hd, b.get("records", {}))
+    excerpt_fields = {k: v[0] for k, v in exc.items()}
+    head, blocks = parse_blocks(CIT)
+    target = Path(head["fields"].get("対象", ""))
+    text = mask_comments(target.read_text(encoding="utf-8"))
+    pos = {cid: off for cid, off, _ in manuscript_marks(text)}
+    checked = run_check()
+    tool = Path(sys.argv[0]).as_posix()
+    items = []
+    for b in sorted(blocks, key=lambda b: pos.get(b["id"], 10 ** 9)):
+        cid, f = b["id"], b["fields"]
+        if cid not in pos or (cids and cid not in cids):
+            continue
+        refs = [r.strip() for r in f.get("抜き書き", "").split(",") if r.strip()]
+        sent = sentence_at(text, pos[cid])
+        if f.get("種類") == "主張":
+            state, extra = approval_state(f, b.get("records", {}), fingerprint(sent), evidence_hash(refs, excerpt_fields))
+        else:
+            state, extra = "指示", f.get("文献", "")
+        if not cids and not include_done and state in ("承認済", "指示"):
+            continue
+        tag = f" {cid}:"
+        item = {"id": cid, "kind": f.get("種類", ""), "state": state, "state_detail": extra,
+                "line": text.count("\n", 0, pos[cid]) + 1, "section": heading_at(text, pos[cid]), "sentence": sent,
+                "fields": {n: f[n] for n in ("理由", "解釈", "原文との差", "引用でない句", "記入", "承認", "承認の理由",
+                                             "差し戻しの理由") if f.get(n)},
+                "errors": [e for e in checked["errors"] if tag in e],
+                "notes": [n for n in checked["notes"] if tag in n],
+                "evidence": [], "commands": {}}
+        for r in refs:
+            if r not in exc:
+                item["evidence"].append({"id": r, "missing": True})
+                continue
+            ef, d, hd, rec = exc[r]
+            st = d.get("照合", "")
+            weak = st.startswith(("近似一致", "照合不能")) or "OCR" in hd.get("格", "")
+            img = None
+            if weak and images and hd.get("抽出"):
+                src = cache.get(Path(hd["抽出"]))
+                if src:
+                    img = _page_image(r.split("#")[0], bib, src, ef.get("逐語", ""), images)
+            ok = bool(ef.get("要約の確認")) and rec.get("要約の確認時の指紋") == summary_fingerprint(ef)
+            item["evidence"].append({
+                "id": r, "verbatim": ef.get("逐語", ""), "location": d.get("所在", ""), "match": st,
+                "grade": hd.get("格", ""), "source_check": ef.get("原本での確認", ""), "weak": weak,
+                "image": Path(img).as_posix() if img else None,
+                "before": d.get("前", ""), "sentence": d.get("含む文", ""), "after": d.get("後", ""),
+                "strength": ef.get("強さ", ""), "summary": ef.get("要約", ""), "not_said": ef.get("言っていないこと", ""),
+                "written_by": ef.get("記入", ""), "summary_checked": ef["要約の確認"] if ok else None})
+        if item["kind"] == "主張":
+            item["commands"] = {
+                "approve": f'python {tool} approve {cid} --by 人 --note "…"',
+                "send_back": f'python {tool} approve {cid} --by 人 --send-back --note "…"',
+                "confirm": [f"python {tool} confirm {e['id']} --by 人" for e in item["evidence"]
+                            if not e.get("missing") and not e.get("summary_checked")]}
+        items.append(item)
+    return {"manuscript": target.as_posix(), "date": datetime.date.today().isoformat(), "citations": items}
+
+
+def review_md(data):
+    out = [f"# 引用の確認（{data['date']}、{data['manuscript']}）", "",
+           "各件で、本文と根拠の逐語を読み、承認か差し戻しを決める。AI が書いた要約と解釈は、逐語を読んだ後に見る。",
+           "前後の文は抽出テキストのままで、誤読を補っていない。", ""]
+    for it in data["citations"]:
+        st = it["state"] + (f"（{it['state_detail']}）" if it["state_detail"] and it["state"] not in ("承認済", "指示") else "")
+        out += [f"## {it['id']}　{st}", "", f"節: {it['section']}（原稿 {it['line']} 行）", "", "本文:", "",
+                f"> {it['sentence']}", ""]
+        out += [f"- 整合の崩れ: {e}" for e in it["errors"]] + ([""] if it["errors"] else [])
+        if it["fields"].get("差し戻しの理由"):
+            out += [f"差し戻しの理由: {it['fields']['差し戻しの理由']}", ""]
+        for i, e in enumerate(it["evidence"], 1):
+            if e.get("missing"):
+                out += [f"### 根拠 {i}: {e['id']}（抜き書きが無い）", ""]
+                continue
+            out += [f"### 根拠 {i}: {e['id']}", "", f"- 所在: {e['location'] or '（導けない）'}", f"- 照合: {e['match']}",
+                    f"- 格: {e['grade']}"]
+            if e["source_check"]:
+                out.append(f"- 原本での確認: {e['source_check']}")
+            out += ["", "逐語:", "", f"> {e['verbatim']}", ""]
+            if e["weak"]:
+                out += ["抽出テキストに誤読がある。前後の文は頁の画像で読む" + (f": {e['image']}" if e["image"] else
+                        "（--images で頁の画像を出せる。PDF が無ければ原本を見る）"), ""]
+            out += [f"- {n}（抽出テキストのまま）: {e[k]}" for n, k in (("前", "before"), ("含む文", "sentence"), ("後", "after"))
+                    if e[k]] + [""]
+            who = "確認済: " + e["summary_checked"] if e["summary_checked"] else "AI の候補、記入: " + e["written_by"]
+            out += [f"要約と言っていないこと（{who}）:", "", f"- 強さ: {e['strength']}", f"- 要約: {e['summary']}",
+                    f"- 言っていないこと: {e['not_said']}", ""]
+        out += [f"### 引用の欄（記入: {it['fields'].get('記入', '')}）", ""]
+        out += [f"- {n}: {it['fields'][n]}" for n in ("理由", "解釈", "原文との差", "引用でない句", "承認", "承認の理由")
+                if it["fields"].get(n)] + [""]
+        if it["commands"]:
+            c = it["commands"]
+            out += ["判断:", "", f"- 承認: `{c['approve']}`", f"- 差し戻し: `{c['send_back']}`"]
+            out += [f"- 要約を確かめた: `{x}`" for x in c["confirm"]] + [""]
+    if not data["citations"]:
+        out.append("確認待ちの引用は無い。")
+    return "\n".join(out) + "\n"
+
+
+def cmd_review(args):
+    """人が引用を確かめるための材料を出す。md（既定）は逐語を先に、AI の候補（要約・解釈）を後に置く。
+
+    前後の文は抽出テキストのまま出し、補わない。近似一致・照合不能・OCR の根拠には頁の画像を添える（--images）。
+    --json は外の表示（md2docx の review_html 等）へ渡す形で、--all なら承認済と指示の引用も含める。
+    表示の側は bridge を読むだけで、承認・差し戻し・確認の書き込みは approve と confirm を通す。
+    """
+    import json
+    data = review_data(args.cids, args.images, include_done=args.all)
+    doc = json.dumps(data, ensure_ascii=False, indent=1) + "\n" if args.json else review_md(data)
+    if args.out:
+        Path(args.out).write_text(doc, encoding="utf-8", newline="\n")
+        print(f"ok review: {args.out}（{len(data['citations'])} 件）")
+    else:
+        print(doc, end="")
+
+
+def cmd_confirm(args):
+    """抜き書きの要約・言っていないこと・強さを、人（または書き手と別の者）が原文と照らして確かめたことを記録する。"""
+    if "#" not in args.eid:
+        sys.exit("抜き書きは key#eN で指す")
+    key, bid = args.eid.split("#", 1)
+    for path in sorted(EXC_DIR.glob("*.md")):
+        head, blocks = parse_blocks(path)
+        if head["title"] != key:
+            continue
+        b = next((x for x in blocks if x["id"] == bid), None)
+        if b is None:
+            break
+        today = datetime.date.today().isoformat()
+        new = [f"{out_name('要約の確認')}: {args.by} {today}" + (f"（{args.note}）" if args.note else ""),
+               f"@{out_name('要約の確認時の指紋')}: {summary_fingerprint(b['fields'])}"]
+        _replace_block_lines(path, bid, r"^@?(要約の確認|summary_check)", new)
+        hd, bd = derive_excerpts(parse_bib(), {})[path]  # 導く欄をブロックの末尾へ並べ直す
+        rewrite_derived(path, hd, bd)
+        print(f"要約の確認を記録: {args.eid} {args.by} {today}")
+        return
+    sys.exit(f"抜き書き '{args.eid}' が無い")
 
 
 def cmd_extract(args):
@@ -991,10 +1295,15 @@ class _HTMLText:
 
         class P(HTMLParser):
             def handle_starttag(self, tag, attrs):
+                cls = dict(attrs).get("class") or ""
                 if tag in outer.SKIP:
                     outer.skip += 1
                 elif re.fullmatch(r"h[1-6]", tag):
                     outer.out.append("\n" + "#" * int(tag[1]) + " ")
+                    outer.head = tag
+                elif not outer.head and (tag == "summary" or (tag == "a" and "zippy" in cls.split())):
+                    # 折りたたみの見出し（details の summary、Google のヘルプの a.zippy）。階層は分からないので小見出しとする
+                    outer.out.append("\n#### ")
                     outer.head = tag
                 elif tag in outer.BLOCK:
                     outer.out.append("\n")
@@ -1028,6 +1337,22 @@ def cmd_snapshot(args):
     bib = parse_bib()
     if args.key not in bib:
         sys.exit(f"key '{args.key}' が書誌に無い")
+    out = WEB_DIR / f"{args.key}.txt"
+    if args.rebuild:
+        # 保存した生の HTML から本文を作り直す（取り直さない）。取得日とハッシュは元のまま、作り直した日を足す
+        html = WEB_DIR / f"{args.key}.html"
+        if not (html.exists() and out.exists()):
+            sys.exit(f"{html.as_posix()} と {out.as_posix()} が要る")
+        old = Source(out).web or {}
+        raw = html.read_bytes()
+        if old.get("sha256") != hashlib.sha256(raw).hexdigest():
+            sys.exit("生の HTML のハッシュが写しの頭書きと合わない。取り直す")
+        body = _HTMLText().text(raw.decode("utf-8", errors="replace"))
+        head = (f"<!-- snapshot\nurl: {old.get('url')}\nretrieved: {old.get('retrieved')}\ntype: html\n"
+                f"sha256: {old['sha256']}\nrebuilt: {datetime.date.today().isoformat()}\n-->\n")
+        out.write_text(head + body, encoding="utf-8", newline="\n")
+        print(f"ok {args.key}: {out.as_posix()} を生の HTML から作り直した（取得 {old.get('retrieved')}）")
+        return
     if not args.url:  # 既定は書誌の行の URL
         urls = re.findall(r"https?://[^\s）)]+", bib[args.key]["entry"])
         if not urls:
@@ -1099,6 +1424,7 @@ def cmd_checkpoint(args):
         "excerpts": {"total": r["excerpts"], "match": r["excerpt_states"], "grade": r["grades"]},
         "citations": r["citations"],
         "approvers": r["approvers"],
+        "summary_checks": r["summary_checks"],
         "classifier": None,  # 分類器の段（§10）は未実装
     }
     CKPT_DIR.mkdir(parents=True, exist_ok=True)
@@ -1118,11 +1444,6 @@ def cmd_strip(args):
     print(f"ok {args.out}（印 {n} 個を外した）")
 
 
-def _approval_lines(by, today, sent):
-    return [f"{out_name('承認')}: {by} {today}", f"@{out_name('承認時の指紋')}: {fingerprint(sent)}",
-            f"@{out_name('承認時の本文')}: {sent}"]
-
-
 def main():
     global CIT
     sys.stdout.reconfigure(encoding="utf-8")
@@ -1140,7 +1461,21 @@ def main():
     a = sub.add_parser("approve")
     a.add_argument("cid")
     a.add_argument("--by", required=True)
+    a.add_argument("--note", help="判断の中身（承認の理由、差し戻しの理由）")
+    a.add_argument("--send-back", action="store_true", help="承認せず、書き手へ差し戻す（--note が要る）")
     a.set_defaults(func=cmd_approve)
+    cf = sub.add_parser("confirm")
+    cf.add_argument("eid", help="key#eN")
+    cf.add_argument("--by", required=True)
+    cf.add_argument("--note")
+    cf.set_defaults(func=cmd_confirm)
+    rv = sub.add_parser("review")
+    rv.add_argument("cids", nargs="*", help="引用の ID。省くと確認待ちのものすべて")
+    rv.add_argument("--images", help="近似一致・OCR の根拠の頁を画像にして置くフォルダ")
+    rv.add_argument("-o", "--out", help="書き出すファイル（省くと標準出力）")
+    rv.add_argument("--json", action="store_true", help="外の表示へ渡す JSON で出す")
+    rv.add_argument("--all", action="store_true", help="承認済と指示の引用も含める")
+    rv.set_defaults(func=cmd_review)
     x = sub.add_parser("extract")
     x.add_argument("keys", nargs="*")
     x.add_argument("--force", action="store_true")
@@ -1148,6 +1483,7 @@ def main():
     w = sub.add_parser("snapshot")
     w.add_argument("key")
     w.add_argument("url", nargs="?", help="既定は書誌の行の URL")
+    w.add_argument("--rebuild", action="store_true", help="保存した生の HTML から本文を作り直す（取り直さない）")
     w.set_defaults(func=cmd_snapshot)
     cp = sub.add_parser("checkpoint")
     cp.add_argument("--label", default="")

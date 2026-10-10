@@ -297,6 +297,109 @@ class BridgeTest(unittest.TestCase):
         self.write("refs/_txt/yamada2002.txt", "<!-- ocr\nengine: test\n-->\n" + JA_PAPER)
         self.assertIn("PDF所持（OCR の抽出）: 1", self.run_bridge("grade")[1])
 
+    # ---- 人の確認（§16）
+
+    def test_approval_note_and_evidence(self):
+        self.run_bridge("derive")
+        self.run_bridge("approve", "c001", "--by", "tester", "--note", "原文のまま")
+        cit = self.read("bridge/citations.md")
+        self.assertIn("承認の理由: 原文のまま", cit)
+        self.assertIn("@承認時の根拠: ", cit)
+        self.assertIn("承認済 1", self.run_bridge("check")[1])
+        # 根拠を足すと、本文が同じでも要再確認へ戻る
+        self.write("bridge/citations.md", cit.replace("抜き書き: doe2020#e1", "抜き書き: doe2020#e1, doe2020#e3"))
+        out = self.run_bridge("check")[1]
+        self.assertIn("要再確認 1", out)
+        self.assertIn("承認の後に根拠が変わった", out)
+
+    def test_send_back(self):
+        self.run_bridge("derive")
+        self.assertEqual(self.run_bridge("approve", "c001", "--by", "tester", "--send-back")[0], 1)  # 理由が要る
+        self.run_bridge("approve", "c001", "--by", "tester", "--send-back", "--note", "限定が落ちている")
+        code, out = self.run_bridge("check")
+        self.assertEqual(code, 0, out)
+        self.assertIn("差し戻し。書き手が直すのを待っている（限定が落ちている）", out)
+        self.assertEqual(self.run_bridge("check", "--strict")[0], 1)
+        self.write("manuscript.md", self.read("manuscript.md").replace("Doe らの実験では", "Doe らの実験（雑音なし）では"))
+        self.assertIn("差し戻しの後に直された", self.run_bridge("check")[1])
+        self.run_bridge("approve", "c001", "--by", "tester")
+        cit = self.read("bridge/citations.md")
+        self.assertNotIn("差し戻し", cit)
+        self.assertIn("承認済 1", self.run_bridge("check")[1])
+
+    def test_summary_confirm(self):
+        self.run_bridge("derive")
+        self.assertIn("未確認 3", self.run_bridge("check")[1])
+        self.assertEqual(self.run_bridge("confirm", "doe2020#e1", "--by", "tester")[0], 0)
+        ex = self.read("bridge/excerpts/doe2020.md")
+        self.assertIn("要約の確認: tester", ex)
+        code, out = self.run_bridge("check")
+        self.assertEqual(code, 0, out)  # 記録の @ 行は導く欄の比較に入らない
+        self.assertIn("tester 1", out)
+        self.run_bridge("derive")
+        self.assertIn("@要約の確認時の指紋", self.read("bridge/excerpts/doe2020.md"))  # derive は記録を消さない
+        self.write("bridge/excerpts/doe2020.md", self.read("bridge/excerpts/doe2020.md").replace("平均12秒で", "平均およそ12秒で"))
+        self.assertIn("要約の確認の後に欄が変わった", self.run_bridge("check")[1])
+
+    def test_references_in_fields_must_exist(self):
+        self.run_bridge("derive")
+        self.write("bridge/excerpts/doe2020.md", self.read("bridge/excerpts/doe2020.md")
+                   .replace("言っていないこと: 雑音の中では測っていない。", "言っていないこと: 雑音の中では測っていない（e9）。"))
+        self.run_bridge("derive")
+        code, out = self.run_bridge("check")
+        self.assertEqual(code, 1)
+        self.assertIn("言っていないことが指す抜き書き 'e9' が無い", out)
+        self.write("bridge/excerpts/doe2020.md", self.read("bridge/excerpts/doe2020.md").replace("（e9）", "（e3）"))
+        self.write("bridge/citations.md", self.read("bridge/citations.md").replace("理由: 試験", "理由: 試験\n解釈: yamada2002#e1 と比べる"))
+        self.run_bridge("derive")
+        code, out = self.run_bridge("check")
+        self.assertIn("解釈が指す抜き書き 'yamada2002#e1' が無い", out)
+
+    def test_review(self):
+        self.run_bridge("derive")
+        code, out = self.run_bridge("review")
+        self.assertEqual(code, 0, out)
+        self.assertIn("## c001　未承認", out)
+        self.assertLess(out.index("逐語:"), out.index("要約と言っていないこと（AI の候補"))  # 逐語を先に見せる
+        self.assertIn("（抽出テキストのまま）", out)
+        self.assertIn("confirm doe2020#e1 --by 人", out)
+        self.run_bridge("approve", "c001", "--by", "tester")
+        self.assertIn("確認待ちの引用は無い", self.run_bridge("review")[1])
+        self.assertIn("## c001　承認済", self.run_bridge("review", "c001")[1])
+
+    def test_review_json(self):
+        import json
+        self.run_bridge("derive")
+        self.run_bridge("approve", "c001", "--by", "tester")
+        self.assertEqual(json.loads(self.run_bridge("review", "--json")[1])["citations"], [])  # 確認待ちだけ
+        d = json.loads(self.run_bridge("review", "--json", "--all")[1])
+        c = d["citations"][0]
+        self.assertEqual((c["id"], c["state"], c["line"]), ("c001", "承認済", 5))
+        self.assertEqual(c["evidence"][0]["id"], "doe2020#e1")
+        self.assertIn("approve c001", c["commands"]["approve"])
+
+    def test_snapshot_rebuild_with_folded_headings(self):
+        html = ('<html><body><h2>Commands</h2><p>Intro.</p><a class="zippy">Grid selection</a>'
+                '<p>Say "Show grid" to start.</p><details><summary>Labels</summary><p>Say "Show labels".</p></details></body></html>')
+        import hashlib
+        (self.dir / "refs/_web").mkdir(parents=True, exist_ok=True)
+        self.write("refs/_web/acme_docs.html", html)
+        self.write("refs/_web/acme_docs.txt", "<!-- snapshot\nurl: https://acme.example/docs\nretrieved: 2026-01-01\n"
+                   f"sha256: {hashlib.sha256(html.encode('utf-8')).hexdigest()}\n-->\nold body\n")
+        code, out = self.run_bridge("snapshot", "acme_docs", "--rebuild")
+        self.assertEqual(code, 0, out)
+        txt = self.read("refs/_web/acme_docs.txt")
+        self.assertIn("retrieved: 2026-01-01", txt)
+        self.assertIn("#### Grid selection", txt)
+        self.write("bridge/excerpts/acme_docs.md", "# acme_docs\n\n## e1\n逐語: Say \"Show labels\".\n強さ: 観察\n"
+                   "要約: ラベルを出す。\n言っていないこと: なし。\n記入: test\n")
+        self.run_bridge("derive")
+        ex = self.read("bridge/excerpts/acme_docs.md")
+        self.assertIn("/ Labels", ex)
+        self.assertNotIn("snapshot", ex.split("@含む文")[-1] if "@含む文" in ex else "")
+        self.write("refs/_web/acme_docs.html", html + " ")
+        self.assertEqual(self.run_bridge("snapshot", "acme_docs", "--rebuild")[0], 1)  # ハッシュが合わない
+
     def test_custom_mark_pattern(self):
         self.write("bridge/bridge.toml", CONFIG + '[manuscript]\nmark_pattern = \'\\[\\^(c\\d+)\\]\'\n')
         self.write("manuscript.md", MANUSCRIPT.replace("〔c001〕", "[^c001]"))

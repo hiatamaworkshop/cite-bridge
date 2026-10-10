@@ -39,6 +39,11 @@ description: 引用ごとに錨（原典の逐語と、道具が導いた所在�
 - 書く欄：逐語、強さ（観察／示唆／主張／一般化／条件付き）、要約、言っていないこと、記入（書いた者と日付）。
   照合が近似一致か照合不能のときは、原本での確認（日付、頁、確認者）を書く。確認者が分からない記録は確認として数えない。
 - 要約には原文の範囲の外を書かない。自分の読みは引用の側の解釈に書く。
+- 言っていないことや解釈が原文の別の箇所に依るなら、その箇所も抜き書きにして ID（同じ文献なら `e6`、別の文献なら `key#e6`）で指す。
+  「同じ頁にある」とだけ書いて指さない形は、未検証の主張が混ざる経路になる。check は指した ID が実在するかを検査する。
+- 要約は抽出テキストではなく、確かめた逐語から書く。抽出テキストの誤読を補って要約に入れない（§16.2 の 6）。
+- 人が要約・言っていないこと・強さを原文と照らしたら `confirm` で記録する（`要約の確認` と、そのときの指紋）。
+  確認の後に欄が変われば check が「確認し直す」と出す。未確認の件数は check の INFO に出る（--strict では止めない）。
 - 逐語は原文のまま写す。文体の規約（エムダッシュを使わない等）は逐語の欄に当てない。
 - 一つの欄は一行に書く。
 - 導く欄：照合、所在（頁と節）、節の種類、前、後。文献の見出しの下に格と抽出テキストの場所。
@@ -60,6 +65,11 @@ description: 引用ごとに錨（原典の逐語と、道具が導いた所在�
 ```
 
 - 種類は 指示（作品の名前や存在を挙げるだけ。`文献: <key>` を書く）か 主張（原典の内容を述べる。抜き書きが要る）。
+- 承認の状態は 未承認／承認済／要再確認／差し戻し／差し戻し後に直された の五つ。承認は本文の指紋と根拠の指紋
+  （抜き書きの ID と逐語）を残し、どちらが変わっても要再確認へ戻る（根拠の記録が無い古い承認は本文だけを見る）。
+  差し戻しは理由を `差し戻しの理由` に残す。書き手が本文か根拠を直すと「差し戻し後に直された」になり、承認を待つ。
+- 人の読みも原文と照らす。人の判断（承認、差し戻し）は人の権限だが、本文に入る読みには抜き書きの錨を持たせる
+  （§16.2 の 7。原文の語でない読みを本文へ移さない）。
 - 原文との差は 一致／言い換え／限定つき一般化／外挿。外挿は確認待ちとして残り、本文に限定を付けるか自分の主張として書き直すまで解けない。
 - 本文の引用符の中の文字列は、指している抜き書きの逐語に含まれていなければならない（言語が違う引用は訳とみなして外す）。
   引用符の中でも原文の逐語でない句（コマンドの型の一つの言い方、UI の文字列の一例等）は、ブロックの「引用でない句」に
@@ -122,10 +132,15 @@ python .claude/skills/cite-bridge/bridge.py derive          # 導く欄を書き
 python .claude/skills/cite-bridge/bridge.py check           # 整合の崩れがあれば exit 1
 python .claude/skills/cite-bridge/bridge.py check --strict  # 確認待ちが残っていても exit 1（提出前）
 python .claude/skills/cite-bridge/bridge.py grade --keys-from notes/引用対応表_中途レポート.md
-python .claude/skills/cite-bridge/bridge.py approve c001 --by 人
+python .claude/skills/cite-bridge/bridge.py review [c001 ...] [--images DIR] [-o 出力.md]  # 確認用の一覧（省くと確認待ちすべて）
+python .claude/skills/cite-bridge/bridge.py review --json --all [--images DIR]          # 外の表示へ渡す JSON（承認済と指示も含める）
+python .claude/skills/cite-bridge/bridge.py approve c001 --by 人 [--note 理由]
+python .claude/skills/cite-bridge/bridge.py approve c001 --by 人 --send-back --note 理由   # 差し戻し
+python .claude/skills/cite-bridge/bridge.py confirm kawahara2013#e2 --by 人            # 要約の確認
 python .claude/skills/cite-bridge/bridge.py --citations <別の引用ファイル> check   # 原稿が複数あるとき、写しで試すとき
 python .claude/skills/cite-bridge/bridge.py extract [<key> ...] [--force]  # 原本の PDF から抽出テキストを作る（pymupdf）
 python .claude/skills/cite-bridge/bridge.py snapshot <key> [<URL>]       # Web 資料の写し（既定は書誌の行の URL）
+python .claude/skills/cite-bridge/bridge.py snapshot <key> --rebuild     # 保存した生の HTML から本文を作り直す（取り直さない）
 python .claude/skills/cite-bridge/bridge.py strip <原稿> <出力>            # 印を外した写しを作る
 python .claude/skills/cite-bridge/bridge.py checkpoint [--label 中間提出]   # check --strict を通った地点をマニフェストで残す
 ```
@@ -134,6 +149,17 @@ python .claude/skills/cite-bridge/bridge.py checkpoint [--label 中間提出]   
   URL、取得日、生の HTML の sha256 を置く。所在は「Web 写し（取得日） / 見出し」になる。頁が更新されても、写しは取得した時点の
   ものとして残る。取り直すときは日付が変わり、照合も導き直される。
 
+- review は、本文、根拠の逐語、所在、照合、原本での確認、前後の文、AI の候補（要約・言っていないこと）、引用の欄、判断のコマンドを
+  この順に並べる。逐語を先に読ませ、AI の候補で判断が引っ張られないようにする。前後の文は抽出テキストのままで、誤読を補わない。
+  近似一致・照合不能・OCR の根拠では「頁の画像で読む」と出し、--images を渡せば PDF の該当頁を PNG にする。
+- 人が見る画面の本体は、md2docx の review_html.py である（清書を本文の流れのまま表示し、〔c003〕の位置に状態の印と確認の欄を出す）。
+  前後の段落を読んで初めて分かる食い違い（§16 の c003 の「これ」、c007 と §2.3 の食い違い）を拾うためである。
+  review_html は review --json を読むだけで、承認・差し戻し・確認の書き込みは approve と confirm だけが行う。
+  依存は表示 → bridge の一方向にし、bridge は表示を知らない（切り出すとき、核と表示を別の部品のまま持ち出せる）。
+  review の md 出力は、AI に渡す材料と、HTML を開けない場面のために残す。
+- snapshot は h1 から h6 に加えて、折りたたみの見出し（details の summary、Google のヘルプの a.zippy）を小見出しとして拾う。
+  見出しの拾い方を直したときは、--rebuild で取得し直さずに写しを作り直せる（取得日とハッシュは元のまま、作り直した日を足す）。
+- 写しと OCR の頭書き（`<!-- … -->`）は前後の文から外す。Web の写しでは空行も文の区切りとする。
 - 導く欄には「含む文」もある。逐語が文の途中で切れているとき、原文の文全体を示す。逐語の外側にある限定（「…が考えられる」
   「without critical reflection」等）を見落とさないためで、要約と言っていないことはこれを見て書く。
 - grade は書誌の key ごとに格を出す。`--keys-from` に対応表を渡すと、表の key 列にあって書誌に無い key（改名の取り残し等）も出す。
@@ -155,11 +181,13 @@ python .claude/skills/cite-bridge/bridge.py checkpoint [--label 中間提出]   
 
 `python -m unittest discover -s .claude/skills/cite-bridge/tests`。論文のデータに依らず、一時フォルダに小さな一式を作って動かす
 （照合と所在、節の種類、含む文、導く欄の古さ、和文の小書きの仮名、承認と再確認、引用でない句、孤児、英語の欄名、三つの書誌の形式、
-strip、印の形の設定、URL の PDF の写し、LaTeX の \cite と印の key、checkpoint、OCR の印。14件）。hook は道具の側を直したときに試験も走らせる。
+strip、印の形の設定、URL の PDF の写し、LaTeX の \cite と印の key、checkpoint、OCR の印、承認の理由と根拠、差し戻し、
+要約の確認、欄の中の参照、review（md と JSON）、折りたたみの見出しと作り直し。21件）。hook は道具の側を直したときに試験も走らせる。
 
 ## AI が守ること
 
 - 逐語は抽出テキストか原本から写す。記憶や要約から作らない。
 - 判断の欄に書いた者を記入に残す。AI が書いた要約や言っていないことは、人が見るまで候補である。
-- 承認（approve）は人の指示があるときだけ行う。AI が自分の書いた引用を承認しない。
+- 承認（approve）は人の指示があるときだけ行う。AI が自分の書いた引用を承認しない。差し戻しと要約の確認（confirm）も同じ。
+- 人に確認を頼むときは review の出力を見せる。手で材料を組むときも、前後の文を補って見せない。OCR の層では頁の画像を見せる。
 - 導く欄を手で直さない。おかしければ逐語か抽出テキストを直して derive する。
