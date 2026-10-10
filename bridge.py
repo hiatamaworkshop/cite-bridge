@@ -39,6 +39,8 @@ KEY_LINE_RE = re.compile(r"^key:\s*(\S+)\s*$")
 
 FOLD = {"“": '"', "”": '"', "‘": "'", "’": "'",
         "–": "-", "—": "-", "−": "-", "­": ""}
+# 小書きの仮名は抽出で大きい仮名に読み違えられやすい（小林 2002 の「メディア」が「メデイア」になった）
+FOLD.update({k: v for k, v in zip("ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶ", "あいうえおつやゆよわアイウエオツヤユヨワカケ")})
 
 
 def is_cjk(c):
@@ -49,7 +51,7 @@ def normalize(raw, level):
     """raw を正規化し、(文字列, 各文字の raw 上の位置) を返す。
 
     ws    空白を一つにまとめるだけ（和字に接する空白は和文の組版によるものとして消す）
-    nfkc  加えて NFKC、引用符とダッシュの統一、小文字化、行末ハイフンの結合
+    nfkc  加えて NFKC、引用符とダッシュの統一、小書きの仮名の統一、小文字化、行末ハイフンの結合
     alnum 文字と数字だけを残す（句読点と空白の違いを無視する）
     """
     out, pos = [], []
@@ -460,6 +462,11 @@ def other_matches(quote, own, cache):
 
 # ---------------------------------------------------------------- 引用（原稿側）
 
+def mask_comments(text):
+    """HTML コメントを同じ長さの空白に置き換える（位置は保ち、改行は残す）。"""
+    return re.sub(r"<!--.*?-->", lambda m: re.sub(r"[^\n]", " ", m.group(0)), text, flags=re.S)
+
+
 def manuscript_marks(text):
     """〔cNNN〕の (ID, 位置)。HTML コメントの中は除く。"""
     spans = [(m.start(), m.end()) for m in re.finditer(r"<!--.*?-->", text, re.S)]
@@ -472,10 +479,22 @@ def manuscript_marks(text):
 
 
 def sentence_at(text, off):
-    a = max(text.rfind("。", 0, off), text.rfind("\n", 0, off)) + 1
-    e_candidates = [x for x in (text.find("。", off), text.find("\n", off)) if x >= 0]
-    z = min(e_candidates) + 1 if e_candidates else len(text)
-    return text[a:z].strip()
+    """off を含む文。鉤括弧の中の。では文を切らない（引用が二文にまたがる場合）。"""
+    a = text.rfind("\n", 0, off) + 1
+    z = text.find("\n", off)
+    z = len(text) if z < 0 else z
+    start, depth = a, 0
+    for i in range(a, z):
+        c = text[i]
+        if c == "「":
+            depth += 1
+        elif c == "」":
+            depth = max(0, depth - 1)
+        elif c == "。" and depth == 0:
+            if i >= off:
+                return re.sub(r" {2,}", " ", text[start:i + 1]).strip()
+            start = i + 1
+    return re.sub(r" {2,}", " ", text[start:z]).strip()
 
 
 def fingerprint(sentence):
@@ -545,7 +564,7 @@ def cmd_check(args):
     if CIT.exists():
         head, blocks = parse_blocks(CIT)
         target = Path(head["fields"].get("対象", ""))
-        text = target.read_text(encoding="utf-8") if target.is_file() else ""
+        text = mask_comments(target.read_text(encoding="utf-8")) if target.is_file() else ""
         if not text:
             errors.append(f"{CIT.as_posix()}: 対象の原稿 '{target}' が読めない")
         marks = manuscript_marks(text)
@@ -665,7 +684,7 @@ def cmd_grade(args):
 def cmd_approve(args):
     head, blocks = parse_blocks(CIT)
     target = Path(head["fields"].get("対象", ""))
-    text = target.read_text(encoding="utf-8")
+    text = mask_comments(target.read_text(encoding="utf-8"))
     offs = [off for cid, off in manuscript_marks(text) if cid == args.cid]
     if len(offs) != 1:
         sys.exit(f"原稿に〔{args.cid}〕がちょうど一つ無い（{len(offs)} 箇所）")
