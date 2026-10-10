@@ -7,6 +7,7 @@
     python bridge.py grade [--keys-from <md>]   文献ごとの資料の格と、その内訳を出す
     python bridge.py approve <cID> --by <承認者>  引用の承認を、その時点の本文の指紋つきで記録する
     python bridge.py extract [<key> ...]          原本の PDF から抽出テキストを作る（pymupdf）
+    python bridge.py checkpoint [--label …]       check --strict を通った地点をマニフェスト（JSON）で残す
     python bridge.py strip <原稿> <出力>          原稿から引用の印を外した写しを作る（提出物を作る前段）
     python bridge.py snapshot <key> [<URL>]       Web 資料の写しを取得日とハッシュつきで保存する（既定は書誌の URL）
 
@@ -27,7 +28,8 @@ from pathlib import Path
 
 # 設定（bridge.toml）から main で埋める
 CONFIG = Path("bridge/bridge.toml")
-BIB = EXC_DIR = CIT = TXT_DIR = PDF_DIR = WEB_DIR = None
+CONFIG_USED = CONFIG
+BIB = EXC_DIR = CIT = TXT_DIR = PDF_DIR = WEB_DIR = CKPT_DIR = None
 BIB_FORMAT = "keyline"
 PDF_RE = WEB_RE = None
 
@@ -41,6 +43,8 @@ def load_config(path):
     b, s, r = c.get("bibliography", {}), c.get("sources", {}), c.get("bridge", {})
     BIB = Path(b["path"])
     BIB_FORMAT = b.get("format", "keyline")
+    global FILES_FIELD
+    FILES_FIELD = b.get("files_field", FILES_FIELD)
     PDF_RE = re.compile(b["pdf_pattern"]) if b.get("pdf_pattern") else None
     WEB_RE = re.compile(b["web_pattern"]) if b.get("web_pattern") else None
     PDF_DIR = Path(s.get("pdf_dir", "references"))
@@ -48,14 +52,61 @@ def load_config(path):
     WEB_DIR = Path(s.get("web_dir", PDF_DIR / "_web"))
     EXC_DIR = Path(r.get("excerpts", "bridge/excerpts"))
     CIT = Path(r.get("citations", "bridge/citations.md"))
+    global MARK_RE, QUOTE_RES, NOT_QUOTE_SEP, OUTPUT_LANG, KIND_WORDS, KIND_WORDS_MAP
+    m = c.get("manuscript", {})
+    if m.get("mark_pattern"):
+        MARK_RE = re.compile(m["mark_pattern"])
+    if m.get("quote_patterns"):
+        QUOTE_RES = [re.compile(x) for x in m["quote_patterns"]]
+    NOT_QUOTE_SEP = m.get("not_quote_separator", NOT_QUOTE_SEP)
+    global SENT_END_RE, PARAGRAPH, CKPT_DIR
+    if m.get("sentence_end"):
+        SENT_END_RE = re.compile(m["sentence_end"])
+    PARAGRAPH = m.get("paragraph", PARAGRAPH)
+    CKPT_DIR = Path(r.get("checkpoints", "bridge/checkpoints"))
+    OUTPUT_LANG = c.get("output", {}).get("language", OUTPUT_LANG)
+    # 節の種類の語と、抽出が読めるかを見る頻出語は、既定（英語と日本語）に足せる
+    extra = c.get("section_kinds", {})
+    KIND_WORDS = [(k, ws + [w.lower() for w in extra.get(k, [])]) for k, ws in KIND_WORDS]
+    KIND_WORDS_MAP = dict(KIND_WORDS)
+    COMMON_EN.update(w.lower() for w in c.get("detect", {}).get("common_words", []))
 
 STRENGTHS = {"観察", "示唆", "主張", "一般化", "条件付き"}
 DIFFS = {"一致", "言い換え", "限定つき一般化", "外挿"}
 KINDS = {"指示", "主張"}
 EXC_REQUIRED = ["逐語", "強さ", "要約", "言っていないこと", "記入"]
 
+# 欄名と値は日本語を正とし、英語の別名も受ける。導く欄を書く言語は設定の output.language で選ぶ
+FIELD_ALIASES = {
+    "verbatim": "逐語", "strength": "強さ", "summary": "要約", "not_said": "言っていないこと",
+    "written_by": "記入", "source_check": "原本での確認", "kind": "種類", "excerpts": "抜き書き",
+    "source": "文献", "reason": "理由", "interpretation": "解釈", "diff": "原文との差", "approval": "承認",
+    "not_quotes": "引用でない句", "target": "対象",
+    "grade": "格", "text": "抽出", "match": "照合", "location": "所在", "section_kind": "節の種類",
+    "before": "前", "sentence": "含む文", "after": "後", "also_found_in": "他の文献で一致",
+    "approved_fingerprint": "承認時の指紋", "approved_text": "承認時の本文",
+}
+FIELD_NAMES_EN = {v: k for k, v in FIELD_ALIASES.items()}
+VALUE_ALIASES = {
+    "強さ": {"observation": "観察", "suggestion": "示唆", "claim": "主張", "generalization": "一般化", "conditional": "条件付き"},
+    "原文との差": {"identical": "一致", "paraphrase": "言い換え", "qualified_generalization": "限定つき一般化",
+               "extrapolation": "外挿"},
+    "種類": {"pointer": "指示", "claim": "主張"},
+    "承認": {"none": "未"},
+}
+OUTPUT_LANG = "ja"
+
+
+def out_name(name):
+    return FIELD_NAMES_EN.get(name, name) if OUTPUT_LANG == "en" else name
+
+
 FIELD_RE = re.compile(r"^(@?)([^\s:@][^:]*?):\s?(.*)$")
-MARK_RE = re.compile(r"〔(c\d{3,})〕")
+MARK_RE = re.compile(r"〔(c\d{3,})〕")  # 原稿の中の引用の印。グループ1が ID（設定 manuscript.mark_pattern で替える）
+QUOTE_RES = [re.compile(r"「([^「」]{10,})」"), re.compile(r"\"([^\"]{20,})\"")]  # 照合する引用符（manuscript.quote_patterns）
+NOT_QUOTE_SEP = "／"
+SENT_END_RE = re.compile(r"[。！？]")  # 原稿の文の終わり（manuscript.sentence_end）。英語の原稿は '[。！？]|[.!?](?=\\s)' 等
+PARAGRAPH = "line"
 KEY_LINE_RE = re.compile(r"^key:\s*(\S+)\s*$")
 
 
@@ -351,12 +402,94 @@ def bib_keyline(text):
     return bib
 
 
-BIB_ADAPTERS = {"keyline": bib_keyline}
+def _entry_text(authors, year, title, container, doi, url):
+    """書誌の一行の文字列を組む（照合には使わない。格の判定と表示のため）。"""
+    parts = [", ".join(authors) or "?", f"({year or 'n.d.'}).", (title or "?") + "."]
+    if container:
+        parts.append(f"*{container}*.")
+    if doi:
+        parts.append(f"https://doi.org/{doi}")
+    elif url:
+        parts.append(url)
+    return " ".join(parts)
+
+
+def _pdf_paths(value):
+    """file 欄から PDF のパスを取る。Zotero/Better BibTeX の「パス」と JabRef の「:パス:PDF」の両方、; 区切りを受ける。"""
+    if isinstance(value, list):
+        value = ";".join(value)
+    return [x.strip() for x in re.findall(r"[^:;{}]+?\.pdf", value or "", re.I)]
+
+
+def bib_csljson(text):
+    """CSL-JSON（Zotero 等の書き出し）。id が key。PDF は設定の files_field（既定 file）の欄から取る。"""
+    import json
+    data = json.loads(text)
+    items = data.get("items", []) if isinstance(data, dict) else data
+    bib = {}
+    for it in items:
+        authors = [a.get("family") or a.get("literal", "") for a in it.get("author", [])]
+        year = (it.get("issued", {}).get("date-parts") or [[None]])[0][0]
+        bib[it["id"]] = {
+            "entry": _entry_text(authors, year, it.get("title"), it.get("container-title"), it.get("DOI"), it.get("URL")),
+            "pdfs": _pdf_paths(it.get(FILES_FIELD)),
+        }
+    return bib
+
+
+def _bibtex_fields(body):
+    """field = {…} / "…" / 数字 を、波括弧の入れ子を数えて読む。"""
+    fields, i, n = {}, 0, len(body)
+    while i < n:
+        m = re.compile(r"\s*,?\s*([A-Za-z][\w-]*)\s*=\s*").match(body, i)
+        if not m:
+            break
+        name, i = m.group(1).lower(), m.end()
+        if i < n and body[i] == "{":
+            depth, j = 0, i
+            while j < n:
+                depth += {"{": 1, "}": -1}.get(body[j], 0)
+                if depth == 0:
+                    break
+                j += 1
+            value, i = body[i + 1:j], j + 1
+        elif i < n and body[i] == '"':
+            j = body.find('"', i + 1)
+            value, i = body[i + 1:j], j + 1
+        else:
+            m2 = re.compile(r"[^,]*").match(body, i)
+            value, i = m2.group(0).strip(), m2.end()
+        fields[name] = re.sub(r"\s+", " ", value.replace("{", "").replace("}", "")).strip()
+    return fields
+
+
+def bib_bibtex(text):
+    """BibTeX。引用キーが key。PDF は設定の files_field（既定 file）の欄から取る。"""
+    bib = {}
+    for m in re.finditer(r"@(\w+)\s*\{\s*([^,\s]+)\s*,", text):
+        if m.group(1).lower() in ("comment", "string", "preamble"):
+            continue
+        depth, j = 1, m.end()
+        while j < len(text) and depth:
+            depth += {"{": 1, "}": -1}.get(text[j], 0)
+            j += 1
+        f = _bibtex_fields(text[m.end():j - 1])
+        authors = [a.split(",")[0].strip() for a in re.split(r"\s+and\s+", f.get("author", "")) if a.strip()]
+        bib[m.group(2)] = {
+            "entry": _entry_text(authors, f.get("year"), f.get("title"), f.get("journal") or f.get("booktitle"),
+                                 f.get("doi"), f.get("url")),
+            "pdfs": _pdf_paths(f.get(FILES_FIELD.lower(), "")),
+        }
+    return bib
+
+
+BIB_ADAPTERS = {"keyline": bib_keyline, "csl-json": bib_csljson, "bibtex": bib_bibtex}
+FILES_FIELD = "file"
 
 
 def garbled(raw, entry):
     s = re.sub(r"\s", "", raw)
-    if len(s) < 200:
+    if len(s) < 50:  # 画像だけの PDF 等。要旨だけの短い抽出は通す
         return "抽出が空か短い"
     # 和文の文献は和字の割合で、それ以外は英語の頻出語の割合で読めるかを見る
     if any(is_cjk(c) for c in re.sub(r"（[^（）]*）", "", entry)):  # （参照 …）等の注記は除く
@@ -379,7 +512,10 @@ def grade_of(key, bib):
         for pdf in b["pdfs"]:
             txt = TXT_DIR / (Path(pdf).stem + ".txt")
             if txt.exists():
-                bad = garbled(txt.read_text(encoding="utf-8", errors="replace"), b["entry"])
+                raw = txt.read_text(encoding="utf-8", errors="replace")
+                if raw.startswith("<!-- ocr"):  # 道具の外で OCR したテキスト。誤読があるので近似一致が多くなる
+                    return "PDF所持（OCR の抽出）", txt
+                bad = garbled(raw, b["entry"])
                 if bad:
                     return f"PDF所持（{bad}）", None
                 return "PDF所持（抽出あり）", txt
@@ -410,7 +546,11 @@ def parse_blocks(path):
             continue
         m = FIELD_RE.match(ln)
         if m:
-            (cur["derived"] if m.group(1) else cur["fields"])[m.group(2).strip()] = m.group(3).strip()
+            name = m.group(2).strip()
+            name = FIELD_ALIASES.get(name, name)
+            value = m.group(3).strip()
+            value = VALUE_ALIASES.get(name, {}).get(value, value)
+            (cur["derived"] if m.group(1) else cur["fields"])[name] = value
     return head, blocks
 
 
@@ -435,14 +575,15 @@ def rewrite_derived(path, head_derived, block_derived):
             bid = seg[0][3:].strip()
             derived = block_derived.get(bid, {})
         out.extend(body)
-        out.extend(f"@{k}: {v}" for k, v in derived.items())
+        out.extend(f"@{out_name(k)}: {v}" for k, v in derived.items())
         out.append("")
     path.write_text("\n".join(out), encoding="utf-8", newline="\n")
 
 
 def printed_page(entry, pdf_page, total, src=None):
     if src is not None and src.web:
-        return f"Web 写し（取得 {src.web.get('retrieved', '?')}）"
+        got = f"Web 写し（取得 {src.web.get('retrieved', '?')}）"
+        return f"{got} PDF {pdf_page}頁目" if src.web.get("type") == "pdf" else got
     m = re.search(r"(\d+)\s*[–-]\s*(\d+)\.?\s*$", entry.split("http")[0].strip().rstrip("."))
     if m:
         a, z = int(m.group(1)), int(m.group(2))
@@ -516,37 +657,61 @@ def mask_comments(text):
 
 
 def manuscript_marks(text):
-    """〔cNNN〕の (ID, 位置)。HTML コメントの中は除く。"""
+    """印の (ID, 位置, 印に書かれた key か None)。HTML コメントの中は除く。
+
+    印の正規表現は、名前つきのグループ id（無ければグループ1）と、任意の key を持てる。
+    key を持つ形（例 LaTeX の \\cite{doe2020}%c017）では、印の key と引用の根拠の文献が合うかも検査する。
+    """
     spans = [(m.start(), m.end()) for m in re.finditer(r"<!--.*?-->", text, re.S)]
+    gi = MARK_RE.groupindex
     res = []
     for m in MARK_RE.finditer(text):
         if any(a <= m.start() < z for a, z in spans):
             continue
-        res.append((m.group(1), m.start()))
+        cid = m.group("id") if "id" in gi else m.group(1)
+        key = m.group("key") if "key" in gi else None
+        res.append((cid, m.start(), key))
     return res
 
 
 def sentence_at(text, off):
-    """off を含む文。鉤括弧の中の。では文を切らない（引用が二文にまたがる場合）。"""
-    a = text.rfind("\n", 0, off) + 1
-    z = text.find("\n", off)
-    z = len(text) if z < 0 else z
+    """off を含む文。引用符（「」と “”）の中の文の終わりでは切らない（引用が二文にまたがる場合）。
+
+    段落の区切りは設定 manuscript.paragraph で選ぶ。line は一行が一段落（行を折り返さない md）、
+    blank は空行で段落を区切る（行を折り返す md や LaTeX）。文の終わりは manuscript.sentence_end の正規表現。
+    """
+    if PARAGRAPH == "blank":
+        b = [m.end() for m in re.finditer(r"\n[ \t]*\n", text[:off])]
+        a = b[-1] if b else 0
+        m = re.compile(r"\n[ \t]*\n").search(text, off)
+        z = m.start() if m else len(text)
+    else:
+        a = text.rfind("\n", 0, off) + 1
+        z = text.find("\n", off)
+        z = len(text) if z < 0 else z
     start, depth = a, 0
     for i in range(a, z):
         c = text[i]
-        if c == "「":
+        if c in "「“":
             depth += 1
-        elif c == "」":
+        elif c in "」”":
             depth = max(0, depth - 1)
-        elif c == "。" and depth == 0:
+        elif depth == 0 and SENT_END_RE.match(text, i):
             if i >= off:
-                return re.sub(r" {2,}", " ", text[start:i + 1]).strip()
+                return re.sub(r"\s{2,}", " ", text[start:i + 1]).strip()
             start = i + 1
-    return re.sub(r" {2,}", " ", text[start:z]).strip()
+    return re.sub(r"\s{2,}", " ", text[start:z]).strip()
+
+
+def unmark(text):
+    """印を外す。印の正規表現に名前つきのグループ strip があればその部分だけを外す（LaTeX の cite{key} は残す）。"""
+    if "strip" in MARK_RE.groupindex:
+        return MARK_RE.sub(lambda m: m.group(0)[:m.start("strip") - m.start()] + m.group(0)[m.end("strip") - m.start():], text)
+    return MARK_RE.sub("", text)
 
 
 def fingerprint(sentence):
-    s = MARK_RE.sub("", sentence)
+    s = unmark(sentence)
     s = re.sub(r"\s", "", s)
     return hashlib.sha1(s.encode("utf-8")).hexdigest()[:8]
 
@@ -566,9 +731,11 @@ def cmd_derive(args):
         print(f"derived: {path.as_posix()}（{len(bd)} 件）")
 
 
-def cmd_check(args):
+def run_check():
+    """整合の検査。表示も終了もせず、結果を辞書で返す（check と checkpoint が使う）。"""
     bib = parse_bib()
     errors, notes, infos = [], [], []
+    approvers, grades, used = {}, {}, set()
     cache = {}
     res = derive_excerpts(bib, cache)
     excerpts = {}
@@ -581,6 +748,9 @@ def cmd_check(args):
             errors.append(f"{where}: key '{key}' が書誌リストに無い")
         if head["derived"] != hd:
             errors.append(f"{where}: 導く欄（文献）が古い。derive を実行する")
+        grades[hd.get("格", "")] = grades.get(hd.get("格", ""), 0) + 1
+        if hd.get("抽出"):
+            used.add(hd["抽出"])
         seen = set()
         for b in blocks:
             bid = f"{key}#{b['id']}"
@@ -616,9 +786,11 @@ def cmd_check(args):
         if not text:
             errors.append(f"{CIT.as_posix()}: 対象の原稿 '{target}' が読めない")
         marks = manuscript_marks(text)
-        ids_in_text = {}
-        for cid, off in marks:
+        ids_in_text, keys_in_text = {}, {}
+        for cid, off, mkey in marks:
             ids_in_text.setdefault(cid, []).append(off)
+            if mkey:
+                keys_in_text[cid] = {k.strip() for k in mkey.split(",")}
         block_ids = set()
         counts = {"承認済": 0, "要再確認": 0, "未承認": 0, "指示": 0}
         for b in blocks:
@@ -640,9 +812,13 @@ def cmd_check(args):
             if kind == "指示":
                 if f.get("文献") not in bib:
                     errors.append(f"{w}: 指示の引用は 文献 に書誌の key を書く")
+                if cid in keys_in_text and f.get("文献") not in keys_in_text[cid]:
+                    errors.append(f"{w}: 原稿の印の key {sorted(keys_in_text[cid])} と 文献 '{f.get('文献')}' が合わない")
                 counts["指示"] += 1
                 continue
             refs = [r.strip() for r in f.get("抜き書き", "").split(",") if r.strip()]
+            if cid in keys_in_text and not ({r.split("#")[0] for r in refs} & keys_in_text[cid]):
+                errors.append(f"{w}: 原稿の印の key {sorted(keys_in_text[cid])} と抜き書きの文献が合わない")
             if not refs:
                 errors.append(f"{w}: 主張の引用は 抜き書き が要る")
             for r in refs:
@@ -655,9 +831,9 @@ def cmd_check(args):
                 errors.append(f"{w}: 原文との差は {sorted(DIFFS)} のどれか")
             # 本文の引用符の中の文字列は、指している抜き書きの逐語に含まれていること
             # 引用符の中でも原文の逐語でない句（コマンドの言い方、UI の文字列の一例等）は、人が「引用でない句」に挙げて外す
-            not_quotes = [x.strip() for x in re.sub(r"（[^（）]*）", "", f.get("引用でない句", "")).split("／") if x.strip()]
-            for q in re.findall(r"「([^「」]{10,})」|\"([^\"]{20,})\"", sent):
-                q = q[0] or q[1]
+            not_quotes = [x.strip() for x in re.sub(r"（[^（）]*）|\([^()]*\)$", "", f.get("引用でない句", "")).split(NOT_QUOTE_SEP)
+                          if x.strip()]
+            for q in [m.group(1) for rx in QUOTE_RES for m in rx.finditer(sent)]:
                 if q in not_quotes:
                     infos.append(f"{w}: 「{q}」は引用でない句として外した")
                     continue
@@ -675,6 +851,8 @@ def cmd_check(args):
                 notes.append(f"{w}: 承認の後に本文が変わった。要再確認")
             else:
                 counts["承認済"] += 1
+                who = appr.split()[0]
+                approvers[who] = approvers.get(who, 0) + 1
             for r in refs:
                 st, ok = states.get(r, ("", False))
                 if (st.startswith("近似一致") or st.startswith("照合不能")) and not ok:
@@ -685,17 +863,27 @@ def cmd_check(args):
             if cid not in block_ids:
                 errors.append(f"{target}: 〔{cid}〕に対応するブロックが無い")
         infos.append(f"引用: 主張 承認済 {counts['承認済']} / 要再確認 {counts['要再確認']} / 未承認 {counts['未承認']}、指示 {counts['指示']}")
+    else:
+        counts, target = {}, None
 
     summary = {}
     for st, _ in states.values():
         summary[st] = summary.get(st, 0) + 1
+    return {"errors": errors, "notes": notes, "infos": infos, "excerpt_states": summary, "excerpts": len(states),
+            "citations": counts, "approvers": approvers, "grades": grades, "texts": sorted(used),
+            "manuscript": str(target) if target else None}
+
+
+def cmd_check(args):
+    r = run_check()
+    errors, notes, infos, summary = r["errors"], r["notes"], r["infos"], r["excerpt_states"]
     for e in errors:
         print("ERROR", e)
     for n in notes:
         print("NOTE ", n)
     for n in infos:
         print("INFO ", n)
-    print(f"--- 抜き書き {len(states)} 件 " + " / ".join(f"{k} {v}" for k, v in sorted(summary.items()))
+    print(f"--- 抜き書き {r['excerpts']} 件 " + " / ".join(f"{k} {v}" for k, v in sorted(summary.items()))
           + f" / 整合の崩れ {len(errors)} 件")
     if errors:
         sys.exit(1)
@@ -738,7 +926,7 @@ def cmd_approve(args):
     head, blocks = parse_blocks(CIT)
     target = Path(head["fields"].get("対象", ""))
     text = mask_comments(target.read_text(encoding="utf-8"))
-    offs = [off for cid, off in manuscript_marks(text) if cid == args.cid]
+    offs = [off for cid, off, _ in manuscript_marks(text) if cid == args.cid]
     if len(offs) != 1:
         sys.exit(f"原稿に〔{args.cid}〕がちょうど一つ無い（{len(offs)} 箇所）")
     sent = sentence_at(text, offs[0])
@@ -751,7 +939,7 @@ def cmd_approve(args):
                 out.extend(_approval_lines(args.by, today, sent))
                 done = True
             inblock = ln[3:].strip() == args.cid
-        if inblock and (ln.startswith("承認:") or ln.startswith("@承認時の")):
+        if inblock and re.match(r"^@?(承認|approval|approved_)", ln):
             continue
         if inblock and not ln.strip() and not done:
             out.extend(_approval_lines(args.by, today, sent))
@@ -848,29 +1036,91 @@ def cmd_snapshot(args):
     req = urllib.request.Request(args.url, headers={"User-Agent": "cite-bridge/0.1 (snapshot for citation checking)"})
     with urllib.request.urlopen(req, timeout=30) as r:
         raw = r.read()
+        ctype = r.headers.get_content_type() or ""
         charset = r.headers.get_content_charset() or "utf-8"
-    html = raw.decode(charset, errors="replace")
-    body = _HTMLText().text(html)
     WEB_DIR.mkdir(parents=True, exist_ok=True)
-    (WEB_DIR / f"{args.key}.html").write_bytes(raw)
+    if ctype == "application/pdf" or raw[:5] == b"%PDF-":
+        # URL が PDF を指すとき（書誌に URL しか無い論文）。PDF を保存し、頁を保って本文を抽出する
+        import pymupdf
+        (WEB_DIR / f"{args.key}.pdf").write_bytes(raw)
+        d = pymupdf.open(stream=raw, filetype="pdf")
+        body, kind = "\f".join(pg.get_text() for pg in d), "pdf"
+    else:
+        (WEB_DIR / f"{args.key}.html").write_bytes(raw)
+        body, kind = _HTMLText().text(raw.decode(charset, errors="replace")), "html"
     today = datetime.date.today().isoformat()
-    head = (f"<!-- snapshot\nurl: {args.url}\nretrieved: {today}\n"
+    head = (f"<!-- snapshot\nurl: {args.url}\nretrieved: {today}\ntype: {kind}\n"
             f"sha256: {hashlib.sha256(raw).hexdigest()}\n-->\n")
     out = WEB_DIR / f"{args.key}.txt"
     out.write_text(head + body, encoding="utf-8", newline="\n")
     print(f"ok {args.key}: {out.as_posix()}（{len(body)} 字、取得 {today}）")
 
 
+def _sha256(path):
+    p = Path(path)
+    return hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None
+
+
+def _git(*a):
+    import subprocess
+    try:
+        r = subprocess.run(["git", *a], capture_output=True, text=True, encoding="utf-8")
+        return r.stdout.strip() if r.returncode == 0 else None
+    except OSError:
+        return None
+
+
+def cmd_checkpoint(args):
+    """check --strict を通った地点を、マニフェスト（JSON）として残す。通らなければ書かない。
+
+    マニフェストは、どの原稿・書誌・抜き書き・抽出テキストから、どの確認の状態で通ったかを、ハッシュと件数で持つ。
+    """
+    import json
+    r = run_check()
+    if r["errors"] or r["notes"]:
+        for e in r["errors"]:
+            print("ERROR", e)
+        for n in r["notes"]:
+            print("NOTE ", n)
+        print(f"--- checkpoint を書かなかった（整合の崩れ {len(r['errors'])} 件、確認待ち {len(r['notes'])} 件）")
+        sys.exit(1)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    inputs = {"config": str(CONFIG_USED), "bibliography": str(BIB), "manuscript": r["manuscript"], "citations": str(CIT)}
+    files = {k: {"path": v, "sha256": _sha256(v)} for k, v in inputs.items() if v}
+    files["excerpts"] = {p.as_posix(): _sha256(p) for p in sorted(EXC_DIR.glob("*.md"))}
+    files["texts"] = {t: _sha256(t) for t in r["texts"]}
+    tracked = [v for v in inputs.values() if v] + [EXC_DIR.as_posix()]
+    manifest = {
+        "checkpoint": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "label": args.label,
+        "git": {"head": _git("rev-parse", "HEAD"),
+                "uncommitted": (_git("-c", "core.quotepath=off", "status", "--porcelain", "--", *tracked) or "").splitlines()},
+        "files": files,
+        "excerpts": {"total": r["excerpts"], "match": r["excerpt_states"], "grade": r["grades"]},
+        "citations": r["citations"],
+        "approvers": r["approvers"],
+        "classifier": None,  # 分類器の段（§10）は未実装
+    }
+    CKPT_DIR.mkdir(parents=True, exist_ok=True)
+    out = CKPT_DIR / (now.strftime("%Y%m%dT%H%M%SZ") + ".json")
+    out.write_text(json.dumps(manifest, ensure_ascii=False, indent=1) + "\n", encoding="utf-8", newline="\n")
+    print(f"ok checkpoint: {out.as_posix()}")
+    if manifest["git"]["uncommitted"]:
+        print("注意: 未コミットの変更がある状態で書いた（git.uncommitted を参照）")
+
+
 def cmd_strip(args):
     """原稿から引用の印を外した写しを作る（提出物を作る前段）。原稿そのものは変えない。"""
     text = Path(args.src).read_text(encoding="utf-8")
-    out, n = MARK_RE.subn("", text)
+    n = len(MARK_RE.findall(text))
+    out = unmark(text)
     Path(args.out).write_text(out, encoding="utf-8", newline="")
     print(f"ok {args.out}（印 {n} 個を外した）")
 
 
 def _approval_lines(by, today, sent):
-    return [f"承認: {by} {today}", f"@承認時の指紋: {fingerprint(sent)}", f"@承認時の本文: {sent}"]
+    return [f"{out_name('承認')}: {by} {today}", f"@{out_name('承認時の指紋')}: {fingerprint(sent)}",
+            f"@{out_name('承認時の本文')}: {sent}"]
 
 
 def main():
@@ -899,12 +1149,17 @@ def main():
     w.add_argument("key")
     w.add_argument("url", nargs="?", help="既定は書誌の行の URL")
     w.set_defaults(func=cmd_snapshot)
+    cp = sub.add_parser("checkpoint")
+    cp.add_argument("--label", default="")
+    cp.set_defaults(func=cmd_checkpoint)
     st = sub.add_parser("strip")
     st.add_argument("src")
     st.add_argument("out")
     st.set_defaults(func=cmd_strip)
     args = ap.parse_args()
-    load_config(Path(args.config))
+    global CONFIG_USED
+    CONFIG_USED = Path(args.config)
+    load_config(CONFIG_USED)
     if args.citations:
         CIT = Path(args.citations)
     args.func(args)

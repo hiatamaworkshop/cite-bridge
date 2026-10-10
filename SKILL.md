@@ -81,7 +81,8 @@ description: 引用ごとに錨（原典の逐語と、道具が導いた所在�
 ```toml
 [bibliography]
 path = "notes/書誌リスト.md"
-format = "keyline"                               # 書誌の読み方（アダプタ）。いまは keyline だけ
+format = "keyline"                               # 書誌の読み方（アダプタ）。keyline / bibtex / csl-json
+# files_field = "file"                           # bibtex と csl-json で PDF のパスを持つ欄（Zotero・JabRef の file）
 pdf_pattern = 'PDF所持: `?references/([^`]+?\.pdf)'  # 注記の中で原本の PDF を指す書き方
 web_pattern = '参照 \d{4}|https?://(?!doi\.org|arxiv\.org)'  # Web 資料とみなす書誌の行
 [sources]
@@ -91,7 +92,26 @@ web_dir = "references/_web"
 [bridge]
 excerpts = "bridge/excerpts"
 citations = "bridge/citations.md"
+# 以下は省略できる（省略時は下の値）
+[manuscript]
+mark_pattern = '〔(c\d{3,})〕'                     # 原稿の中の引用の印。グループ1が ID
+quote_patterns = ['「([^「」]{10,})」', '"([^"]{20,})"']  # 抜き書きと照合する引用符
+not_quote_separator = "／"                        # 引用でない句の区切り
+sentence_end = '[。！？]'                         # 文の終わり。英語の原稿は '[。！？]|[.!?](?=\s)'
+paragraph = "line"                               # line は一行が一段落、blank は空行で段落を区切る（行を折り返す原稿）
+[output]
+language = "ja"                                  # 導く欄の名前を書く言語（ja / en）
+[section_kinds]                                  # 節の種類を判定する語を足す（既定は英語と日本語）
+# 結果 = ["ergebnisse"]
+[detect]
+# common_words = ["der", "die", "und"]            # 抽出が読めるかを見る頻出語を足す（既定は英語）
 ```
+
+- LaTeX では印を \cite の直後のコメントに置く（組版に影響しない）。例 `\cite{doe2020}%c017`。設定は
+  `mark_pattern = '\\cite\{(?P<key>[^}]+)\}(?P<strip>%(?P<id>c\d+))'`、`paragraph = "blank"`、英語の sentence_end。
+  名前つきのグループ id が ID、key があれば印の key と根拠の文献が合うかも検査し、strip があれば strip と指紋はその部分だけを外す。
+- 欄の名前と値は英語でも書ける（verbatim, strength: observation, not_said, written_by, kind: claim, excerpts, diff: paraphrase 等。
+  対応は bridge.py の FIELD_ALIASES と VALUE_ALIASES）。内部では日本語の名前にそろえる。出力の文はいまは日本語だけである。
 
 ## コマンド
 
@@ -107,6 +127,7 @@ python .claude/skills/cite-bridge/bridge.py --citations <別の引用ファイ�
 python .claude/skills/cite-bridge/bridge.py extract [<key> ...] [--force]  # 原本の PDF から抽出テキストを作る（pymupdf）
 python .claude/skills/cite-bridge/bridge.py snapshot <key> [<URL>]       # Web 資料の写し（既定は書誌の行の URL）
 python .claude/skills/cite-bridge/bridge.py strip <原稿> <出力>            # 印を外した写しを作る
+python .claude/skills/cite-bridge/bridge.py checkpoint [--label 中間提出]   # check --strict を通った地点をマニフェストで残す
 ```
 
 - snapshot は生の HTML を `<web_dir>/<key>.html`（追跡しない）に、本文を `<key>.txt`（追跡する）に保存する。本文の頭書きに
@@ -118,6 +139,10 @@ python .claude/skills/cite-bridge/bridge.py strip <原稿> <出力>            #
 - grade は書誌の key ごとに格を出す。`--keys-from` に対応表を渡すと、表の key 列にあって書誌に無い key（改名の取り残し等）も出す。
 - 見出しの検出は推定である（番号が順に進むものだけを見出しとし、目次の行は除く）。節が誤って導かれたら、抽出テキストの見出しの行を確かめる。
 
+- checkpoint は、整合の崩れも確認待ちも無いときだけ `bridge/checkpoints/<UTC 時刻>.json` を書く。中身は git の HEAD と未コミットの入力、
+  設定・書誌・原稿・引用・抜き書き・抽出テキストの sha256、抜き書きの照合と格の内訳、引用の状態、承認者ごとの件数。分類器の欄は空（未実装）。
+- OCR は道具に入れない（外部の依存を核に持ち込まないため）。OCR で作ったテキストは、頭に `<!-- ocr` で始まる頭書き（エンジン、日付）を置いて
+  `<text_dir>/<PDF と同じ名>.txt` に置く。格は「PDF所持（OCR の抽出）」になり、機械で照合できる範囲には数えない。誤読があるので、照合は近似一致が多くなる。
 - 照合は key に結ばれた抽出テキスト（書誌が指す PDF と同名の `<text_dir>/<名>.txt`、無ければ `<web_dir>/<key>.txt`）の中だけで行う。
   一致しないときは他の文献での一致を手がかりとして示す。
 - 照合の段階は、一致（空白の違いだけ。和字に接する空白は組版によるものとして無視する）、正規化で一致（NFKC、引用符とダッシュ、
@@ -125,6 +150,12 @@ python .claude/skills/cite-bridge/bridge.py strip <原稿> <出力>            #
   近似一致（字の重なり 50% 以上。候補の所在を示す）、照合不能（抽出が無いか化けている）、不一致。
 - 頁は抽出テキストの改ページ（\f）から数える。書誌に頁範囲があり PDF の頁数と合うときは印刷の頁も示す。
 - 抽出テキストは pymupdf で作る（pdftotext は和文の PDF の多くで化けた）。
+
+## 試験
+
+`python -m unittest discover -s .claude/skills/cite-bridge/tests`。論文のデータに依らず、一時フォルダに小さな一式を作って動かす
+（照合と所在、節の種類、含む文、導く欄の古さ、和文の小書きの仮名、承認と再確認、引用でない句、孤児、英語の欄名、三つの書誌の形式、
+strip、印の形の設定、URL の PDF の写し、LaTeX の \cite と印の key、checkpoint、OCR の印。14件）。hook は道具の側を直したときに試験も走らせる。
 
 ## AI が守ること
 
