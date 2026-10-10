@@ -115,7 +115,12 @@ language = "ja"                                  # 導く欄の名前を書く�
 # 結果 = ["ergebnisse"]
 [detect]
 # common_words = ["der", "die", "und"]            # 抽出が読めるかを見る頻出語を足す（既定は英語）
+[approvers]                                      # 承認できる者と種類（human / model）。省くと名前を問わない
+# alice = "human"
+[coverage]
+# pattern = '…'                                  # 出典らしき括弧（既定は年を含む括弧）。印の無い文にあるものを数える
 ```
+（[bridge] には applied も置ける。適用した判断ファイルの記録で、既定は citations と同じフォルダの applied.json）
 
 - LaTeX では印を \cite の直後のコメントに置く（組版に影響しない）。例 `\cite{doe2020}%c017`。設定は
   `mark_pattern = '\\cite\{(?P<key>[^}]+)\}(?P<strip>%(?P<id>c\d+))'`、`paragraph = "blank"`、英語の sentence_end。
@@ -136,6 +141,8 @@ python .claude/skills/cite-bridge/bridge.py review [c001 ...] [--images DIR] [-o
 python .claude/skills/cite-bridge/bridge.py review --json --all [--images DIR]          # 外の表示へ渡す JSON（承認済と指示も含める）
 python .claude/skills/cite-bridge/bridge.py review --html -o preview/cite_review.html     # 承認の HTML（人が見て判断する画面）
 python .claude/skills/cite-bridge/bridge.py apply <判断ファイル.json> [--dry-run]          # 承認の HTML が保存した判断を書き込む
+python .claude/skills/cite-bridge/bridge.py apply --latest [--from DIR] [--dry-run]       # ダウンロード（既定）の最新の判断ファイルを使う
+python .claude/skills/cite-bridge/bridge.py coverage                                     # 印の無い文にある出典らしき括弧の一覧
 python .claude/skills/cite-bridge/bridge.py approve c001 --by 人 [--note 理由]
 python .claude/skills/cite-bridge/bridge.py approve c001 --by 人 --send-back --note 理由   # 差し戻し
 python .claude/skills/cite-bridge/bridge.py confirm kawahara2013#e2 --by 人            # 要約の確認
@@ -160,6 +167,16 @@ python .claude/skills/cite-bridge/bridge.py checkpoint [--label 中間提出]   
   HTML はサーバを持たず、何も書き込まない。判断ファイルを apply に渡すと、HTML を作った時点の指紋（本文・根拠・要約）と今の指紋を
   照らし、合うものだけを approve・confirm と同じ関数で書き込む。合わないものは書かずに報告する（見ていないものへの承認を防ぐ）。
   サーバで判断を受ける形にするかは別の問題として残す（構想メモ §16.6）。
+- 判断ファイルは保存のたびに判断をすべて含めて書き出すので、古いファイルを後から適用すると判断が巻き戻る。apply は適用したファイルを
+  applied.json に記録し、同じファイルと、最後に適用したものより前に保存されたファイルを断る（意図したときだけ --allow-older）。
+- 承認者の一覧（approvers）があれば、承認・差し戻し・要約の確認・判断ファイルは一覧の名前でしか書けない。承認の HTML は一覧から選ぶ形になる。
+  check は一覧に無い名前の承認を確認待ちとし、マニフェストは承認を種類（human / model）ごとにも数える。一覧が防ぐのは打ち間違いや別名などの
+  事故で、悪意は防がない（判断ファイルは誰でも書ける）。
+- 承認の HTML には、判断とは別に「指摘」の欄がある。論文への気づきを書く欄で、apply は引用ブロックの「指摘」に足す（承認の指紋には入らない）。
+  指摘だけを書いて判断を保留にしてもよい。承認の理由に論文への指摘を書かずに済むようにした（§16.7）。
+- check は「網羅」の行に、原稿の出典らしき括弧のうち印の無い文にあるものの数を出す。印の無い引用はこのツールが何も確かめていない。
+  「確認待ち 0」や checkpoint は、印のある引用についての状態であって、原稿の引用全体の確認ではない。一覧は coverage で出す。
+  パターンは数え方の下限の目安で、括弧を使わない出典は数えない。
 - md2docx の review_html.py（差分のレビュー）は review --json を読み、本文の〔c003〕に状態の印を付ける。承認の HTML が出力先の隣に
   （既定の名前 cite_review.html で）あれば、印はその引用のカードへのリンクになる。依存は表示 → bridge の一方向で、bridge は表示を知らない。
 - review の md 出力は、AI に渡す材料と、HTML を開けない場面のために残す。

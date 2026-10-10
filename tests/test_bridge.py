@@ -418,6 +418,66 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(self.run_bridge("apply", "decisions.json")[0], 0)
         self.assertIn("差し戻し。書き手が直すのを待っている", self.run_bridge("check")[1])
 
+    def test_coverage_counts_unmarked_citations(self):
+        self.write("manuscript.md", self.read("manuscript.md") + "\n印の無い引用がある（Smith, 2010）。製品の頁もある（Acme, Docs page）。\n")
+        self.run_bridge("derive")
+        out = self.run_bridge("check")[1]
+        self.assertIn("出典らしき括弧 2 のうち、印のある文にあるもの 1、印の無い文にあるもの 1", out)  # 既定は年の括弧だけ
+        code, out = self.run_bridge("coverage")
+        self.assertIn("manuscript.md:7  （Smith, 2010）", out)
+        self.write("bridge/bridge.toml", CONFIG + "[coverage]\npattern = '[（(][^（）()]*\\d{4}[^（）()]*[）)]|[（(][A-Z]\\w*, [^（）()]+[）)]'\n")
+        self.assertIn("印の無い文にあるもの 2", self.run_bridge("check")[1])
+
+    def test_approvers_registry(self):
+        self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\nreviewer-model = "model"\n')
+        self.run_bridge("derive")
+        code, out = self.run_bridge("approve", "c001", "--by", "人")
+        self.assertEqual(code, 1)
+        self.assertIn("承認者の一覧", out)
+        self.assertEqual(self.run_bridge("approve", "c001", "--by", "alice")[0], 0)
+        self.assertIn('<option value="alice">alice（人）</option>', (self.run_bridge("review", "--html", "-o", "r.html"), self.read("r.html"))[1])
+        self._decisions("approve")
+        self.write("decisions.json", self.read("decisions.json").replace('"tester"', '"mallory"'))
+        code, out = self.run_bridge("apply", "decisions.json")
+        self.assertEqual(code, 1)
+        self.assertIn("'mallory' は承認者の一覧", out)
+
+    def test_apply_log_refuses_replay_and_older(self):
+        import json
+        self.run_bridge("derive")
+        self._decisions("approve", "新しい判断")
+        d = json.loads(self.read("decisions.json"))
+        d["saved"] = "2026-01-02T00:00:00Z"
+        (self.dir / "dl").mkdir()
+        self.write("dl/decisions_new.json", json.dumps(d, ensure_ascii=False))
+        old = dict(d, saved="2026-01-01T00:00:00Z", decisions=[dict(d["decisions"][0], note="古い判断")])
+        self.write("dl/decisions_old.json", json.dumps(old, ensure_ascii=False))
+        code, out = self.run_bridge("apply", "--latest", "--from", "dl")
+        self.assertEqual(code, 0, out)
+        self.assertIn("decisions_new.json", out)
+        self.assertTrue((self.dir / "bridge/applied.json").exists())
+        code, out = self.run_bridge("apply", "dl/decisions_new.json")
+        self.assertEqual(code, 1)
+        self.assertIn("適用済み", out)
+        code, out = self.run_bridge("apply", "dl/decisions_old.json")
+        self.assertEqual(code, 1)
+        self.assertIn("より古い", out)
+        self.assertIn("承認の理由: 新しい判断", self.read("bridge/citations.md"))
+
+    def test_remark_is_kept_apart_from_approval(self):
+        import json
+        self.run_bridge("derive")
+        self._decisions("", "")
+        d = json.loads(self.read("decisions.json"))
+        d["decisions"][0]["remark"] = "聴覚と音声を混同しないこと"
+        self.write("decisions.json", json.dumps(d, ensure_ascii=False))
+        code, out = self.run_bridge("apply", "decisions.json")
+        self.assertEqual(code, 0, out)
+        cit = self.read("bridge/citations.md")
+        self.assertIn("指摘: 聴覚と音声を混同しないこと（tester ", cit)
+        self.assertIn("承認: 未", cit)  # 指摘だけでは承認しない
+        self.assertIn("指摘：聴覚と音声を混同しないこと", self.run_bridge("review", "--html", "-o", "r.html")[1] + self.read("r.html").replace("</dt><dd>", "："))
+
     def test_snapshot_rebuild_with_folded_headings(self):
         html = ('<html><body><h2>Commands</h2><p>Intro.</p><a class="zippy">Grid selection</a>'
                 '<p>Say "Show grid" to start.</p><details><summary>Labels</summary><p>Say "Show labels".</p></details></body></html>')
