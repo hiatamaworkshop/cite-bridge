@@ -62,15 +62,36 @@ description: 引用ごとに錨（原典の逐語と、道具が導いた所在�
 - 種類は 指示（作品の名前や存在を挙げるだけ。`文献: <key>` を書く）か 主張（原典の内容を述べる。抜き書きが要る）。
 - 原文との差は 一致／言い換え／限定つき一般化／外挿。外挿は確認待ちとして残り、本文に限定を付けるか自分の主張として書き直すまで解けない。
 - 本文の引用符の中の文字列は、指している抜き書きの逐語に含まれていなければならない（言語が違う引用は訳とみなして外す）。
+  引用符の中でも原文の逐語でない句（コマンドの型の一つの言い方、UI の文字列の一例等）は、ブロックの「引用でない句」に
+  ／区切りで挙げ、括弧で理由を添える。外すかどうかは人の判断で、機械は挙げられた句だけを外す。
 - 引用一件の本文は、印を含む文である。鉤括弧の中の。では文を切らない。HTML コメントは文の判定と指紋から除くので、
   コメントだけを直しても要再確認にはならない。コメントの中の印は数えない。
-- 印〔c001〕は清書に残る。清書から提出物を作るときは外す（変換の段での除去は未実装。項目56 のビルドの段で扱う）。
+- 印〔c001〕は原稿に残る。提出物を作るときは `strip` で印を外した写しを作り、それを変換に渡す。
 
 ## hook
 
 `.githooks/pre-commit` が、bridge・清書・書誌リスト・抽出テキスト・このスキルをステージしたときに check を走らせ、
 整合の崩れ（ERROR）があるときだけコミットを止める。確認待ちでは止めない。有効にするのは `git config core.hooksPath .githooks`
 （2026-10-10 にこのリポジトリで設定した。clone し直したら設定し直す）。検査するのは作業ツリーで、ステージした内容そのものではない。
+
+## 設定
+
+道具はこの論文のパスや書誌の書き方を知らない。すべて設定ファイル（既定は `bridge/bridge.toml`、`--config` で替える）から受け取る。
+
+```toml
+[bibliography]
+path = "notes/書誌リスト.md"
+format = "keyline"                               # 書誌の読み方（アダプタ）。いまは keyline だけ
+pdf_pattern = 'PDF所持: `?references/([^`]+?\.pdf)'  # 注記の中で原本の PDF を指す書き方
+web_pattern = '参照 \d{4}|https?://(?!doi\.org|arxiv\.org)'  # Web 資料とみなす書誌の行
+[sources]
+pdf_dir = "references"
+text_dir = "references/_txt"
+web_dir = "references/_web"
+[bridge]
+excerpts = "bridge/excerpts"
+citations = "bridge/citations.md"
+```
 
 ## コマンド
 
@@ -83,14 +104,21 @@ python .claude/skills/cite-bridge/bridge.py check --strict  # 確認待ちが残
 python .claude/skills/cite-bridge/bridge.py grade --keys-from notes/引用対応表_中途レポート.md
 python .claude/skills/cite-bridge/bridge.py approve c001 --by 人
 python .claude/skills/cite-bridge/bridge.py --citations <別の引用ファイル> check   # 原稿が複数あるとき、写しで試すとき
+python .claude/skills/cite-bridge/bridge.py extract [<key> ...] [--force]  # 原本の PDF から抽出テキストを作る（pymupdf）
+python .claude/skills/cite-bridge/bridge.py snapshot <key> [<URL>]       # Web 資料の写し（既定は書誌の行の URL）
+python .claude/skills/cite-bridge/bridge.py strip <原稿> <出力>            # 印を外した写しを作る
 ```
+
+- snapshot は生の HTML を `<web_dir>/<key>.html`（追跡しない）に、本文を `<key>.txt`（追跡する）に保存する。本文の頭書きに
+  URL、取得日、生の HTML の sha256 を置く。所在は「Web 写し（取得日） / 見出し」になる。頁が更新されても、写しは取得した時点の
+  ものとして残る。取り直すときは日付が変わり、照合も導き直される。
 
 - 導く欄には「含む文」もある。逐語が文の途中で切れているとき、原文の文全体を示す。逐語の外側にある限定（「…が考えられる」
   「without critical reflection」等）を見落とさないためで、要約と言っていないことはこれを見て書く。
 - grade は書誌の key ごとに格を出す。`--keys-from` に対応表を渡すと、表の key 列にあって書誌に無い key（改名の取り残し等）も出す。
 - 見出しの検出は推定である（番号が順に進むものだけを見出しとし、目次の行は除く）。節が誤って導かれたら、抽出テキストの見出しの行を確かめる。
 
-- 照合は key に結ばれた抽出テキスト（書誌リストの `PDF所持:` から `references/_txt/<同名>.txt`）の中だけで行う。
+- 照合は key に結ばれた抽出テキスト（書誌が指す PDF と同名の `<text_dir>/<名>.txt`、無ければ `<web_dir>/<key>.txt`）の中だけで行う。
   一致しないときは他の文献での一致を手がかりとして示す。
 - 照合の段階は、一致（空白の違いだけ。和字に接する空白は組版によるものとして無視する）、正規化で一致（NFKC、引用符とダッシュ、
   小書きの仮名、行末ハイフン。句読点まで違うときはそう示す）、

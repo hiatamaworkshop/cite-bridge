@@ -1,11 +1,16 @@
 # -*- coding: utf-8 -*-
 """引用ブリッジ（抜き書きと引用）の導出と検査。
 
-使い方（リポジトリの根から実行する。書式は SKILL.md）:
+使い方（リポジトリの根から実行する。書式は SKILL.md、設定は bridge.toml）:
     python bridge.py derive              抜き書きの導く欄（@ で始まる行）を書き直す
     python bridge.py check [--strict]    整合を検査する。崩れがあれば exit 1
     python bridge.py grade [--keys-from <md>]   文献ごとの資料の格と、その内訳を出す
     python bridge.py approve <cID> --by <承認者>  引用の承認を、その時点の本文の指紋つきで記録する
+    python bridge.py extract [<key> ...]          原本の PDF から抽出テキストを作る（pymupdf）
+    python bridge.py strip <原稿> <出力>          原稿から引用の印を外した写しを作る（提出物を作る前段）
+    python bridge.py snapshot <key> [<URL>]       Web 資料の写しを取得日とハッシュつきで保存する（既定は書誌の URL）
+
+この論文に固有のこと（パス、書誌の書き方）は設定ファイルから受け取り、コードには書かない。
 
 役割の分担:
   - 人か AI が書くのは判断の欄（逐語、強さ、要約、言っていないこと、解釈、理由 等）だけ。
@@ -20,10 +25,29 @@ import sys
 import unicodedata
 from pathlib import Path
 
-BIB = Path("notes/書誌リスト.md")
-EXC_DIR = Path("bridge/excerpts")
-CIT = Path("bridge/citations.md")
-TXT_DIR = Path("references/_txt")
+# 設定（bridge.toml）から main で埋める
+CONFIG = Path("bridge/bridge.toml")
+BIB = EXC_DIR = CIT = TXT_DIR = PDF_DIR = WEB_DIR = None
+BIB_FORMAT = "keyline"
+PDF_RE = WEB_RE = None
+
+
+def load_config(path):
+    import tomllib
+    global BIB, EXC_DIR, CIT, TXT_DIR, PDF_DIR, WEB_DIR, BIB_FORMAT, PDF_RE, WEB_RE
+    if not path.exists():
+        sys.exit(f"設定ファイル {path} が無い（--config で指定する。書き方は SKILL.md）")
+    c = tomllib.loads(path.read_text(encoding="utf-8"))
+    b, s, r = c.get("bibliography", {}), c.get("sources", {}), c.get("bridge", {})
+    BIB = Path(b["path"])
+    BIB_FORMAT = b.get("format", "keyline")
+    PDF_RE = re.compile(b["pdf_pattern"]) if b.get("pdf_pattern") else None
+    WEB_RE = re.compile(b["web_pattern"]) if b.get("web_pattern") else None
+    PDF_DIR = Path(s.get("pdf_dir", "references"))
+    TXT_DIR = Path(s.get("text_dir", PDF_DIR / "_txt"))
+    WEB_DIR = Path(s.get("web_dir", PDF_DIR / "_web"))
+    EXC_DIR = Path(r.get("excerpts", "bridge/excerpts"))
+    CIT = Path(r.get("citations", "bridge/citations.md"))
 
 STRENGTHS = {"観察", "示唆", "主張", "一般化", "条件付き"}
 DIFFS = {"一致", "言い換え", "限定つき一般化", "外挿"}
@@ -96,6 +120,10 @@ class Source:
     def __init__(self, path):
         self.path = path
         self.raw = path.read_text(encoding="utf-8", errors="replace")
+        self.web = None
+        if self.raw.startswith("<!-- snapshot"):  # Web の写しの頭書き
+            head = self.raw[:self.raw.find("-->")]
+            self.web = dict(re.findall(r"^(\w+): (.*)$", head, re.M))
         self._norm = {}
         self.headings = find_headings(self.raw)
 
@@ -195,6 +223,10 @@ def find_headings(raw):
             res.append((off, "", "Abstract", off + 8))
             continue
         if not s or len(s) > 90 or TOC_RE.search(s):
+            continue
+        mh = re.match(r"^(#{1,6}) (\S.*)$", s)
+        if mh:  # Web の写しの見出し
+            res.append((off, "", mh.group(2), end))
             continue
         low = s.lower().rstrip(":")
         if low in UNNUMBERED:
@@ -299,16 +331,27 @@ def context(src, a, b, limit=300):
 # ---------------------------------------------------------------- 書誌と格
 
 def parse_bib():
-    lines = BIB.read_text(encoding="utf-8").splitlines()
+    """書誌を {key: {entry, pdfs}} にする。形式ごとの読み方はアダプタに分ける。"""
+    if BIB_FORMAT not in BIB_ADAPTERS:
+        sys.exit(f"書誌の形式 '{BIB_FORMAT}' には対応していない（{sorted(BIB_ADAPTERS)}）")
+    return BIB_ADAPTERS[BIB_FORMAT](BIB.read_text(encoding="utf-8"))
+
+
+def bib_keyline(text):
+    """「key: <key>」行の直前が書誌の行、直後の（ で始まる行が注記、という形。"""
+    lines = text.splitlines()
     bib = {}
     for i, ln in enumerate(lines):
         m = KEY_LINE_RE.match(ln.strip())
         if not m:
             continue
         note = lines[i + 1] if i + 1 < len(lines) and lines[i + 1].startswith("（") else ""
-        pdfs = re.findall(r"PDF所持: `?references/([^`]+?\.pdf)", note)
-        bib[m.group(1)] = {"entry": lines[i - 1], "note": note, "pdfs": pdfs}
+        pdfs = PDF_RE.findall(note) if PDF_RE else []
+        bib[m.group(1)] = {"entry": lines[i - 1], "pdfs": pdfs}
     return bib
+
+
+BIB_ADAPTERS = {"keyline": bib_keyline}
 
 
 def garbled(raw, entry):
@@ -341,7 +384,10 @@ def grade_of(key, bib):
                     return f"PDF所持（{bad}）", None
                 return "PDF所持（抽出あり）", txt
         return "PDF所持（抽出なし）", None
-    if re.search(r"参照 \d{4}", b["entry"]) or re.search(r"https?://(?!doi\.org|arxiv\.org)", b["entry"]):
+    web = WEB_DIR / f"{key}.txt"
+    if web.exists():
+        return "Web 写し（保存あり）", web
+    if WEB_RE and WEB_RE.search(b["entry"]):
         return "Web 資料（写しなし）", None
     return "未入手", None
 
@@ -394,7 +440,9 @@ def rewrite_derived(path, head_derived, block_derived):
     path.write_text("\n".join(out), encoding="utf-8", newline="\n")
 
 
-def printed_page(entry, pdf_page, total):
+def printed_page(entry, pdf_page, total, src=None):
+    if src is not None and src.web:
+        return f"Web 写し（取得 {src.web.get('retrieved', '?')}）"
     m = re.search(r"(\d+)\s*[–-]\s*(\d+)\.?\s*$", entry.split("http")[0].strip().rstrip("."))
     if m:
         a, z = int(m.group(1)), int(m.group(2))
@@ -431,7 +479,7 @@ def derive_excerpts(bib, sources_cache):
                 d["照合"] = label
                 if a is not None:
                     sec, kind = section_at(src, a)
-                    d["所在"] = printed_page(bib[key]["entry"], src.page_of(a), src.pages()) + " / " + sec
+                    d["所在"] = printed_page(bib[key]["entry"], src.page_of(a), src.pages(), src) + " / " + sec
                     d["節の種類"] = kind
                     prev, whole, nxt = context(src, a, z)
                     d["前"] = prev
@@ -606,8 +654,13 @@ def cmd_check(args):
             if f.get("原文との差") and f["原文との差"] not in DIFFS:
                 errors.append(f"{w}: 原文との差は {sorted(DIFFS)} のどれか")
             # 本文の引用符の中の文字列は、指している抜き書きの逐語に含まれていること
+            # 引用符の中でも原文の逐語でない句（コマンドの言い方、UI の文字列の一例等）は、人が「引用でない句」に挙げて外す
+            not_quotes = [x.strip() for x in re.sub(r"（[^（）]*）", "", f.get("引用でない句", "")).split("／") if x.strip()]
             for q in re.findall(r"「([^「」]{10,})」|\"([^\"]{20,})\"", sent):
                 q = q[0] or q[1]
+                if q in not_quotes:
+                    infos.append(f"{w}: 「{q}」は引用でない句として外した")
+                    continue
                 qcjk = any(is_cjk(c) for c in q)
                 pool = [excerpts[r]["逐語"] for r in refs if r in excerpts]
                 same = [p for p in pool if any(is_cjk(c) for c in p) == qcjk]
@@ -677,7 +730,7 @@ def cmd_grade(args):
     for g, ks in sorted(summary.items(), key=lambda x: -len(x[1])):
         print(f"{g}: {len(ks)}  {', '.join(ks)}")
     total = len(keys)
-    ok = len(summary.get("PDF所持（抽出あり）", []))
+    ok = len(summary.get("PDF所持（抽出あり）", [])) + len(summary.get("Web 写し（保存あり）", []))
     print(f"--- {total} 件のうち、機械で照合できるもの {ok} 件（{round(100 * ok / max(1, total))}%）")
 
 
@@ -710,6 +763,112 @@ def cmd_approve(args):
     print(f"承認を記録: {args.cid} {args.by} {today} 指紋={fingerprint(sent)}")
 
 
+def cmd_extract(args):
+    """書誌が原本の PDF を指す文献について、抽出テキストを作る。既にあれば --force のときだけ作り直す。"""
+    import pymupdf
+    bib = parse_bib()
+    keys = args.keys or sorted(bib)
+    TXT_DIR.mkdir(parents=True, exist_ok=True)
+    for k in keys:
+        if k not in bib:
+            print(f"skip {k}: 書誌に無い")
+            continue
+        for pdf in bib[k]["pdfs"]:
+            src, out = PDF_DIR / pdf, TXT_DIR / (Path(pdf).stem + ".txt")
+            if not src.exists():
+                print(f"skip {k}: {src} が無い")
+                continue
+            if out.exists() and not args.force:
+                continue
+            d = pymupdf.open(src)
+            text = "\f".join(pg.get_text() for pg in d)  # 頁の区切りは改ページ文字
+            bad = garbled(text, bib[k]["entry"])
+            if bad:
+                print(f"skip {k}: {pdf}（{bad}。OCR か頁の画像で確かめる）")
+                continue
+            out.write_text(text, encoding="utf-8", newline="\n")
+            print(f"ok   {k}: {out.as_posix()}（{len(d)} 頁）")
+
+
+class _HTMLText:
+    """HTML から本文の文字と見出しを取り出す（標準ライブラリだけで動かす）。"""
+
+    SKIP = {"script", "style", "noscript", "svg", "nav", "footer", "header", "form"}
+    BLOCK = {"p", "div", "li", "tr", "br", "section", "article", "table", "pre", "blockquote", "dd", "dt"}
+
+    def __init__(self):
+        from html.parser import HTMLParser
+        outer = self
+        self.out, self.skip, self.head = [], 0, None
+
+        class P(HTMLParser):
+            def handle_starttag(self, tag, attrs):
+                if tag in outer.SKIP:
+                    outer.skip += 1
+                elif re.fullmatch(r"h[1-6]", tag):
+                    outer.out.append("\n" + "#" * int(tag[1]) + " ")
+                    outer.head = tag
+                elif tag in outer.BLOCK:
+                    outer.out.append("\n")
+
+            def handle_endtag(self, tag):
+                if tag in outer.SKIP:
+                    outer.skip = max(0, outer.skip - 1)
+                elif tag == outer.head:
+                    outer.out.append("\n")
+                    outer.head = None
+                elif tag in outer.BLOCK:
+                    outer.out.append("\n")
+
+            def handle_data(self, data):
+                if not outer.skip:
+                    outer.out.append(re.sub(r"\s+", " ", data) if outer.head else data)
+
+        self.parser = P(convert_charrefs=True)
+
+    def text(self, html):
+        self.parser.feed(html)
+        t = "".join(self.out)
+        t = re.sub(r"[ \t]+\n", "\n", t)
+        t = re.sub(r"\n{3,}", "\n\n", t)
+        return t.strip() + "\n"
+
+
+def cmd_snapshot(args):
+    """Web 資料の写しを保存する。生の HTML は <key>.html（追跡しない想定）、本文は <key>.txt（取得日と生の HTML のハッシュつき）。"""
+    import urllib.request
+    bib = parse_bib()
+    if args.key not in bib:
+        sys.exit(f"key '{args.key}' が書誌に無い")
+    if not args.url:  # 既定は書誌の行の URL
+        urls = re.findall(r"https?://[^\s）)]+", bib[args.key]["entry"])
+        if not urls:
+            sys.exit(f"{args.key} の書誌に URL が無い。URL を引数で渡す")
+        args.url = urls[0].rstrip(".")
+    req = urllib.request.Request(args.url, headers={"User-Agent": "cite-bridge/0.1 (snapshot for citation checking)"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        raw = r.read()
+        charset = r.headers.get_content_charset() or "utf-8"
+    html = raw.decode(charset, errors="replace")
+    body = _HTMLText().text(html)
+    WEB_DIR.mkdir(parents=True, exist_ok=True)
+    (WEB_DIR / f"{args.key}.html").write_bytes(raw)
+    today = datetime.date.today().isoformat()
+    head = (f"<!-- snapshot\nurl: {args.url}\nretrieved: {today}\n"
+            f"sha256: {hashlib.sha256(raw).hexdigest()}\n-->\n")
+    out = WEB_DIR / f"{args.key}.txt"
+    out.write_text(head + body, encoding="utf-8", newline="\n")
+    print(f"ok {args.key}: {out.as_posix()}（{len(body)} 字、取得 {today}）")
+
+
+def cmd_strip(args):
+    """原稿から引用の印を外した写しを作る（提出物を作る前段）。原稿そのものは変えない。"""
+    text = Path(args.src).read_text(encoding="utf-8")
+    out, n = MARK_RE.subn("", text)
+    Path(args.out).write_text(out, encoding="utf-8", newline="")
+    print(f"ok {args.out}（印 {n} 個を外した）")
+
+
 def _approval_lines(by, today, sent):
     return [f"承認: {by} {today}", f"@承認時の指紋: {fingerprint(sent)}", f"@承認時の本文: {sent}"]
 
@@ -718,7 +877,8 @@ def main():
     global CIT
     sys.stdout.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser()
-    ap.add_argument("--citations", default=str(CIT), help="引用のファイル（原稿ごとに一つ）")
+    ap.add_argument("--config", default=str(CONFIG), help="設定ファイル（既定は bridge/bridge.toml）")
+    ap.add_argument("--citations", help="引用のファイル（既定は設定の値。原稿が複数あるとき、写しで試すとき）")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("derive").set_defaults(func=cmd_derive)
     c = sub.add_parser("check")
@@ -731,8 +891,22 @@ def main():
     a.add_argument("cid")
     a.add_argument("--by", required=True)
     a.set_defaults(func=cmd_approve)
+    x = sub.add_parser("extract")
+    x.add_argument("keys", nargs="*")
+    x.add_argument("--force", action="store_true")
+    x.set_defaults(func=cmd_extract)
+    w = sub.add_parser("snapshot")
+    w.add_argument("key")
+    w.add_argument("url", nargs="?", help="既定は書誌の行の URL")
+    w.set_defaults(func=cmd_snapshot)
+    st = sub.add_parser("strip")
+    st.add_argument("src")
+    st.add_argument("out")
+    st.set_defaults(func=cmd_strip)
     args = ap.parse_args()
-    CIT = Path(args.citations)
+    load_config(Path(args.config))
+    if args.citations:
+        CIT = Path(args.citations)
     args.func(args)
 
 
