@@ -134,6 +134,8 @@ python .claude/skills/cite-bridge/bridge.py check --strict  # 確認待ちが残
 python .claude/skills/cite-bridge/bridge.py grade --keys-from notes/引用対応表_中途レポート.md
 python .claude/skills/cite-bridge/bridge.py review [c001 ...] [--images DIR] [-o 出力.md]  # 確認用の一覧（省くと確認待ちすべて）
 python .claude/skills/cite-bridge/bridge.py review --json --all [--images DIR]          # 外の表示へ渡す JSON（承認済と指示も含める）
+python .claude/skills/cite-bridge/bridge.py review --html -o preview/cite_review.html     # 承認の HTML（人が見て判断する画面）
+python .claude/skills/cite-bridge/bridge.py apply <判断ファイル.json> [--dry-run]          # 承認の HTML が保存した判断を書き込む
 python .claude/skills/cite-bridge/bridge.py approve c001 --by 人 [--note 理由]
 python .claude/skills/cite-bridge/bridge.py approve c001 --by 人 --send-back --note 理由   # 差し戻し
 python .claude/skills/cite-bridge/bridge.py confirm kawahara2013#e2 --by 人            # 要約の確認
@@ -152,11 +154,15 @@ python .claude/skills/cite-bridge/bridge.py checkpoint [--label 中間提出]   
 - review は、本文、根拠の逐語、所在、照合、原本での確認、前後の文、AI の候補（要約・言っていないこと）、引用の欄、判断のコマンドを
   この順に並べる。逐語を先に読ませ、AI の候補で判断が引っ張られないようにする。前後の文は抽出テキストのままで、誤読を補わない。
   近似一致・照合不能・OCR の根拠では「頁の画像で読む」と出し、--images を渡せば PDF の該当頁を PNG にする。
-- 人が見る画面の本体は、md2docx の review_html.py である（清書を本文の流れのまま表示し、〔c003〕の位置に状態の印と確認の欄を出す）。
-  前後の段落を読んで初めて分かる食い違い（§16 の c003 の「これ」、c007 と §2.3 の食い違い）を拾うためである。
-  review_html は review --json を読むだけで、承認・差し戻し・確認の書き込みは approve と confirm だけが行う。
-  依存は表示 → bridge の一方向にし、bridge は表示を知らない（切り出すとき、核と表示を別の部品のまま持ち出せる）。
-  review の md 出力は、AI に渡す材料と、HTML を開けない場面のために残す。
+- 人が見て判断する画面は、review --html が作る承認の HTML である（単体で開ける一枚。頁の画像も埋め込む）。
+  引用ごとのカードに、本文（段落の全体も開ける）、根拠の逐語、所在、頁の画像、前後の文、AI の候補、引用の欄を並べ、
+  保留・承認・差し戻しと理由、要約を確かめた印を入れる。入力はブラウザに一時保存され、最後に判断ファイル（JSON）として保存する。
+  HTML はサーバを持たず、何も書き込まない。判断ファイルを apply に渡すと、HTML を作った時点の指紋（本文・根拠・要約）と今の指紋を
+  照らし、合うものだけを approve・confirm と同じ関数で書き込む。合わないものは書かずに報告する（見ていないものへの承認を防ぐ）。
+  サーバで判断を受ける形にするかは別の問題として残す（構想メモ §16.6）。
+- md2docx の review_html.py（差分のレビュー）は review --json を読み、本文の〔c003〕に状態の印を付ける。承認の HTML が出力先の隣に
+  （既定の名前 cite_review.html で）あれば、印はその引用のカードへのリンクになる。依存は表示 → bridge の一方向で、bridge は表示を知らない。
+- review の md 出力は、AI に渡す材料と、HTML を開けない場面のために残す。
 - snapshot は h1 から h6 に加えて、折りたたみの見出し（details の summary、Google のヘルプの a.zippy）を小見出しとして拾う。
   見出しの拾い方を直したときは、--rebuild で取得し直さずに写しを作り直せる（取得日とハッシュは元のまま、作り直した日を足す）。
 - 写しと OCR の頭書き（`<!-- … -->`）は前後の文から外す。Web の写しでは空行も文の区切りとする。
@@ -182,12 +188,13 @@ python .claude/skills/cite-bridge/bridge.py checkpoint [--label 中間提出]   
 `python -m unittest discover -s .claude/skills/cite-bridge/tests`。論文のデータに依らず、一時フォルダに小さな一式を作って動かす
 （照合と所在、節の種類、含む文、導く欄の古さ、和文の小書きの仮名、承認と再確認、引用でない句、孤児、英語の欄名、三つの書誌の形式、
 strip、印の形の設定、URL の PDF の写し、LaTeX の \cite と印の key、checkpoint、OCR の印、承認の理由と根拠、差し戻し、
-要約の確認、欄の中の参照、review（md と JSON）、折りたたみの見出しと作り直し。21件）。hook は道具の側を直したときに試験も走らせる。
+要約の確認、欄の中の参照、review（md と JSON と HTML）、apply（書き込みと指紋の食い違いの拒否）、折りたたみの見出しと作り直し。23件）。hook は道具の側を直したときに試験も走らせる。
 
 ## AI が守ること
 
 - 逐語は抽出テキストか原本から写す。記憶や要約から作らない。
 - 判断の欄に書いた者を記入に残す。AI が書いた要約や言っていないことは、人が見るまで候補である。
 - 承認（approve）は人の指示があるときだけ行う。AI が自分の書いた引用を承認しない。差し戻しと要約の確認（confirm）も同じ。
+  apply は人が承認の HTML で作った判断ファイルを書き込むもので、AI が判断ファイルを作らない。
 - 人に確認を頼むときは review の出力を見せる。手で材料を組むときも、前後の文を補って見せない。OCR の層では頁の画像を見せる。
 - 導く欄を手で直さない。おかしければ逐語か抽出テキストを直して derive する。

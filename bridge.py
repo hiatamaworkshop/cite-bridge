@@ -1061,25 +1061,112 @@ def _citation_now(cid):
 APPROVAL_LINE_RE = r"^@?(承認|差し戻し|approval|approved_|returned_)"
 
 
-def cmd_approve(args):
-    """承認か差し戻しを記録する。承認は人の指示があるときだけ行う（AI が自分の書いた引用を承認しない）。"""
-    sent, fp, ev, f = _citation_now(args.cid)
+def write_approval(cid, by, note=None, send_back=False, seen=None, dry=False):
+    """承認か差し戻しを書く。seen=(本文の指紋, 根拠の指紋) を渡すと、今の指紋と合うときだけ書く。
+
+    返り値は (書いたか, 文言)。承認は人の指示があるときだけ行う（AI が自分の書いた引用を承認しない）。
+    """
+    sent, fp, ev, f = _citation_now(cid)
+    if seen and tuple(seen) != (fp, ev):
+        return False, f"{cid}: 判断した後に{'本文' if seen[0] != fp else '根拠'}が変わった。書かなかった（review を作り直して見直す）"
+    if f.get("種類") != "主張":
+        return False, f"{cid}: 主張の引用ではない"
     today = datetime.date.today().isoformat()
-    if args.send_back:
-        if not args.note:
-            sys.exit("差し戻しには --note で理由を書く")
-        new = [f"{out_name('承認')}: {RETURNED} {args.by} {today}", f"{out_name('差し戻しの理由')}: {args.note}",
+    if send_back:
+        if not note:
+            return False, f"{cid}: 差し戻しには理由が要る"
+        new = [f"{out_name('承認')}: {RETURNED} {by} {today}", f"{out_name('差し戻しの理由')}: {note}",
                f"@{out_name('差し戻し時の指紋')}: {fp}", f"@{out_name('差し戻し時の根拠')}: {ev}"]
-        msg = f"差し戻しを記録: {args.cid} {args.by} {today}"
+        msg = f"差し戻しを記録: {cid} {by} {today}"
     else:
-        new = [f"{out_name('承認')}: {args.by} {today}"]
-        if args.note:
-            new.append(f"{out_name('承認の理由')}: {args.note}")
+        new = [f"{out_name('承認')}: {by} {today}"]
+        if note:
+            new.append(f"{out_name('承認の理由')}: {note}")
         new += [f"@{out_name('承認時の指紋')}: {fp}", f"@{out_name('承認時の根拠')}: {ev}",
                 f"@{out_name('承認時の本文')}: {sent}"]
-        msg = f"承認を記録: {args.cid} {args.by} {today} 指紋={fp} 根拠={ev}"
-    _replace_block_lines(CIT, args.cid, APPROVAL_LINE_RE, new)
+        msg = f"承認を記録: {cid} {by} {today} 指紋={fp} 根拠={ev}"
+    if dry:
+        return True, f"{cid}: {'差し戻し' if send_back else '承認'}"
+    _replace_block_lines(CIT, cid, APPROVAL_LINE_RE, new)
+    return True, msg
+
+
+def write_confirm(eid, by, note=None, seen=None, dry=False):
+    """抜き書きの要約・言っていないこと・強さを確かめた記録を書く。seen（要約の指紋）が今と合うときだけ書く。"""
+    if "#" not in eid:
+        return False, "抜き書きは key#eN で指す"
+    key, bid = eid.split("#", 1)
+    for path in sorted(EXC_DIR.glob("*.md")):
+        head, blocks = parse_blocks(path)
+        if head["title"] != key:
+            continue
+        b = next((x for x in blocks if x["id"] == bid), None)
+        if b is None:
+            break
+        sfp = summary_fingerprint(b["fields"])
+        if seen and seen != sfp:
+            return False, f"{eid}: 確かめた後に要約か逐語が変わった。書かなかった"
+        if dry:
+            return True, f"{eid}: 要約の確認"
+        today = datetime.date.today().isoformat()
+        new = [f"{out_name('要約の確認')}: {by} {today}" + (f"（{note}）" if note else ""),
+               f"@{out_name('要約の確認時の指紋')}: {sfp}"]
+        _replace_block_lines(path, bid, r"^@?(要約の確認|summary_check)", new)
+        hd, bd = derive_excerpts(parse_bib(), {})[path]  # 導く欄をブロックの末尾へ並べ直す
+        rewrite_derived(path, hd, bd)
+        return True, f"要約の確認を記録: {eid} {by} {today}"
+    return False, f"抜き書き '{eid}' が無い"
+
+
+def cmd_approve(args):
+    """承認か差し戻しを記録する。承認は人の指示があるときだけ行う（AI が自分の書いた引用を承認しない）。"""
+    if args.send_back and not args.note:
+        sys.exit("差し戻しには --note で理由を書く")
+    ok, msg = write_approval(args.cid, args.by, args.note, args.send_back)
+    if not ok:
+        sys.exit(msg)
     print(msg)
+
+
+def cmd_confirm(args):
+    """抜き書きの要約・言っていないこと・強さを、人（または書き手と別の者）が原文と照らして確かめたことを記録する。"""
+    ok, msg = write_confirm(args.eid, args.by, args.note)
+    if not ok:
+        sys.exit(msg)
+    print(msg)
+
+
+def cmd_apply(args):
+    """承認の HTML が書き出した判断ファイルを、指紋を照らしてから書き込む。
+
+    HTML はサーバを持たず、書き込みもしない。判断はファイルとしてここへ渡り、書き込みは approve・confirm と同じ関数を通る。
+    HTML を作った後に本文・根拠・要約が変わったものは書かずに報告する（見ていないものへの承認を防ぐ）。
+    """
+    import json
+    d = json.loads(Path(args.file).read_text(encoding="utf-8"))
+    if d.get("format") != "cite-bridge-decisions/1":
+        sys.exit("判断ファイルの形式が違う（format: cite-bridge-decisions/1 を期待）")
+    by = (d.get("by") or "").strip()
+    if not by:
+        sys.exit("判断ファイルに判断した者（by）が無い")
+    head, _ = parse_blocks(CIT)
+    if Path(head["fields"].get("対象", "")).as_posix() != d.get("manuscript"):
+        sys.exit(f"判断ファイルの原稿 {d.get('manuscript')} が、引用のファイルの対象と違う")
+    done, skipped = [], []
+    for x in d.get("decisions", []):
+        ok, msg = write_approval(x["id"], by, x.get("note") or None, x["action"] == "send_back",
+                                 seen=(x["fingerprint"], x["evidence"]), dry=args.dry_run)
+        (done if ok else skipped).append(msg)
+    for x in d.get("confirms", []):
+        ok, msg = write_confirm(x["id"], by, seen=x["fingerprint"], dry=args.dry_run)
+        (done if ok else skipped).append(msg)
+    for m in done:
+        print(("（試し）" if args.dry_run else "") + m)
+    for m in skipped:
+        print("SKIP", m)
+    print(f"--- 書いた {len(done)} 件、書かなかった {len(skipped)} 件" + ("（--dry-run なので何も書いていない）" if args.dry_run else ""))
+    if skipped:
+        sys.exit(1)
 
 
 def _page_image(key, bib, src, quote, outdir):
@@ -1138,7 +1225,11 @@ def review_data(cids=None, images=None, include_done=False):
         if not cids and not include_done and state in ("承認済", "指示"):
             continue
         tag = f" {cid}:"
+        ln_a = text.rfind("\n", 0, pos[cid]) + 1
+        ln_z = text.find("\n", pos[cid])
+        para = re.sub(r"\s{2,}", " ", text[ln_a:ln_z if ln_z >= 0 else len(text)]).strip()
         item = {"id": cid, "kind": f.get("種類", ""), "state": state, "state_detail": extra,
+                "fingerprint": fingerprint(sent), "evidence_fp": evidence_hash(refs, excerpt_fields), "paragraph": para,
                 "line": text.count("\n", 0, pos[cid]) + 1, "section": heading_at(text, pos[cid]), "sentence": sent,
                 "fields": {n: f[n] for n in ("理由", "解釈", "原文との差", "引用でない句", "記入", "承認", "承認の理由",
                                              "差し戻しの理由") if f.get(n)},
@@ -1164,7 +1255,8 @@ def review_data(cids=None, images=None, include_done=False):
                 "image": Path(img).as_posix() if img else None,
                 "before": d.get("前", ""), "sentence": d.get("含む文", ""), "after": d.get("後", ""),
                 "strength": ef.get("強さ", ""), "summary": ef.get("要約", ""), "not_said": ef.get("言っていないこと", ""),
-                "written_by": ef.get("記入", ""), "summary_checked": ef["要約の確認"] if ok else None})
+                "written_by": ef.get("記入", ""), "summary_checked": ef["要約の確認"] if ok else None,
+                "summary_fp": summary_fingerprint(ef)})
         if item["kind"] == "主張":
             item["commands"] = {
                 "approve": f'python {tool} approve {cid} --by 人 --note "…"',
@@ -1172,7 +1264,8 @@ def review_data(cids=None, images=None, include_done=False):
                 "confirm": [f"python {tool} confirm {e['id']} --by 人" for e in item["evidence"]
                             if not e.get("missing") and not e.get("summary_checked")]}
         items.append(item)
-    return {"manuscript": target.as_posix(), "date": datetime.date.today().isoformat(), "citations": items}
+    return {"manuscript": target.as_posix(), "date": datetime.date.today().isoformat(),
+            "generated": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "citations": items}
 
 
 def review_md(data):
@@ -1215,6 +1308,301 @@ def review_md(data):
     return "\n".join(out) + "\n"
 
 
+def review_page(data):
+    """承認の HTML（単体で開ける一枚）。表示と判断の入力だけで、書き込まない。判断はファイルに書き出し、apply で書き込む。
+
+    件数が増える前提で、一件を詰めて描く。逐語を AI の候補より先に置く順は md の review と同じである。
+    """
+    import base64
+    import json
+    from html import escape as E
+
+    images = {}  # 同じ頁の画像は一度だけ埋め込み、カードからは名前で指す
+
+    def img_ref(path):
+        name = Path(path).name
+        if name not in images:
+            try:
+                images[name] = "data:image/png;base64," + base64.b64encode(Path(path).read_bytes()).decode("ascii")
+            except OSError:
+                return None
+        return name
+
+    def short(t, n=40):  # 長い記入は切り、全文はマウスを載せると出す
+        return t if len(t) <= n else t[:n] + "…"
+
+    uses = {}  # 抜き書きごとに、根拠にしている引用
+    for it in data["citations"]:
+        for e in it["evidence"]:
+            uses.setdefault(e["id"], []).append(it["id"])
+
+    cards, meta = [], []
+    for it in data["citations"]:
+        if it["kind"] != "主張":
+            continue
+        cid = E(it["id"])
+        sev = "ok" if it["state"] == "承認済" else ("miss" if it["errors"] else ("warn" if it["state"] != "未承認" else "info"))
+        sent = E(it["sentence"])
+        para = E(it["paragraph"]).replace(sent, f"<mark>{sent}</mark>", 1)
+        f = it["fields"]
+        detail = f'（{E(it["state_detail"])}）' if it["state_detail"] and it["state"] != "承認済" else ""
+        h = [f'<article class="card s-{sev}" id="{cid}" data-id="{cid}" data-done="{int(it["state"] == "承認済")}" tabindex="-1">',
+             f'<header><b>〔{cid}〕</b><span class="st s-{sev}">{E(it["state"])}{detail}</span>'
+             + (f'<span class="tag">{E(f["原文との差"])}</span>' if f.get("原文との差") else "")
+             + f'<span class="mut">{E(it["section"])}・{it["line"]} 行</span>'
+             f'<button class="fold" type="button" title="畳む・開く">▾</button></header><div class="body">']
+        for e in it["errors"]:
+            h.append(f'<p class="err">整合の崩れ：{E(e.split(": ", 1)[-1])}</p>')
+        if f.get("差し戻しの理由"):
+            h.append(f'<p class="back">差し戻しの理由：{E(f["差し戻しの理由"])}</p>')
+        h.append(f'<div class="sent">{sent}<details class="inline"><summary>段落</summary><span class="para">{para}</span></details></div>')
+        for i, e in enumerate(it["evidence"], 1):
+            eid = E(e["id"])
+            if e.get("missing"):
+                h.append(f'<div class="ev"><p class="evh">根拠 {i} {eid}（抜き書きが無い）</p></div>')
+                continue
+            others = [c for c in uses.get(e["id"], []) if c != it["id"]]
+            h.append(f'<div class="ev"><p class="evh">根拠 {i} <b>{eid}</b> <span class="mut">'
+                     f'{E(e["location"] or "所在を導けない")}・{E(e["match"])}・{E(e["grade"])}'
+                     + (f'・他に {E("・".join(others))} の根拠' if others else "") + "</span></p>")
+            if e["source_check"]:
+                h.append(f'<p class="mut sm">原本での確認：{E(e["source_check"])}</p>')
+            h.append(f'<blockquote>{E(e["verbatim"])}</blockquote><div class="tools">')
+            ref = img_ref(e["image"]) if e.get("image") else None
+            if e["weak"]:
+                h.append(f'<details><summary>頁の画像（抽出に誤読あり）</summary><img data-img="{E(ref)}" alt="{eid} の頁"></details>'
+                         if ref else '<span class="mut sm">抽出に誤読あり。前後は原本で読む</span>')
+            ctx = [(n, e[k]) for n, k in (("前", "before"), ("含む文", "sentence"), ("後", "after")) if e[k]]
+            if ctx:
+                h.append('<details><summary>前後の文（抽出のまま）</summary><dl>'
+                         + "".join(f"<dt>{n}</dt><dd>{E(v)}</dd>" for n, v in ctx) + "</dl></details>")
+            h.append("</div>")
+            done = bool(e["summary_checked"])
+            h.append(f'<div class="ai{" done" if done else ""}"><p class="aih"><span class="tag">{E(e["strength"])}</span>'
+                     + (f'<span class="mut sm">確認済（{E(e["summary_checked"])}）</span>' if done else
+                        f'<span class="mut sm" title="{E(e["written_by"])}">AI の候補（{E(short(e["written_by"]))}）</span>'
+                        f'<label class="cf"><input type="checkbox" data-confirm="{eid}"> 原文と照らして確かめた</label>')
+                     + f'</p><p><span class="k">要約</span>{E(e["summary"])}</p>'
+                     f'<p><span class="k">言っていない</span>{E(e["not_said"])}</p></div></div>')
+        rows = [(n, f[n]) for n in ("理由", "解釈", "引用でない句", "承認の理由") if f.get(n)]
+        h.append('<dl class="cf-rows">' + "".join(f"<dt>{n}</dt><dd>{E(v)}</dd>" for n, v in rows) + "</dl>"
+                 + f'<p class="mut sm" title="{E(f.get("記入", ""))}">記入：{E(short(f.get("記入", ""), 60))}</p></div>')
+        h.append(f'<div class="decide" data-choice=""><span class="opts">'
+                 f'<label><input type="radio" name="d-{cid}" value="" checked>保留</label>'
+                 f'<label><input type="radio" name="d-{cid}" value="approve">承認</label>'
+                 f'<label><input type="radio" name="d-{cid}" value="send_back">差し戻し</label></span>'
+                 f'<textarea data-note="{cid}" rows="1" placeholder="理由（差し戻しでは必須）"></textarea></div></article>')
+        cards.append("".join(h))
+        meta.append({"id": it["id"], "fingerprint": it["fingerprint"], "evidence": it["evidence_fp"],
+                     "excerpts": {e["id"]: e["summary_fp"] for e in it["evidence"] if not e.get("missing")}})
+    pending = sum(1 for it in data["citations"] if it["kind"] == "主張" and it["state"] != "承認済")
+    payload = json.dumps({"manuscript": data["manuscript"], "generated": data["generated"], "citations": meta,
+                          "images": images}, ensure_ascii=False).replace("</", "<\\/")
+    return REVIEW_PAGE.replace("{{TITLE}}", E(f"引用の承認：{data['manuscript']}")) \
+        .replace("{{HEAD}}", E(f"{data['manuscript']}・{data['generated']} 作成・確認待ち {pending} 件")) \
+        .replace("{{CARDS}}", "\n".join(cards) or '<p class="mut">主張の引用が無い。</p>') \
+        .replace("{{DATA}}", payload)
+
+
+REVIEW_PAGE = r"""<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{TITLE}}</title>
+<style>
+:root { --bg:#f6f6f4; --card:#fff; --fg:#1d1d1b; --mut:#6b6b66; --line:#e2e1dc; --q:#2f6fd6; --ok:#2d7a43; --warn:#9a6400;
+  --miss:#b03434; --info:#5d5d58; --ai:#fffaf0; --aib:#d8c18c; --mark:#fff2a8; --okbg:#eaf6ee; --warnbg:#fdf1dc; --tag:#efeee9; }
+@media (prefers-color-scheme: dark) { :root { --bg:#191918; --card:#232321; --fg:#e8e7e3; --mut:#a3a29c; --line:#3a3936;
+  --q:#7aa7f0; --ok:#6cc58a; --warn:#e2b25a; --miss:#ef8080; --info:#b9b8b2; --ai:#2b281f; --aib:#6e5f3a; --mark:#5a4f1c;
+  --okbg:#1f3326; --warnbg:#3a2f1a; --tag:#33322f; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.6 "Yu Gothic UI","Yu Gothic","Meiryo","Noto Sans JP",sans-serif; }
+.bar { position:sticky; top:0; z-index:2; background:var(--card); border-bottom:1px solid var(--line); padding:6px 16px;
+  display:flex; flex-wrap:wrap; gap:4px 14px; align-items:center; font-size:13px; }
+.bar h1 { font-size:14px; margin:0; } .bar input[type=text] { width:8em; padding:1px 6px; font:inherit; }
+.bar button { font:inherit; padding:2px 10px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); cursor:pointer; }
+.bar button.primary { background:var(--q); color:#fff; border-color:var(--q); }
+main { max-width:880px; margin:0 auto; padding:10px 16px 40vh; }
+.note { color:var(--mut); font-size:12px; margin:0 0 8px; }
+.mut { color:var(--mut); } .sm { font-size:12px; }
+.card { background:var(--card); border:1px solid var(--line); border-left:4px solid var(--line); border-radius:6px; margin:0 0 10px; overflow:hidden; }
+.card.s-info { border-left-color:var(--info); } .card.s-warn { border-left-color:var(--warn); }
+.card.s-miss { border-left-color:var(--miss); } .card.s-ok { border-left-color:var(--ok); }
+.card:focus { outline:2px solid var(--q); outline-offset:1px; }
+body.pending-only .card[data-done="1"] { display:none; }
+.card.folded .body { display:none; } .card.folded .fold { transform:rotate(-90deg); }
+header { display:flex; flex-wrap:wrap; gap:2px 10px; align-items:baseline; padding:6px 12px 0; }
+header .mut { font-size:12px; } .fold { margin-left:auto; border:0; background:none; color:var(--mut); cursor:pointer; font-size:14px; }
+.st { font-size:12px; } .st.s-ok { color:var(--ok); } .st.s-warn { color:var(--warn); } .st.s-miss { color:var(--miss); } .st.s-info { color:var(--info); }
+.tag { font-size:11px; background:var(--tag); border-radius:3px; padding:0 6px; }
+.body { padding:0 12px 6px; }
+p { margin:2px 0; } .sent { margin:4px 0 6px; }
+details.inline { display:inline; margin-left:6px; } details.inline > summary { display:inline; }
+details summary { cursor:pointer; color:var(--mut); font-size:12px; } details[open].inline .para { display:block; font-size:13px; margin-top:4px; }
+.ev { border-top:1px solid var(--line); padding-top:4px; margin-top:4px; }
+.evh { font-size:12px; } .evh b { font-weight:600; }
+blockquote { margin:3px 0; padding:3px 10px; border-left:3px solid var(--q); background:var(--bg); }
+.tools { display:flex; flex-wrap:wrap; gap:0 16px; } .tools details { flex:1 1 100%; } .tools details:not([open]) { flex:0 0 auto; }
+details img { max-width:100%; border:1px solid var(--line); margin-top:4px; }
+dl { margin:2px 0; } dt { color:var(--mut); font-size:12px; } dd { margin:0 0 2px 1em; overflow-wrap:anywhere; font-size:13px; }
+.ai { margin-top:4px; padding:3px 10px; border:1px dashed var(--aib); background:var(--ai); border-radius:4px; font-size:13px; }
+.ai.done { border-style:solid; }
+.aih { display:flex; flex-wrap:wrap; gap:0 10px; align-items:center; } .cf { margin-left:auto; font-size:12px; }
+.k { display:inline-block; min-width:5.5em; color:var(--mut); font-size:12px; }
+dl.cf-rows { display:grid; grid-template-columns:auto 1fr; gap:1px 10px; margin-top:6px; border-top:1px solid var(--line); padding-top:4px; }
+dl.cf-rows dt { white-space:nowrap; } dl.cf-rows dd { margin:0; }
+mark { background:var(--mark); color:inherit; }
+.err { color:var(--miss); } .back { color:var(--warn); }
+.decide { display:flex; gap:10px; align-items:flex-start; padding:5px 12px; border-top:3px solid var(--line); background:var(--bg); }
+.decide[data-choice="approve"] { border-top-color:var(--ok); background:var(--okbg); }
+.decide[data-choice="send_back"] { border-top-color:var(--warn); background:var(--warnbg); }
+.opts { display:flex; gap:10px; white-space:nowrap; padding-top:2px; } .opts label { cursor:pointer; }
+textarea { flex:1; min-width:0; font:inherit; font-size:13px; padding:2px 8px; background:var(--card); color:var(--fg);
+  border:1px solid var(--line); border-radius:4px; resize:none; overflow:hidden; }
+.keys { font-size:11px; }
+@media (max-width:600px) { .decide { flex-wrap:wrap; } textarea { flex-basis:100%; } }
+</style></head>
+<body class="pending-only">
+<div class="bar"><h1>引用の承認</h1><span class="mut">{{HEAD}}</span>
+<label class="mut">判断する者 <input type="text" id="by" value="人"></label>
+<label class="mut"><input type="checkbox" id="all"> 承認済も表示</label>
+<label class="mut"><input type="checkbox" id="foldDone"> 判断したものを畳む</label>
+<span id="count"></span>
+<button class="primary" id="save">判断ファイルを保存</button>
+<span class="mut keys">j/k 移動・1 保留・2 承認・3 差し戻し・r 理由・f 畳む</span></div>
+<main>
+<p class="note">本文と根拠の逐語を読んでから判断する。点線の枠は AI の候補である。この HTML は何も書き込まない。
+保存した判断ファイルを <code>python .claude/skills/cite-bridge/bridge.py apply &lt;ファイル&gt;</code> に渡すと、
+この HTML を作った時点から本文・根拠・要約が変わっていないものだけが書き込まれる。</p>
+{{CARDS}}
+</main>
+<script type="application/json" id="data">{{DATA}}</script>
+<script>
+const D = JSON.parse(document.getElementById('data').textContent);
+const KEY = 'cite-bridge:' + D.manuscript;
+const byId = Object.fromEntries(D.citations.map(c => [c.id, c]));
+const cards = () => [...document.querySelectorAll('article.card')].filter(a => a.offsetParent !== null);
+function load() {
+  // 前の版（作った時刻をキーに含めていた）に残っている入力も読む。新しいキーの入力を優先する
+  try {
+    const merged = {decisions: {}, confirms: []};
+    const keys = Object.keys(localStorage).filter(k => k.startsWith(KEY + ':')).sort();
+    for (const k of [...keys, KEY]) {
+      const s = JSON.parse(localStorage.getItem(k) || '{}');
+      if (s.by) merged.by = s.by;
+      if (s.foldDone !== undefined) merged.foldDone = s.foldDone;
+      Object.assign(merged.decisions, s.decisions || {});
+      merged.confirms.push(...(s.confirms || []));
+    }
+    return merged;
+  } catch (e) { return {}; }
+}
+function store(s) { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {} }
+function grow(t) { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }
+function collect() {
+  const s = {decisions: {}, confirms: [], by: document.getElementById('by').value,
+             foldDone: document.getElementById('foldDone').checked};
+  document.querySelectorAll('article.card').forEach(a => {
+    const id = a.dataset.id, r = a.querySelector('input[type=radio]:checked');
+    const note = a.querySelector('textarea').value.trim();
+    if ((r && r.value) || note) s.decisions[id] = {action: r ? r.value : '', note,
+      fingerprint: byId[id].fingerprint, evidence: byId[id].evidence};
+    a.querySelector('.decide').dataset.choice = r ? r.value : '';
+  });
+  document.querySelectorAll('input[data-confirm]:checked').forEach(c => s.confirms.push(c.dataset.confirm));
+  s.confirms = [...new Set(s.confirms)];
+  return s;
+}
+function refresh() {
+  const s = collect(); store(s);
+  const n = Object.values(s.decisions).filter(d => d.action).length;
+  document.getElementById('count').textContent = '判断 ' + n + ' 件・要約の確認 ' + s.confirms.length + ' 件';
+}
+function restore() {
+  const s = load();
+  if (s.by) document.getElementById('by').value = s.by;
+  if (s.foldDone) document.getElementById('foldDone').checked = true;
+  for (const [id, d] of Object.entries(s.decisions || {})) {
+    const a = document.getElementById(id); if (!a || !byId[id]) continue;
+    // 判断した後に本文か根拠が変わった引用は、入力を戻さない（見直してもらう）
+    if (d.fingerprint && (d.fingerprint !== byId[id].fingerprint || d.evidence !== byId[id].evidence)) continue;
+    const r = a.querySelector('input[type=radio][value="' + (d.action || '') + '"]'); if (r) r.checked = true;
+    a.querySelector('textarea').value = d.note || '';
+  }
+  (s.confirms || []).forEach(e => document.querySelectorAll('input[data-confirm="' + e + '"]').forEach(c => c.checked = true));
+}
+function foldDecided() {
+  const on = document.getElementById('foldDone').checked;
+  document.querySelectorAll('article.card').forEach(a => {
+    const r = a.querySelector('input[type=radio]:checked');
+    if (on && r && r.value) a.classList.add('folded');
+  });
+}
+document.addEventListener('input', e => {
+  if (e.target.matches('textarea')) grow(e.target);
+  if (e.target.matches('input[data-confirm]'))  // 同じ根拠が他のカードにもあれば、確認の印をそろえる
+    document.querySelectorAll('input[data-confirm="' + e.target.dataset.confirm + '"]').forEach(c => c.checked = e.target.checked);
+  refresh();
+});
+document.addEventListener('change', e => { if (e.target.matches('input[type=radio]')) foldDecided(); });
+document.addEventListener('click', e => {
+  const b = e.target.closest('.fold'); if (b) b.closest('article').classList.toggle('folded');
+});
+document.addEventListener('toggle', e => {  // 頁の画像は開いたときに入れる（同じ画像を一度だけ持つ）
+  const img = e.target.querySelector && e.target.querySelector('img[data-img]');
+  if (img && !img.src) img.src = D.images[img.dataset.img];
+}, true);
+document.getElementById('all').addEventListener('change', e => document.body.classList.toggle('pending-only', !e.target.checked));
+document.getElementById('foldDone').addEventListener('change', e => {
+  if (!e.target.checked) document.querySelectorAll('article.card.folded').forEach(a => a.classList.remove('folded'));
+  foldDecided(); refresh();
+});
+document.addEventListener('keydown', e => {
+  if (e.target.matches('input[type=text], textarea') || e.ctrlKey || e.metaKey || e.altKey) {
+    if (e.key === 'Escape') e.target.blur();
+    return;
+  }
+  const list = cards(); if (!list.length) return;
+  let cur = document.activeElement.closest && document.activeElement.closest('article.card');
+  let i = cur ? list.indexOf(cur) : -1;
+  const go = j => { const a = list[Math.max(0, Math.min(list.length - 1, j))]; a.focus(); a.scrollIntoView({block: 'start'}); };
+  if (e.key === 'j') { go(i + 1); e.preventDefault(); return; }
+  if (e.key === 'k') { go(i - 1); e.preventDefault(); return; }
+  if (!cur) return;
+  const v = {'1': '', '2': 'approve', '3': 'send_back'}[e.key];
+  if (v !== undefined) {
+    cur.querySelector('input[type=radio][value="' + v + '"]').checked = true; refresh(); foldDecided();
+    if (v === 'send_back') cur.querySelector('textarea').focus();
+    e.preventDefault(); return;
+  }
+  if (e.key === 'r') { cur.querySelector('textarea').focus(); e.preventDefault(); }
+  if (e.key === 'f') { cur.classList.toggle('folded'); e.preventDefault(); }
+});
+document.getElementById('save').addEventListener('click', () => {
+  const s = collect(), by = s.by.trim();
+  if (!by) { alert('判断する者を書く'); return; }
+  const missing = Object.entries(s.decisions).filter(([id, d]) => d.action === 'send_back' && !d.note).map(([id]) => id);
+  if (missing.length) { alert('差し戻しには理由が要る: ' + missing.join(', ')); return; }
+  const confirms = [];
+  for (const e of s.confirms) {
+    const c = D.citations.find(c => e in c.excerpts); if (c) confirms.push({id: e, fingerprint: c.excerpts[e]});
+  }
+  const out = {format: 'cite-bridge-decisions/1', manuscript: D.manuscript, generated: D.generated, by,
+    saved: new Date().toISOString(),
+    decisions: Object.entries(s.decisions).filter(([id, d]) => d.action).map(([id, d]) => ({id, action: d.action, note: d.note,
+      fingerprint: byId[id].fingerprint, evidence: byId[id].evidence})),
+    confirms};
+  if (!out.decisions.length && !out.confirms.length) { alert('判断がまだ無い'); return; }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 1)], {type: 'application/json'}));
+  a.download = 'decisions_' + D.manuscript.replace(/[^\w.-]+/g, '_').replace(/\.md$/, '') + '.json';
+  document.body.appendChild(a); a.click(); a.remove();
+});
+restore(); refresh(); foldDecided();
+document.querySelectorAll('textarea').forEach(grow);
+</script>
+</body></html>
+"""
+
+
 def cmd_review(args):
     """人が引用を確かめるための材料を出す。md（既定）は逐語を先に、AI の候補（要約・解釈）を後に置く。
 
@@ -1223,6 +1611,15 @@ def cmd_review(args):
     表示の側は bridge を読むだけで、承認・差し戻し・確認の書き込みは approve と confirm を通す。
     """
     import json
+    if args.html:  # 承認の HTML は承認済も含めて作る（画面で表示を切り替える）。頁の画像は一時フォルダに作って埋め込む
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            data = review_data(args.cids, args.images or tmp, include_done=True)
+            doc = review_page(data)
+        out = args.out or "review.html"
+        Path(out).write_text(doc, encoding="utf-8", newline="\n")
+        print(f"ok review: {out}（主張の引用 {sum(1 for c in data['citations'] if c['kind'] == '主張')} 件）")
+        return
     data = review_data(args.cids, args.images, include_done=args.all)
     doc = json.dumps(data, ensure_ascii=False, indent=1) + "\n" if args.json else review_md(data)
     if args.out:
@@ -1230,29 +1627,6 @@ def cmd_review(args):
         print(f"ok review: {args.out}（{len(data['citations'])} 件）")
     else:
         print(doc, end="")
-
-
-def cmd_confirm(args):
-    """抜き書きの要約・言っていないこと・強さを、人（または書き手と別の者）が原文と照らして確かめたことを記録する。"""
-    if "#" not in args.eid:
-        sys.exit("抜き書きは key#eN で指す")
-    key, bid = args.eid.split("#", 1)
-    for path in sorted(EXC_DIR.glob("*.md")):
-        head, blocks = parse_blocks(path)
-        if head["title"] != key:
-            continue
-        b = next((x for x in blocks if x["id"] == bid), None)
-        if b is None:
-            break
-        today = datetime.date.today().isoformat()
-        new = [f"{out_name('要約の確認')}: {args.by} {today}" + (f"（{args.note}）" if args.note else ""),
-               f"@{out_name('要約の確認時の指紋')}: {summary_fingerprint(b['fields'])}"]
-        _replace_block_lines(path, bid, r"^@?(要約の確認|summary_check)", new)
-        hd, bd = derive_excerpts(parse_bib(), {})[path]  # 導く欄をブロックの末尾へ並べ直す
-        rewrite_derived(path, hd, bd)
-        print(f"要約の確認を記録: {args.eid} {args.by} {today}")
-        return
-    sys.exit(f"抜き書き '{args.eid}' が無い")
 
 
 def cmd_extract(args):
@@ -1475,6 +1849,11 @@ def main():
     rv.add_argument("-o", "--out", help="書き出すファイル（省くと標準出力）")
     rv.add_argument("--json", action="store_true", help="外の表示へ渡す JSON で出す")
     rv.add_argument("--all", action="store_true", help="承認済と指示の引用も含める")
+    rv.add_argument("--html", action="store_true", help="承認の HTML（単体で開ける一枚）を -o に書く")
+    ap_ = sub.add_parser("apply")
+    ap_.add_argument("file", help="承認の HTML が保存した判断ファイル（JSON）")
+    ap_.add_argument("--dry-run", action="store_true", help="書かずに、書けるかだけを見る")
+    ap_.set_defaults(func=cmd_apply)
     rv.set_defaults(func=cmd_review)
     x = sub.add_parser("extract")
     x.add_argument("keys", nargs="*")

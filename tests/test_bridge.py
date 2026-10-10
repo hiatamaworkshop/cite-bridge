@@ -378,6 +378,46 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(c["evidence"][0]["id"], "doe2020#e1")
         self.assertIn("approve c001", c["commands"]["approve"])
 
+    def _decisions(self, action, note="", confirm=False):
+        import json
+        c = json.loads(self.run_bridge("review", "--json", "--all")[1])["citations"][0]
+        d = {"format": "cite-bridge-decisions/1", "manuscript": "manuscript.md", "by": "tester",
+             "decisions": [{"id": "c001", "action": action, "note": note, "fingerprint": c["fingerprint"],
+                            "evidence": c["evidence_fp"]}],
+             "confirms": [{"id": "doe2020#e1", "fingerprint": c["evidence"][0]["summary_fp"]}] if confirm else []}
+        self.write("decisions.json", json.dumps(d, ensure_ascii=False))
+
+    def test_review_html_and_apply(self):
+        self.run_bridge("derive")
+        code, out = self.run_bridge("review", "--html", "-o", "review.html")
+        self.assertEqual(code, 0, out)
+        page = self.read("review.html")
+        self.assertIn('data-id="c001"', page)
+        self.assertIn("cite-bridge-decisions/1", page)
+        self.assertLess(page.index("<blockquote>"), page.index('class="ai"'))  # 逐語を AI の候補より先に
+        self._decisions("approve", "原文のまま", confirm=True)
+        code, out = self.run_bridge("apply", "decisions.json", "--dry-run")
+        self.assertEqual(code, 0, out)
+        self.assertIn("未承認 1", self.run_bridge("check")[1])  # dry-run は書かない
+        code, out = self.run_bridge("apply", "decisions.json")
+        self.assertEqual(code, 0, out)
+        out = self.run_bridge("check")[1]
+        self.assertIn("承認済 1", out)
+        self.assertIn("tester 1", out)  # 要約の確認
+        self.assertIn("承認の理由: 原文のまま", self.read("bridge/citations.md"))
+
+    def test_apply_refuses_stale_and_records_send_back(self):
+        self.run_bridge("derive")
+        self._decisions("send_back", "限定が落ちている")
+        self.write("manuscript.md", self.read("manuscript.md").replace("Doe らの実験では", "Doe らの研究では"))
+        code, out = self.run_bridge("apply", "decisions.json")
+        self.assertEqual(code, 1)
+        self.assertIn("判断した後に本文が変わった", out)
+        self.assertIn("未承認 1", self.run_bridge("check")[1])
+        self._decisions("send_back", "限定が落ちている")
+        self.assertEqual(self.run_bridge("apply", "decisions.json")[0], 0)
+        self.assertIn("差し戻し。書き手が直すのを待っている", self.run_bridge("check")[1])
+
     def test_snapshot_rebuild_with_folded_headings(self):
         html = ('<html><body><h2>Commands</h2><p>Intro.</p><a class="zippy">Grid selection</a>'
                 '<p>Say "Show grid" to start.</p><details><summary>Labels</summary><p>Say "Show labels".</p></details></body></html>')
