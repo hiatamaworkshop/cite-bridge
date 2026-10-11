@@ -422,11 +422,98 @@ class BridgeTest(unittest.TestCase):
         self.write("manuscript.md", self.read("manuscript.md") + "\n印の無い引用がある（Smith, 2010）。製品の頁もある（Acme, Docs page）。\n")
         self.run_bridge("derive")
         out = self.run_bridge("check")[1]
-        self.assertIn("出典らしき括弧 2 のうち、印のある文にあるもの 1、印の無い文にあるもの 1", out)  # 既定は年の括弧だけ
+        self.assertIn("出典らしき括弧 2 のうち、印のあるもの 1、印の無いもの 1", out)  # 既定は年の括弧だけ
         code, out = self.run_bridge("coverage")
         self.assertIn("manuscript.md:7  （Smith, 2010）", out)
         self.write("bridge/bridge.toml", CONFIG + "[coverage]\npattern = '[（(][^（）()]*\\d{4}[^（）()]*[）)]|[（(][A-Z]\\w*, [^（）()]+[）)]'\n")
-        self.assertIn("印の無い文にあるもの 2", self.run_bridge("check")[1])
+        self.assertIn("印の無いもの 2", self.run_bridge("check")[1])
+
+    def test_coverage_counts_each_paren_in_a_sentence(self):
+        # 一文に出典が二つあり印が一つなら、印の無い括弧は印の無い出典として数える
+        self.write("manuscript.md", self.read("manuscript.md").replace("（Doe, 2020）〔c001〕。", "（Doe, 2020）〔c001〕、Smith（2010）も同じである。"))
+        self.run_bridge("derive")
+        self.assertIn("印のあるもの 1、印の無いもの 1", self.run_bridge("check")[1])
+
+    # ---- 候補（作業票・下書き・受け入れ）
+
+    def _propose(self):
+        import json
+        self.write("manuscript.md", self.read("manuscript.md")
+                   + "\n山田（2002）は、音声は状態理解の容易性に関して不利なメディアであると述べた。\n"
+                   + "\n詳細は前の版に譲る（§2.1, 2020 改訂）。\n")
+        self.run_bridge("derive")
+        code, out = self.run_bridge("propose")
+        self.assertEqual(code, 0, out)
+        work = json.loads(self.read("bridge/candidates/work.json"))
+        items = {w["paren"]: w for w in work["items"]}
+        return items["（2002）"], items["（§2.1, 2020 改訂）"]
+
+    def test_propose_work_packet(self):
+        ya, sec = self._propose()
+        self.assertEqual(ya["keys"][0]["key"], "yamada2002")  # 括弧の直前の名前から key を推す
+        top = ya["keys"][0]["passages"][0]
+        self.assertIn("状態理解の容易性", top["text"])  # 受け持つ句に近い原典の文が先に来る
+        self.assertIn("§1 はじめに", top["location"])
+        self.assertTrue((self.dir / "bridge/candidates/work.md").exists())
+
+    def test_candidate_load_review_and_accept(self):
+        import json
+        ya, sec = self._propose()
+        n = ya["keys"][0]["passages"][0]["n"]
+        drafts = {"format": "cite-bridge-drafts/1", "items": [
+            {"item": ya["item"], "kind": "主張", "key": "yamada2002",
+             "excerpts": [{"sentences": [n], "from": "音声は", "強さ": "観察", "要約": "音声は状態を理解しにくい。",
+                           "言っていないこと": "入力の側の話ではない。"}],
+             "理由": "試験", "原文との差": "言い換え", "記入": "AI 2026-10-11"},
+            {"item": sec["item"], "kind": "引用でない", "理由": "節の参照"},
+            {"item": ya["item"] + "x", "kind": "指示", "key": "nokey", "理由": "壊れた下書き", "記入": "AI"}]}
+        self.write("drafts.json", json.dumps(drafts, ensure_ascii=False))
+        code, out = self.run_bridge("propose", "--load", "drafts.json")
+        self.assertEqual(code, 1)  # 壊れた一件は断り、他は置く
+        self.assertIn("作業票に無い item", out)
+        self.assertIn("候補にした 2 件", out)
+        cands = json.loads(self.read("bridge/candidates/candidates.json"))["items"]
+        self.assertTrue(cands[ya["item"]]["excerpts"][0]["逐語"].startswith("音声は状態理解"))  # 逐語は道具が原典から写す
+        self.assertIn("人の判断を待つもの 2 件", self.run_bridge("check")[1])
+        code, out = self.run_bridge("review", "--html", "-o", "r.html")
+        self.assertEqual(code, 0, out)
+        page = self.read("r.html")
+        self.assertIn(f'data-id="{ya["item"]}" data-cand="1"', page)
+        self.assertIn("受け入れる", page)
+        data = json.loads(self.run_bridge("review", "--json")[1])
+        cfp = {c["id"]: c["cfp"] for c in data["candidates"]}
+        dec = {"format": "cite-bridge-decisions/1", "manuscript": "manuscript.md", "by": "tester", "decisions": [], "confirms": [],
+               "candidates": [{"id": ya["item"], "action": "accept", "note": "原文どおり", "cfp": cfp[ya["item"]]},
+                              {"id": sec["item"], "action": "accept", "note": "", "cfp": cfp[sec["item"]]}]}
+        self.write("decisions.json", json.dumps(dec, ensure_ascii=False))
+        code, out = self.run_bridge("apply", "decisions.json")
+        self.assertEqual(code, 0, out)
+        self.assertIn("山田（2002）〔c002〕は、", self.read("manuscript.md"))
+        cit = self.read("bridge/citations.md")
+        self.assertIn("## c002\n種類: 主張\n抜き書き: yamada2002#e1", cit)
+        self.assertIn("承認の理由: 原文どおり", cit)
+        self.assertIn("要約の確認: tester", self.read("bridge/excerpts/yamada2002.md"))
+        out = self.run_bridge("check")[1]
+        self.assertIn("承認済 1 / 要再確認 0 / 未承認 1", out)  # c002 は受け入れで承認済、c001 は未承認のまま
+        self.assertIn("引用でないと判断したもの 1", out)
+        self.assertNotIn("人の判断を待つもの", out)
+
+    def test_candidate_refused_when_sentence_changed(self):
+        import json
+        ya, _ = self._propose()
+        drafts = {"format": "cite-bridge-drafts/1", "items": [
+            {"item": ya["item"], "kind": "指示", "key": "yamada2002", "理由": "試験", "記入": "AI"}]}
+        self.write("drafts.json", json.dumps(drafts, ensure_ascii=False))
+        self.assertEqual(self.run_bridge("propose", "--load", "drafts.json")[0], 0)
+        cfp = json.loads(self.run_bridge("review", "--json")[1])["candidates"][0]["cfp"]
+        self.write("manuscript.md", self.read("manuscript.md").replace("不利なメディア", "不利な媒体"))
+        dec = {"format": "cite-bridge-decisions/1", "manuscript": "manuscript.md", "by": "tester", "decisions": [], "confirms": [],
+               "candidates": [{"id": ya["item"], "action": "accept", "note": "", "cfp": cfp}]}
+        self.write("decisions.json", json.dumps(dec, ensure_ascii=False))
+        code, out = self.run_bridge("apply", "decisions.json")
+        self.assertEqual(code, 1)
+        self.assertIn("原稿のその文が変わった", out)
+        self.assertNotIn("〔c002〕", self.read("manuscript.md"))
 
     def test_approvers_registry(self):
         self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\nreviewer-model = "model"\n')

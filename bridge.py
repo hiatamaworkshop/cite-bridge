@@ -33,6 +33,9 @@ BIB = EXC_DIR = CIT = TXT_DIR = PDF_DIR = WEB_DIR = CKPT_DIR = None
 BIB_FORMAT = "keyline"
 PDF_RE = WEB_RE = None
 APPLIED = None      # 適用した判断ファイルの記録（bridge.applied）
+CAND_DIR = None     # 候補の作業票・下書き・候補（bridge.candidates）
+EXCLUDED = None     # 「引用でない」と判断した括弧の記録（bridge.excluded）。coverage が数えない
+MARK_FORMAT = "〔{id}〕"
 APPROVERS = {}      # 承認者の一覧 {名前: human / model}。空なら名前を問わない（approvers）
 # 出典らしき括弧（著者と年など）。印の無い文にあるものを「印の無い出典」として数える（coverage.pattern で替える）
 COVER_RE = re.compile(r"[（(][^（）()\n]*?(?<!\d)(?:19|20)\d{2}[a-z]?(?![\d年月日-])[^（）()\n]*[）)]")
@@ -68,8 +71,12 @@ def load_config(path):
         SENT_END_RE = re.compile(m["sentence_end"])
     PARAGRAPH = m.get("paragraph", PARAGRAPH)
     CKPT_DIR = Path(r.get("checkpoints", "bridge/checkpoints"))
-    global APPLIED, APPROVERS, COVER_RE
+    global APPLIED, APPROVERS, COVER_RE, CAND_DIR, EXCLUDED, MARK_FORMAT
     APPLIED = Path(r.get("applied", CIT.parent / "applied.json"))
+    CAND_DIR = Path(r.get("candidates", CIT.parent / "candidates"))
+    EXCLUDED = Path(r.get("excluded", CIT.parent / "excluded.json"))
+    # 候補を受け入れたときに原稿へ置く印の形。印の正規表現を替えたときは、こちらも設定しないと印を書けない
+    MARK_FORMAT = m.get("mark_format", None if m.get("mark_pattern") else "〔{id}〕")
     APPROVERS = {str(k): str(v) for k, v in c.get("approvers", {}).items()}
     bad = {k: v for k, v in APPROVERS.items() if v not in ("human", "model")}
     if bad:
@@ -706,6 +713,12 @@ def sentence_at(text, off):
     段落の区切りは設定 manuscript.paragraph で選ぶ。line は一行が一段落（行を折り返さない md）、
     blank は空行で段落を区切る（行を折り返す md や LaTeX）。文の終わりは manuscript.sentence_end の正規表現。
     """
+    a, z = sentence_bounds(text, off)
+    return re.sub(r"\s{2,}", " ", text[a:z]).strip()
+
+
+def sentence_bounds(text, off):
+    """off を含む文の (開始, 終了)。sentence_at の本体。"""
     if PARAGRAPH == "blank":
         b = [m.end() for m in re.finditer(r"\n[ \t]*\n", text[:off])]
         a = b[-1] if b else 0
@@ -724,9 +737,9 @@ def sentence_at(text, off):
             depth = max(0, depth - 1)
         elif depth == 0 and SENT_END_RE.match(text, i):
             if i >= off:
-                return re.sub(r"\s{2,}", " ", text[start:i + 1]).strip()
+                return start, i + 1
             start = i + 1
-    return re.sub(r"\s{2,}", " ", text[start:z]).strip()
+    return start, z
 
 
 def unmark(text):
@@ -748,13 +761,49 @@ def coverage_of(text):
     印の無い文の出典は、このツールが何も確かめていない引用である。check の「確認待ち 0」が引用全体の確認と読まれないよう数を出す。
     """
     marked, unmarked = 0, []
+    for c in coverage_items(text):
+        if c["marked"]:
+            marked += 1
+        elif not c["excluded"]:
+            unmarked.append((c["line"], c["paren"], c["section"]))
+    return marked, unmarked
+
+
+def load_excluded():
+    import json
+    return json.loads(EXCLUDED.read_text(encoding="utf-8")) if EXCLUDED and EXCLUDED.exists() else []
+
+
+def coverage_items(text):
+    """原稿の出典らしき括弧を、文と指紋つきで並べる。item は文の指紋・括弧・文の中で何番目の同じ括弧か、から作る ID で、
+    文が変わらない限り変わらない（候補の作業票と、引用でないの記録が使う）。"""
+    excluded = {(x["fingerprint"], x["paren"], x.get("nth", 0)) for x in load_excluded()}
+    seen = {}
+    out = []
     for m in COVER_RE.finditer(text):
         sent = sentence_at(text, m.start())
-        if MARK_RE.search(sent):
-            marked += 1
-        else:
-            unmarked.append((text.count("\n", 0, m.start()) + 1, m.group(0), heading_at(text, m.start())))
-    return marked, unmarked
+        fp = fingerprint(sent)
+        nth = seen.get((fp, m.group(0)), 0)
+        seen[(fp, m.group(0))] = nth + 1
+        item = "q" + hashlib.sha1(f"{fp}\t{m.group(0)}\t{nth}".encode("utf-8")).hexdigest()[:7]
+        k = m.end()
+        while k < len(text) and text[k] in " \t":
+            k += 1
+        out.append({"item": item, "off": m.start(), "end": m.end(), "paren": m.group(0), "nth": nth, "sentence": sent,
+                    "fingerprint": fp, "direct": bool(MARK_RE.match(text, k)), "excluded": (fp, m.group(0), nth) in excluded,
+                    "line": text.count("\n", 0, m.start()) + 1, "section": heading_at(text, m.start())})
+    # 括弧の直後に印があれば印のある出典。無くても、同じ文に括弧へ付いていない印が残っていれば、その数だけ前から印のあるものとみなす
+    # （印を文末に置いた引用）。一文に出典が三つあり印が二つなら、残る一つは印の無い出典である
+    by_sent = {}
+    for c in out:
+        by_sent.setdefault((c["fingerprint"], c["sentence"]), []).append(c)
+    for (fp, sent), cs in by_sent.items():
+        spare = len(MARK_RE.findall(sent)) - sum(c["direct"] for c in cs)
+        for c in cs:
+            c["marked"] = c["direct"] or spare > 0
+            if not c["direct"] and spare > 0:
+                spare -= 1
+    return out
 
 
 def evidence_hash(refs, excerpts):
@@ -979,9 +1028,15 @@ def run_check():
                 errors.append(f"{target}: 〔{cid}〕に対応するブロックが無い")
         cov_marked, cov_unmarked = coverage_of(text)
         coverage = {"spans": cov_marked + len(cov_unmarked), "in_marked_sentences": cov_marked, "unmarked": len(cov_unmarked)}
+        n_ex = len(load_excluded())
+        coverage["excluded"] = n_ex
         if coverage["spans"]:
-            infos.append(f"網羅: 原稿の出典らしき括弧 {coverage['spans']} のうち、印のある文にあるもの {cov_marked}、"
-                         f"印の無い文にあるもの {len(cov_unmarked)}（印の無いものはこのツールが確かめていない。一覧は coverage）")
+            infos.append(f"網羅: 原稿の出典らしき括弧 {coverage['spans'] + n_ex} のうち、印のあるもの {cov_marked}、"
+                         f"印の無いもの {len(cov_unmarked)}" + (f"、引用でないと判断したもの {n_ex}" if n_ex else "")
+                         + "（印の無いものはこのツールが確かめていない。一覧は coverage、候補づくりは propose）")
+        pend = sum(1 for c in load_candidates()["items"].values() if c.get("status") == "pending")
+        if pend:
+            infos.append(f"候補: 人の判断を待つもの {pend} 件（review --html）")
         returned = counts.get("差し戻し", 0) + counts.get("差し戻し後に直された", 0)
         infos.append(f"引用: 主張 承認済 {counts['承認済']} / 要再確認 {counts['要再確認']} / 未承認 {counts['未承認']}"
                      + (f" / 差し戻し {returned}" if returned else "") + f"、指示 {counts['指示']}")
@@ -1131,6 +1186,11 @@ def write_approval(cid, by, note=None, send_back=False, seen=None, dry=False):
         return False, f"{cid}: 判断した後に{'本文' if seen[0] != fp else '根拠'}が変わった。書かなかった（review を作り直して見直す）"
     if f.get("種類") != "主張":
         return False, f"{cid}: 主張の引用ではない"
+    # 同じ者・同じ理由で、指紋も変わらず承認済みなら書き直さない（承認の HTML はブラウザに残った前の判断も判断ファイルに含める）
+    rec = next((b.get("records", {}) for b in parse_blocks(CIT)[1] if b["id"] == cid), {})
+    if (not send_back and approval_state(f, rec, fp, ev)[0] == "承認済" and (f.get("承認") or "").split()[:1] == [by]
+            and (note or "") == f.get("承認の理由", "")):
+        return True, f"{cid}: 承認は記録済み（同じ判断）"
     today = datetime.date.today().isoformat()
     if send_back:
         if not note:
@@ -1277,6 +1337,10 @@ def cmd_apply(args):
         if x.get("remark"):
             ok, msg = write_remark(x["id"], by, x["remark"], dry=args.dry_run)
             (done if ok else skipped).append(msg)
+    for x in d.get("candidates", []):
+        if x.get("action") in ("accept", "reject"):
+            ok, msg = apply_candidate(x["id"], x["action"], by, x.get("note") or None, x.get("cfp"), dry=args.dry_run)
+            (done if ok else skipped).append(msg)
     for x in d.get("confirms", []):
         ok, msg = write_confirm(x["id"], by, seen=x["fingerprint"], dry=args.dry_run)
         (done if ok else skipped).append(msg)
@@ -1293,6 +1357,462 @@ def cmd_apply(args):
         APPLIED.write_text(json.dumps(log, ensure_ascii=False, indent=1) + "\n", encoding="utf-8", newline="\n")
     if skipped:
         sys.exit(1)
+
+
+# ---------------------------------------------------------------- 候補（作業票・下書き・受け入れ）
+#
+# 道具は拾う・絞る・確かめる・書く。書き手の AI は選ぶ・解釈の欄を書く。人は受け入れる（構想メモ §18）。
+# 候補の逐語は、道具が原典から写した範囲だけである。書き手は文の番号と、その中の部分の文字列で範囲を指す。
+
+def source_sentences(src):
+    """原典の本文を文に分け、(開始, 終了) の並びを返す。番号は作業票と下書きで共有するので、同じテキストなら同じになる。"""
+    lo = src.body_start
+    ends = {m.end() for m in SENT_END.finditer(src.raw, lo)}
+    ends |= {m.end() for m in re.compile(r"\n[ \t]*\n").finditer(src.raw, lo)}  # 段落の区切り（頁の区切りでは切らない。文は頁をまたぐ）
+    ends |= {h[3] for h in src.headings if h[3] >= lo}
+    ends |= {h[0] for h in src.headings if h[0] > lo}  # 見出しの行の前でも切る
+    ends.add(len(src.raw))
+    out, a = [], lo
+    for e in sorted(x for x in ends if x > lo):
+        if ABBREV_END.search(src.raw[a:e]) and "\n\n" not in src.raw[a:e][-3:] and e < len(src.raw):
+            continue  # et al. や e.g. の後では切らない（次の区切りまで伸ばす）
+        if len(normalize(src.raw[a:e], "alnum")[0]) >= 4:
+            out.append((a, e))
+        a = e
+    return out
+
+
+ABBREV_END = re.compile(r"(?<![A-Za-z])(?:al|e\.g|i\.e|cf|vs|etc|Fig|Figs|Eq|Sec|pp|p|No|Vol|Dr|Mr|Ms|St)\.\s*$")
+
+
+def sentence_text(src, a, b):
+    x = re.sub(r"(\w)-\s*\n\s*([a-z])", r"\1\2", src.raw[a:b])
+    return normalize(x.replace("\f", " "), "ws")[0].strip()
+
+
+def _feats(s):
+    from collections import Counter
+    t = normalize(s, "nfkc")[0]
+    a = re.sub(r"[\W_]+", "", t)
+    f = Counter(a[i:i + 2] for i in range(len(a) - 1))
+    f.update(w for w in re.findall(r"[a-z]{3,}", t))
+    return f
+
+
+def rank_texts(query, texts):
+    """query に近い順の添字。文字の二字組と英単語の重なりを、出現の少ないものを重く数える（構想メモ §18.1 の試し）。"""
+    import math
+    qf = _feats(query)
+    fs = [_feats(t) for t in texts]
+    df = {}
+    for f in fs:
+        for g in f:
+            df[g] = df.get(g, 0) + 1
+    n = len(texts)
+    scores = []
+    for i, f in enumerate(fs):
+        num = sum(min(qf[g], f[g]) * math.log((n + 1) / (df[g] + 0.5)) for g in qf if g in f)
+        scores.append((num / (math.sqrt(sum(f.values())) or 1), i))
+    return [i for s, i in sorted(scores, key=lambda x: -x[0])]
+
+
+def resolve_keys(window, bib, limit=3):
+    """出典の括弧（と直前の語）から、書誌の key の候補を点数の順に返す。年が合うこと、著者の部分に名前があることを重く見る。"""
+    years = set(re.findall(r"(?<!\d)((?:19|20)\d{2})(?!\d)", window))
+    latin = {w.lower() for w in re.findall(r"[A-Z][A-Za-z\x27-]{2,}", window)} - {"proceedings", "the", "and"}
+    kanji = set(re.findall(r"[㐀-鿿]{2,4}", window))
+    res = []
+    for key, b in bib.items():
+        entry = b["entry"]
+        m = re.search(r"[（(]\s*(?:(?:19|20)\d{2}|n\.d\.)", entry)
+        authors = entry[:m.start()] if m else entry[:80]
+        al, el = authors.lower(), entry.lower()
+        score, why = 0, []
+        for w in latin:
+            if re.search(r"(?<![a-z])" + re.escape(w) + r"(?![a-z])", al):
+                score += 3
+                why.append(w)
+            elif re.search(r"(?<![a-z])" + re.escape(w) + r"(?![a-z])", el):
+                score += 1
+        for w in kanji:
+            if w in authors:
+                score += 3
+                why.append(w)
+        ey = set(re.findall(r"(?<!\d)((?:19|20)\d{2})(?!\d)", entry))
+        if years and years & ey:
+            score += 2
+        elif years and ey:
+            score -= 2
+        if score >= 3 and why:
+            res.append({"key": key, "score": score, "entry": entry})
+    res.sort(key=lambda x: (-x["score"], x["key"]))
+    return res[:limit]
+
+
+def _clause(text, c, items):
+    """括弧が受け持つ句。同じ文の前の出典の括弧から、次の出典の括弧まで（日本語は「小林（2002）は…」と後ろに述べる形が多い）。"""
+    a, z = sentence_bounds(text, c["off"])
+    same = [x for x in items if a <= x["off"] < z]
+    prev = [x for x in same if x["off"] < c["off"]]
+    nxt = [x for x in same if x["off"] > c["off"]]
+    lo = prev[-1]["end"] if prev else a
+    hi = nxt[0]["off"] if nxt else z
+    return re.sub(r"\s+", " ", MARK_RE.sub("", text[lo:hi])).strip()
+
+
+def _sources_for(key, bib, cache):
+    grade, txt = grade_of(key, bib)
+    if not txt:
+        return grade, None
+    if txt not in cache:
+        cache[txt] = Source(txt)
+    return grade, cache[txt]
+
+
+def load_candidates():
+    import json
+    p = CAND_DIR / "candidates.json"
+    return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {"format": "cite-bridge-candidates/1", "items": {}}
+
+
+def save_candidates(c):
+    import json
+    CAND_DIR.mkdir(parents=True, exist_ok=True)
+    (CAND_DIR / "candidates.json").write_text(json.dumps(c, ensure_ascii=False, indent=1) + "\n", encoding="utf-8", newline="\n")
+
+
+def candidate_fp(c):
+    """候補の指紋。人が見た候補と、受け入れるときの候補が同じかを確かめる。"""
+    import json
+    body = {k: v for k, v in c.items() if k not in ("status", "loaded", "decided")}
+    return hashlib.sha1(json.dumps(body, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:8]
+
+
+def _manuscript():
+    head, _ = parse_blocks(CIT)
+    return Path(head["fields"].get("対象", ""))
+
+
+def cmd_propose(args):
+    """印の無い出典ごとに作業票を作る（--load なら、書き手の下書きを検査して候補として置く）。"""
+    if args.load:
+        return _load_drafts(args)
+    import json
+    bib = parse_bib()
+    target = _manuscript()
+    text = mask_comments(target.read_text(encoding="utf-8"))
+    items = coverage_items(text)
+    cands = load_candidates()["items"]
+    extra = {}
+    for s in args.add_key or []:
+        q, _, k = s.partition("=")
+        if k not in bib:
+            sys.exit(f"--add-key {s}: key '{k}' が書誌に無い")
+        extra.setdefault(q, []).append(k)
+    exc = load_excerpt_fields()
+    lo, hi = (int(x) for x in args.lines.split("-")) if args.lines else (0, 10 ** 9)
+    picked = [c for c in items if not c["marked"] and not c["excluded"] and lo <= c["line"] <= hi
+              and (not args.section or args.section in c["section"])
+              and cands.get(c["item"], {}).get("status") not in ("accepted",)
+              and (not args.items or c["item"] in args.items)]
+    picked = picked[:args.limit]
+    cache, work = {}, []
+    for c in picked:
+        window = text[max(0, c["off"] - 30):c["end"]]
+        keys = resolve_keys(window, bib)
+        for k in extra.get(c["item"], []):
+            if k not in [x["key"] for x in keys]:
+                keys.insert(0, {"key": k, "score": None, "entry": bib[k]["entry"]})
+        clause = _clause(text, c, items)
+        query = COVER_RE.sub(" ", clause)  # 出典の括弧の名前と年で、原典の中の別の引用が上位に来ないように外す
+        w = {"item": c["item"], "line": c["line"], "section": c["section"], "paren": c["paren"], "nth": c["nth"],
+             "sentence": unmark(c["sentence"]), "fingerprint": c["fingerprint"], "clause": clause, "keys": []}
+        prior = cands.get(c["item"])
+        if prior and prior.get("status") == "rejected":
+            w["rejected_before"] = prior.get("decided", {})
+        for k in keys:
+            grade, src = _sources_for(k["key"], bib, cache)
+            kk = {"key": k["key"], "score": k["score"], "entry": k["entry"], "grade": grade, "text": None, "existing": [], "passages": []}
+            own = {eid: f for eid, f in exc.items() if eid.split("#")[0] == k["key"]}
+            if own:
+                ids = list(own)
+                for i in rank_texts(query, [own[e].get("逐語", "") + " " + own[e].get("要約", "") for e in ids])[:args.top]:
+                    kk["existing"].append({"id": ids[i], "verbatim": own[ids[i]].get("逐語", ""), "summary": own[ids[i]].get("要約", "")})
+            if src:
+                kk["text"] = src.path.as_posix()
+                kk["text_sha"] = _sha256(src.path)
+                spans = source_sentences(src)
+                texts = [sentence_text(src, a, b) for a, b in spans]
+                kinds = [section_at(src, a) for a, b in spans]
+                order = [i for i in rank_texts(query, texts) if kinds[i][1] != "参考文献"]
+                for i in order[:args.top]:
+                    a, b = spans[i]
+                    kk["passages"].append({"n": i, "location": printed_page(bib[k["key"]]["entry"], src.page_of(a), src.pages(), src)
+                                           + " / " + kinds[i][0], "section_kind": kinds[i][1], "text": texts[i][:600],
+                                           "before": texts[i - 1][-200:] if i else "", "after": texts[i + 1][:200] if i + 1 < len(texts) else ""})
+            w["keys"].append(kk)
+        work.append(w)
+    CAND_DIR.mkdir(parents=True, exist_ok=True)
+    out = {"format": "cite-bridge-work/1", "manuscript": target.as_posix(),
+           "generated": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "items": work}
+    (CAND_DIR / "work.json").write_text(json.dumps(out, ensure_ascii=False, indent=1) + "\n", encoding="utf-8", newline="\n")
+    (CAND_DIR / "work.md").write_text(work_md(out), encoding="utf-8", newline="\n")
+    rest = sum(1 for c in items if not c["marked"] and not c["excluded"])
+    print(f"ok propose: {(CAND_DIR / 'work.md').as_posix()} と work.json（{len(work)} 件。印の無い出典は全部で {rest}）")
+    print(f"下書きは {(CAND_DIR / 'drafts.json').as_posix()} に書き、propose --load で候補にする（書き方は SKILL.md）")
+
+
+def cmd_sentences(args):
+    """原典を作業票と同じ番号の文に分けて出す。--grep で絞る（書き手が原典の言葉で引くため。和文の句と英語の原典では順位付けが効かない）。"""
+    bib = parse_bib()
+    if args.key not in bib:
+        sys.exit(f"key '{args.key}' が書誌に無い")
+    grade, src = _sources_for(args.key, bib, {})
+    if not src:
+        sys.exit(f"{args.key} は原典のテキストが無い（{grade}）")
+    spans = source_sentences(src)
+    lo, hi = (int(x) for x in args.range.split("-")) if args.range else (0, len(spans) - 1)
+    pats = [normalize(g, "nfkc")[0] for g in args.grep or []]
+    shown = 0
+    for i in range(max(0, lo), min(hi, len(spans) - 1) + 1):
+        t = sentence_text(src, *spans[i])
+        if pats and not all(p in normalize(t, "nfkc")[0] for p in pats):
+            continue
+        a = spans[i][0]
+        loc = printed_page(bib[args.key]["entry"], src.page_of(a), src.pages(), src) + " / " + section_at(src, a)[0]
+        print(f"n={i} [{loc}] {t}")
+        shown += 1
+    print(f"--- {shown} 文（{args.key} は全部で {len(spans)} 文、{src.path.as_posix()}）")
+
+
+def work_md(w):
+    out = [f"# 作業票（{w['generated']}、{w['manuscript']}）", "",
+           "下書きは drafts.json に書く。逐語は文の番号（n）で指し、文字列は道具が原典から写す。",
+           "上位の文に無ければ `sentences <key> --grep <語>` で原典を同じ番号のまま引く。", ""]
+    for it in w["items"]:
+        out += [f"## {it['item']}　{it['paren']}（{it['line']} 行、{it['section']}）", "", f"文: {it['sentence']}", "",
+                f"受け持つ句: {it['clause']}", ""]
+        if it.get("rejected_before"):
+            out += [f"前の候補は却下された: {it['rejected_before']}", ""]
+        if not it["keys"]:
+            out += ["key の候補なし（書誌に無いか、括弧から名前を拾えない。--add-key で足せる）", ""]
+        for k in it["keys"]:
+            out += [f"### {k['key']}（点 {k['score']}、{k['grade']}）", "", f"- {k['entry']}"]
+            for e in k["existing"]:
+                out.append(f"- 既存 {e['id']}: {e['verbatim'][:160]}")
+            for p in k["passages"]:
+                out.append(f"- n={p['n']} [{p['location']}・{p['section_kind']}] {p['text'][:300]}")
+            if not k["text"]:
+                out.append("- 原典のテキストなし（指示にするか、入手する）")
+            out.append("")
+    return "\n".join(out) + "\n"
+
+
+def _load_drafts(args):
+    """書き手の下書き（drafts.json）を検査し、候補（candidates.json）に置く。検査に通らないものは置かずに理由を出す。"""
+    import json
+    bib = parse_bib()
+    work = json.loads((CAND_DIR / "work.json").read_text(encoding="utf-8"))
+    witems = {w["item"]: w for w in work["items"]}
+    drafts = json.loads(Path(args.load).read_text(encoding="utf-8"))
+    if drafts.get("format") != "cite-bridge-drafts/1":
+        sys.exit("下書きの形式が違う（format: cite-bridge-drafts/1 を期待）")
+    text = mask_comments(_manuscript().read_text(encoding="utf-8"))
+    now = {c["item"]: c for c in coverage_items(text)}
+    store = load_candidates()
+    exc = load_excerpt_fields()
+    cache, ok, bad = {}, [], []
+    for d in drafts.get("items", []):
+        it = d.get("item")
+        problems = []
+        w, cur = witems.get(it), now.get(it)
+        if not w:
+            problems.append("作業票に無い item")
+        if not cur:
+            problems.append("原稿のその文が作業票を作った後に変わった（propose をやり直す）")
+        elif cur["marked"]:
+            problems.append("その括弧には既に印がある")
+        kind = d.get("kind")
+        if kind not in ("主張", "指示", "引用でない"):
+            problems.append("kind は 主張・指示・引用でない のどれか")
+        cand = {"item": it, "kind": kind, "理由": d.get("理由", ""), "記入": d.get("記入", "")}
+        if w:
+            cand.update({k: w[k] for k in ("line", "section", "paren", "nth", "sentence", "fingerprint")})
+        if not cand["理由"]:
+            problems.append("理由が空")
+        if kind in ("主張", "指示"):
+            key = d.get("key")
+            cand["key"] = key
+            if key not in bib:
+                problems.append(f"key '{key}' が書誌に無い")
+            if not cand["記入"]:
+                problems.append("記入が空")
+        if kind == "主張" and not problems:
+            for n in ("解釈", "原文との差", "引用でない句"):
+                if d.get(n):
+                    cand[n] = d[n]
+            if cand.get("原文との差") not in DIFFS:
+                problems.append(f"原文との差は {sorted(DIFFS)} のどれか")
+            wk = next((k for k in w["keys"] if k["key"] == key), None) if w else None
+            refs = []
+            for x in d.get("excerpts", []):
+                if x.get("use"):
+                    eid = x["use"] if "#" in x["use"] else f"{key}#{x['use']}"
+                    if eid not in exc:
+                        problems.append(f"既存の抜き書き {eid} が無い")
+                    refs.append({"use": eid})
+                    continue
+                if not wk or not wk.get("text"):
+                    problems.append(f"{key} は作業票に原典のテキストが無い（新しい抜き書きは作れない。--add-key で作業票に足す）")
+                    continue
+                grade, src = _sources_for(key, bib, cache)
+                if not src or _sha256(src.path) != wk.get("text_sha"):
+                    problems.append(f"{key} の原典のテキストが作業票を作った後に変わった")
+                    continue
+                spans = source_sentences(src)
+                ns = x.get("sentences") or []
+                if not ns or any(not isinstance(n, int) or n < 0 or n >= len(spans) for n in ns) or max(ns) - min(ns) > 5:
+                    problems.append(f"sentences {ns} が原典の文の番号として正しくない（連続した6文まで）")
+                    continue
+                joined = " ".join(sentence_text(src, *spans[n]) for n in range(min(ns), max(ns) + 1))
+                joined = normalize(joined, "ws")[0]
+                s = joined.find(x["from"]) if x.get("from") else 0
+                if s < 0:
+                    problems.append(f"from '{x['from'][:20]}' が文 {ns} の中に無い")
+                    continue
+                e = joined.find(x["to"], s) + len(x["to"]) if x.get("to") else len(joined)
+                if x.get("to") and e < len(x["to"]):
+                    problems.append(f"to '{x['to'][:20]}' が文 {ns} の中に無い（from より後で）")
+                    continue
+                verb = joined[s:e].strip()
+                label, a, _ = locate(verb, src)
+                if a is None or label.startswith("近似"):
+                    problems.append(f"写した逐語が原典で一致しない（{label}）")
+                    continue
+                for n in ("強さ", "要約", "言っていないこと"):
+                    if not x.get(n):
+                        problems.append(f"新しい抜き書きの {n} が空")
+                if x.get("強さ") and x["強さ"] not in STRENGTHS:
+                    problems.append(f"強さは {sorted(STRENGTHS)} のどれか")
+                refs.append({"new": True, "逐語": verb, "強さ": x.get("強さ", ""), "要約": x.get("要約", ""),
+                             "言っていないこと": x.get("言っていないこと", ""), "sentences": [min(ns), max(ns)]})
+            if not refs:
+                problems.append("主張の候補に抜き書きが無い")
+            cand["excerpts"] = refs
+        if problems:
+            bad.append(f"{it}: " + "／".join(problems))
+            continue
+        cand["status"] = "pending"
+        cand["loaded"] = datetime.datetime.now().isoformat(timespec="seconds")
+        store["items"][it] = cand
+        ok.append(it)
+    if ok:
+        save_candidates(store)
+    for m in bad:
+        print("SKIP", m)
+    print(f"--- 候補にした {len(ok)} 件、断った {len(bad)} 件。人は review --html で受け入れるか却下する")
+    if bad:
+        sys.exit(1)
+
+
+def _next_cid():
+    _, blocks = parse_blocks(CIT)
+    nums = [int(b["id"][1:]) for b in blocks if re.fullmatch(r"c\d+", b["id"])]
+    return f"c{(max(nums) + 1 if nums else 1):03d}"
+
+
+def _append_block(path, lines):
+    body = path.read_text(encoding="utf-8").rstrip("\n") + "\n\n" if path.exists() else ""
+    path.write_text(body + "\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+
+
+def apply_candidate(item, action, by, note, cfp, dry=False):
+    """候補を受け入れる（抜き書き・引用のブロックを書き、原稿に印を置き、承認と要約の確認を記録する）か、却下を記録する。"""
+    import json
+    store = load_candidates()
+    c = store["items"].get(item)
+    if not c or c.get("status") != "pending":
+        return False, f"{item}: 判断を待つ候補が無い"
+    if candidate_fp(c) != cfp:
+        return False, f"{item}: 判断した後に候補が変わった。書かなかった（review を作り直して見直す）"
+    target = _manuscript()
+    raw = target.read_bytes().decode("utf-8")  # 改行を変えずに書き戻すため、改行の変換をせずに読む
+    cur = next((x for x in coverage_items(mask_comments(raw)) if x["item"] == item), None)
+    if not cur:
+        return False, f"{item}: 原稿のその文が変わった。書かなかった"
+    if cur["marked"]:
+        return False, f"{item}: その括弧には既に印がある"
+    today = datetime.date.today().isoformat()
+    if action == "reject":
+        if not note:
+            return False, f"{item}: 却下には理由が要る"
+        if not dry:
+            c["status"] = "rejected"
+            c["decided"] = {"by": by, "date": today, "reason": note}
+            save_candidates(store)
+        return True, f"候補を却下: {item}（{note}）"
+    if c["kind"] == "引用でない":
+        if not dry:
+            ex = load_excluded()
+            ex.append({"item": item, "paren": cur["paren"], "nth": cur["nth"], "fingerprint": cur["fingerprint"],
+                       "line": cur["line"], "reason": c["理由"], "by": by, "date": today})
+            EXCLUDED.write_text(json.dumps(ex, ensure_ascii=False, indent=1) + "\n", encoding="utf-8", newline="\n")
+            c["status"] = "accepted"
+            c["decided"] = {"by": by, "date": today, "excluded": True}
+            save_candidates(store)
+        return True, f"引用でないと記録: {cur['paren']}（{cur['line']} 行）"
+    if not MARK_FORMAT:
+        return False, f"{item}: 印の形（manuscript.mark_format）が設定に無いので、原稿に印を置けない"
+    cid = _next_cid()
+    if dry:
+        return True, f"{item}: 受け入れ（{cid} になる）"
+    refs, new_eids = [], []
+    if c["kind"] == "主張":
+        path = EXC_DIR / f"{c['key']}.md"
+        if not path.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"# {c['key']}\n", encoding="utf-8", newline="\n")
+        for x in c["excerpts"]:
+            if x.get("use"):
+                refs.append(x["use"])
+                continue
+            _, blocks = parse_blocks(path)
+            # 同じ逐語の抜き書きが既にあれば使う（同じ回の別の候補が先に作ったもの等）。要約はその抜き書きのものが残る
+            same = next((b for b in blocks if re.sub(r"\s", "", b["fields"].get("逐語", "")) == re.sub(r"\s", "", x["逐語"])), None)
+            if same:
+                refs.append(f"{c['key']}#{same['id']}")
+                if summary_fingerprint(same["fields"]) == summary_fingerprint(x):  # 人が見た要約と同じときだけ確認を記録する
+                    new_eids.append(f"{c['key']}#{same['id']}")
+                continue
+            nums = [int(b["id"][1:]) for b in blocks if re.fullmatch(r"e\d+", b["id"])]
+            eid = f"e{(max(nums) + 1 if nums else 1)}"
+            _append_block(path, [f"## {eid}", f"{out_name('逐語')}: {x['逐語']}", f"{out_name('強さ')}: {x['強さ']}",
+                                 f"{out_name('要約')}: {x['要約']}", f"{out_name('言っていないこと')}: {x['言っていないこと']}",
+                                 f"{out_name('記入')}: {c['記入']}（候補 {item} から）"])
+            refs.append(f"{c['key']}#{eid}")
+            new_eids.append(f"{c['key']}#{eid}")
+        lines = [f"## {cid}", f"{out_name('種類')}: 主張", f"{out_name('抜き書き')}: {', '.join(refs)}", f"{out_name('理由')}: {c['理由']}"]
+        lines += [f"{out_name(n)}: {c[n]}" for n in ("解釈", "原文との差", "引用でない句") if c.get(n)]
+    else:
+        lines = [f"## {cid}", f"{out_name('種類')}: 指示", f"{out_name('文献')}: {c['key']}", f"{out_name('理由')}: {c['理由']}"]
+    lines.append(f"{out_name('記入')}: {c['記入']}（候補 {item} から）")
+    _append_block(CIT, lines)
+    raw = raw[:cur["end"]] + MARK_FORMAT.format(id=cid, key=c["key"]) + raw[cur["end"]:]
+    target.write_text(raw, encoding="utf-8", newline="")
+    if new_eids:
+        for path, (hd, bd) in derive_excerpts(parse_bib(), {}).items():
+            if path == EXC_DIR / f"{c['key']}.md":
+                rewrite_derived(path, hd, bd)
+    msgs = [f"候補を受け入れた: {item} → {cid}（{cur['line']} 行）"]
+    if c["kind"] == "主張":  # 受け入れは承認を兼ねる（§18.5 の A）。新しい抜き書きの要約の確認も同時に記録する
+        _, m = write_approval(cid, by, note or None)
+        msgs.append(m)
+        for e in new_eids:
+            msgs.append(write_confirm(e, by)[1])
+    c["status"] = "accepted"
+    c["decided"] = {"by": by, "date": today, "cid": cid}
+    save_candidates(store)
+    return True, "／".join(msgs)
 
 
 def _page_image(key, bib, src, quote, outdir):
@@ -1339,6 +1859,46 @@ def review_data(cids=None, images=None, include_done=False):
     tool = Path(sys.argv[0]).as_posix()
     who = default_approver()
     items = []
+
+    def ev_of(r):
+        if r not in exc:
+            return {"id": r, "missing": True}
+        ef, d, hd, rec = exc[r]
+        st = d.get("照合", "")
+        weak = st.startswith(("近似一致", "照合不能")) or "OCR" in hd.get("格", "")
+        img = None
+        if weak and images and hd.get("抽出"):
+            src = cache.get(Path(hd["抽出"]))
+            if src:
+                img = _page_image(r.split("#")[0], bib, src, ef.get("逐語", ""), images)
+        ok = bool(ef.get("要約の確認")) and rec.get("要約の確認時の指紋") == summary_fingerprint(ef)
+        return {"id": r, "verbatim": ef.get("逐語", ""), "location": d.get("所在", ""), "match": st,
+                "grade": hd.get("格", ""), "source_check": ef.get("原本での確認", ""), "weak": weak,
+                "image": Path(img).as_posix() if img else None,
+                "before": d.get("前", ""), "sentence": d.get("含む文", ""), "after": d.get("後", ""),
+                "strength": ef.get("強さ", ""), "summary": ef.get("要約", ""), "not_said": ef.get("言っていないこと", ""),
+                "written_by": ef.get("記入", ""), "summary_checked": ef["要約の確認"] if ok else None,
+                "summary_fp": summary_fingerprint(ef)}
+
+    def new_ev(key, x, n):
+        """候補の新しい抜き書き。所在と前後の文は、既存の抜き書きと同じく道具が導く。"""
+        grade, src = _sources_for(key, bib, cache)
+        e = {"id": f"{key}（新 {n}）", "new": True, "verbatim": x["逐語"], "grade": grade, "source_check": "",
+             "strength": x["強さ"], "summary": x["要約"], "not_said": x["言っていないこと"], "summary_checked": None,
+             "location": "", "match": "照合不能", "before": "", "sentence": "", "after": "", "weak": False, "image": None}
+        if src:
+            label, a, z = locate(x["逐語"], src)
+            e["match"] = label
+            if a is not None:
+                sec, _ = section_at(src, a)
+                e["location"] = printed_page(bib[key]["entry"], src.page_of(a), src.pages(), src) + " / " + sec
+                e["before"], whole, e["after"] = context(src, a, z)
+                e["sentence"] = whole or ""
+            e["weak"] = label.startswith("近似") or "OCR" in grade
+            if e["weak"] and images:
+                img = _page_image(key, bib, src, x["逐語"], images)
+                e["image"] = Path(img).as_posix() if img else None
+        return e
     for b in sorted(blocks, key=lambda b: pos.get(b["id"], 10 ** 9)):
         cid, f = b["id"], b["fields"]
         if cid not in pos or (cids and cid not in cids):
@@ -1364,26 +1924,7 @@ def review_data(cids=None, images=None, include_done=False):
                 "notes": [n for n in checked["notes"] if tag in n],
                 "evidence": [], "commands": {}}
         for r in refs:
-            if r not in exc:
-                item["evidence"].append({"id": r, "missing": True})
-                continue
-            ef, d, hd, rec = exc[r]
-            st = d.get("照合", "")
-            weak = st.startswith(("近似一致", "照合不能")) or "OCR" in hd.get("格", "")
-            img = None
-            if weak and images and hd.get("抽出"):
-                src = cache.get(Path(hd["抽出"]))
-                if src:
-                    img = _page_image(r.split("#")[0], bib, src, ef.get("逐語", ""), images)
-            ok = bool(ef.get("要約の確認")) and rec.get("要約の確認時の指紋") == summary_fingerprint(ef)
-            item["evidence"].append({
-                "id": r, "verbatim": ef.get("逐語", ""), "location": d.get("所在", ""), "match": st,
-                "grade": hd.get("格", ""), "source_check": ef.get("原本での確認", ""), "weak": weak,
-                "image": Path(img).as_posix() if img else None,
-                "before": d.get("前", ""), "sentence": d.get("含む文", ""), "after": d.get("後", ""),
-                "strength": ef.get("強さ", ""), "summary": ef.get("要約", ""), "not_said": ef.get("言っていないこと", ""),
-                "written_by": ef.get("記入", ""), "summary_checked": ef["要約の確認"] if ok else None,
-                "summary_fp": summary_fingerprint(ef)})
+            item["evidence"].append(ev_of(r))
         if item["kind"] == "主張":
             item["commands"] = {
                 "approve": f'python {tool} approve {cid} --by {who} --note "…"',
@@ -1391,8 +1932,33 @@ def review_data(cids=None, images=None, include_done=False):
                 "confirm": [f"python {tool} confirm {e['id']} --by {who}" for e in item["evidence"]
                             if not e.get("missing") and not e.get("summary_checked")]}
         items.append(item)
+    cands = []
+    if not cids:
+        cov = {c["item"]: c for c in coverage_items(text)}
+        for iid, c in load_candidates()["items"].items():
+            if c.get("status") != "pending":
+                continue
+            cur = cov.get(iid)
+            line = cur["line"] if cur else c.get("line", 0)
+            ln_a = text.rfind("\n", 0, cur["off"]) + 1 if cur else 0
+            ln_z = text.find("\n", cur["off"]) if cur else 0
+            para = re.sub(r"\s{2,}", " ", text[ln_a:ln_z if ln_z >= 0 else len(text)]).strip() if cur else ""
+            ev, n = [], 0
+            for x in c.get("excerpts", []):
+                if x.get("use"):
+                    ev.append(ev_of(x["use"]))
+                else:
+                    n += 1
+                    ev.append(new_ev(c["key"], x, n))
+            cands.append({"id": iid, "candidate": True, "kind": c["kind"], "key": c.get("key"),
+                          "entry": bib.get(c.get("key"), {}).get("entry", ""), "cfp": candidate_fp(c),
+                          "state": "候補" if cur and not cur["marked"] else "原稿が変わった",
+                          "line": line, "section": cur["section"] if cur else c.get("section", ""),
+                          "sentence": unmark(cur["sentence"]) if cur else c.get("sentence", ""), "paren": c.get("paren", ""),
+                          "paragraph": para, "evidence": ev,
+                          "fields": {k: c[k] for k in ("理由", "解釈", "原文との差", "引用でない句", "記入") if c.get(k)}})
     return {"manuscript": target.as_posix(), "date": datetime.date.today().isoformat(),
-            "generated": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "citations": items}
+            "generated": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "citations": items, "candidates": cands}
 
 
 def review_md(data):
@@ -1432,6 +1998,9 @@ def review_md(data):
             out += [f"- 要約を確かめた: `{x}`" for x in c["confirm"]] + [""]
     if not data["citations"]:
         out.append("確認待ちの引用は無い。")
+    if data.get("candidates"):
+        out += ["", f"候補 {len(data['candidates'])} 件（受け入れと却下は review --html で行う）:", ""]
+        out += [f"- {c['id']} {c['kind']} {c.get('key') or ''} {c['paren']}（{c['line']} 行）" for c in data["candidates"]]
     return "\n".join(out) + "\n"
 
 
@@ -1463,6 +2032,74 @@ def review_page(data):
         for e in it["evidence"]:
             uses.setdefault(e["id"], []).append(it["id"])
 
+    def ev_html(i, e, owner):
+        eid = E(e["id"])
+        if e.get("missing"):
+            return f'<div class="ev"><p class="evh">根拠 {i} {eid}（抜き書きが無い）</p></div>'
+        h = []
+        others = [c for c in uses.get(e["id"], []) if c != owner]
+        h.append(f'<div class="ev"><p class="evh">根拠 {i} <b>{eid}</b> <span class="mut">'
+                 f'{E(e["location"] or "所在を導けない")}・{E(e["match"])}・{E(e["grade"])}'
+                 + (f'・他に {E("・".join(others))} の根拠' if others else "") + "</span></p>")
+        if e["source_check"]:
+            h.append(f'<p class="mut sm">原本での確認：{E(e["source_check"])}</p>')
+        h.append(f'<blockquote>{E(e["verbatim"])}</blockquote><div class="tools">')
+        ref = img_ref(e["image"]) if e.get("image") else None
+        if e["weak"]:
+            h.append(f'<details><summary>頁の画像（抽出に誤読あり）</summary><img data-img="{E(ref)}" alt="{eid} の頁"></details>'
+                     if ref else '<span class="mut sm">抽出に誤読あり。前後は原本で読む</span>')
+        ctx = [(n, e[k]) for n, k in (("前", "before"), ("含む文", "sentence"), ("後", "after")) if e[k]]
+        if ctx:
+            h.append('<details><summary>前後の文（抽出のまま）</summary><dl>'
+                     + "".join(f"<dt>{n}</dt><dd>{E(v)}</dd>" for n, v in ctx) + "</dl></details>")
+        h.append("</div>")
+        done = bool(e["summary_checked"])
+        if e.get("new"):  # 候補の新しい抜き書き。受け入れると要約の確認も記録されるので、確認の印は置かない
+            who = '<span class="mut sm">AI の候補（受け入れると要約の確認も記録する）</span>'
+        elif done:
+            who = f'<span class="mut sm">確認済（{E(e["summary_checked"])}）</span>'
+        else:
+            who = (f'<span class="mut sm" title="{E(e["written_by"])}">AI の候補（{E(short(e["written_by"]))}）</span>'
+                   f'<label class="cf"><input type="checkbox" data-confirm="{eid}"> 原文と照らして確かめた</label>')
+        h.append(f'<div class="ai{" done" if done else ""}"><p class="aih"><span class="tag">{E(e["strength"])}</span>{who}'
+                 f'</p><p><span class="k">要約</span>{E(e["summary"])}</p>'
+                 f'<p><span class="k">言っていない</span>{E(e["not_said"])}</p></div></div>')
+        return "".join(h)
+
+    def cand_card(it):
+        iid = E(it["id"])
+        f = it["fields"]
+        sent = E(it["sentence"])
+        if it["paren"]:
+            sent = sent.replace(E(it["paren"]), f'<mark>{E(it["paren"])}</mark>', 1)
+        stale = it["state"] != "候補"
+        h = [f'<article class="card cand s-{"miss" if stale else "info"}" id="{iid}" data-id="{iid}" data-cand="1" data-done="0" tabindex="-1">',
+             f'<header><b>候補 {iid}</b><span class="st s-{"miss" if stale else "info"}">{E(it["state"])}・{E(it["kind"])}</span>'
+             + (f'<span class="tag">{E(f["原文との差"])}</span>' if f.get("原文との差") else "")
+             + f'<span class="mut">{E(it["section"])}・{it["line"]} 行</span>'
+             f'<button class="fold" type="button" title="畳む・開く">▾</button></header><div class="body">']
+        if stale:
+            h.append('<p class="err">候補を作った後に原稿の文が変わったか、印が置かれた。受け入れても書かれない（propose をやり直す）</p>')
+        h.append(f'<div class="sent">{sent}' + (f'<details class="inline"><summary>段落</summary><span class="para">{E(it["paragraph"])}</span></details>'
+                                               if it["paragraph"] else "") + "</div>")
+        if it.get("key"):
+            h.append(f'<p class="mut sm">文献 <b>{E(it["key"])}</b>：{E(it["entry"])}</p>')
+        for i, e in enumerate(it["evidence"], 1):
+            h.append(ev_html(i, e, it["id"]))
+        rows = [(n, f[n]) for n in ("理由", "解釈", "引用でない句") if f.get(n)]
+        h.append('<dl class="cf-rows">' + "".join(f"<dt>{n}</dt><dd>{E(v)}</dd>" for n, v in rows) + "</dl>"
+                 + f'<p class="mut sm" title="{E(f.get("記入", ""))}">記入：{E(short(f.get("記入", ""), 60))}</p></div>')
+        what = {"主張": "受け入れると、抜き書きと引用を書き、原稿に印を置き、承認と要約の確認を記録する",
+                "指示": "受け入れると、指示の引用を書き、原稿に印を置く",
+                "引用でない": "受け入れると、この括弧を引用でないと記録し、網羅の数から外す"}.get(it["kind"], "")
+        h.append(f'<div class="decide" data-choice=""><span class="opts">'
+                 f'<label><input type="radio" name="d-{iid}" value="" checked>保留</label>'
+                 f'<label><input type="radio" name="d-{iid}" value="accept">受け入れる</label>'
+                 f'<label><input type="radio" name="d-{iid}" value="reject">却下</label></span>'
+                 f'<textarea data-note="{iid}" rows="1" placeholder="理由（却下では必須。受け入れでは承認の理由になる）"></textarea></div>'
+                 f'<p class="mut sm what">{E(what)}</p></article>')
+        return "".join(h)
+
     cards, meta = [], []
     for it in data["citations"]:
         if it["kind"] != "主張":
@@ -1484,33 +2121,7 @@ def review_page(data):
             h.append(f'<p class="back">差し戻しの理由：{E(f["差し戻しの理由"])}</p>')
         h.append(f'<div class="sent">{sent}<details class="inline"><summary>段落</summary><span class="para">{para}</span></details></div>')
         for i, e in enumerate(it["evidence"], 1):
-            eid = E(e["id"])
-            if e.get("missing"):
-                h.append(f'<div class="ev"><p class="evh">根拠 {i} {eid}（抜き書きが無い）</p></div>')
-                continue
-            others = [c for c in uses.get(e["id"], []) if c != it["id"]]
-            h.append(f'<div class="ev"><p class="evh">根拠 {i} <b>{eid}</b> <span class="mut">'
-                     f'{E(e["location"] or "所在を導けない")}・{E(e["match"])}・{E(e["grade"])}'
-                     + (f'・他に {E("・".join(others))} の根拠' if others else "") + "</span></p>")
-            if e["source_check"]:
-                h.append(f'<p class="mut sm">原本での確認：{E(e["source_check"])}</p>')
-            h.append(f'<blockquote>{E(e["verbatim"])}</blockquote><div class="tools">')
-            ref = img_ref(e["image"]) if e.get("image") else None
-            if e["weak"]:
-                h.append(f'<details><summary>頁の画像（抽出に誤読あり）</summary><img data-img="{E(ref)}" alt="{eid} の頁"></details>'
-                         if ref else '<span class="mut sm">抽出に誤読あり。前後は原本で読む</span>')
-            ctx = [(n, e[k]) for n, k in (("前", "before"), ("含む文", "sentence"), ("後", "after")) if e[k]]
-            if ctx:
-                h.append('<details><summary>前後の文（抽出のまま）</summary><dl>'
-                         + "".join(f"<dt>{n}</dt><dd>{E(v)}</dd>" for n, v in ctx) + "</dl></details>")
-            h.append("</div>")
-            done = bool(e["summary_checked"])
-            h.append(f'<div class="ai{" done" if done else ""}"><p class="aih"><span class="tag">{E(e["strength"])}</span>'
-                     + (f'<span class="mut sm">確認済（{E(e["summary_checked"])}）</span>' if done else
-                        f'<span class="mut sm" title="{E(e["written_by"])}">AI の候補（{E(short(e["written_by"]))}）</span>'
-                        f'<label class="cf"><input type="checkbox" data-confirm="{eid}"> 原文と照らして確かめた</label>')
-                     + f'</p><p><span class="k">要約</span>{E(e["summary"])}</p>'
-                     f'<p><span class="k">言っていない</span>{E(e["not_said"])}</p></div></div>')
+            h.append(ev_html(i, e, it["id"]))
         rows = [(n, f[n]) for n in ("理由", "解釈", "引用でない句", "承認の理由", "指摘") if f.get(n)]
         h.append('<dl class="cf-rows">' + "".join(f"<dt>{n}</dt><dd>{E(v)}</dd>" for n, v in rows) + "</dl>"
                  + f'<p class="mut sm" title="{E(f.get("記入", ""))}">記入：{E(short(f.get("記入", ""), 60))}</p></div>')
@@ -1521,18 +2132,25 @@ def review_page(data):
                  f'<textarea data-note="{cid}" rows="1" placeholder="理由（差し戻しでは必須）"></textarea></div>'
                  f'<div class="remark"><textarea data-remark="{cid}" rows="1" '
                  f'placeholder="指摘（論文への気づき。判断とは別に、引用の「指摘」の欄へ残る）"></textarea></div></article>')
-        cards.append("".join(h))
+        cards.append((it["line"], "".join(h)))
         meta.append({"id": it["id"], "fingerprint": it["fingerprint"], "evidence": it["evidence_fp"],
                      "excerpts": {e["id"]: e["summary_fp"] for e in it["evidence"] if not e.get("missing")}})
+    for it in data.get("candidates", []):  # 候補も原稿の行の順に、引用のカードの間に並べる
+        cards.append((it["line"], cand_card(it)))
+        meta.append({"id": it["id"], "candidate": True, "cfp": it["cfp"],
+                     "excerpts": {e["id"]: e["summary_fp"] for e in it["evidence"] if not e.get("missing") and not e.get("new")}})
+    cards = [c for _, c in sorted(cards, key=lambda x: x[0])]
     pending = sum(1 for it in data["citations"] if it["kind"] == "主張" and it["state"] != "承認済")
+    n_cand = len(data.get("candidates", []))
     payload = json.dumps({"manuscript": data["manuscript"], "generated": data["generated"], "citations": meta,
                           "images": images}, ensure_ascii=False).replace("</", "<\\/")
     by_html = ('<select id="by">' + "".join(f'<option value="{E(k)}">{E(k)}（{"人" if v == "human" else "モデル"}）</option>'
                                              for k, v in APPROVERS.items()) + "</select>") if APPROVERS else \
         '<input type="text" id="by" value="人">'
     return REVIEW_PAGE.replace("{{BY}}", by_html).replace("{{TITLE}}", E(f"引用の承認：{data['manuscript']}")) \
-        .replace("{{HEAD}}", E(f"{data['manuscript']}・{data['generated']} 作成・確認待ち {pending} 件")) \
-        .replace("{{CARDS}}", "\n".join(cards) or '<p class="mut">主張の引用が無い。</p>') \
+        .replace("{{HEAD}}", E(f"{data['manuscript']}・{data['generated']} 作成・確認待ち {pending} 件"
+                               + (f"・候補 {n_cand} 件" if n_cand else ""))) \
+        .replace("{{CARDS}}", "\n".join(cards) or '<p class="mut">主張の引用も候補も無い。</p>') \
         .replace("{{DATA}}", payload)
 
 
@@ -1584,10 +2202,12 @@ dl.cf-rows dt { white-space:nowrap; } dl.cf-rows dd { margin:0; }
 mark { background:var(--mark); color:inherit; }
 .err { color:var(--miss); } .back { color:var(--warn); }
 .decide { display:flex; gap:10px; align-items:flex-start; padding:5px 12px; border-top:3px solid var(--line); background:var(--bg); }
-.decide[data-choice="approve"] { border-top-color:var(--ok); background:var(--okbg); }
-.decide[data-choice="send_back"] { border-top-color:var(--warn); background:var(--warnbg); }
+.decide[data-choice="approve"], .decide[data-choice="accept"] { border-top-color:var(--ok); background:var(--okbg); }
+.decide[data-choice="send_back"], .decide[data-choice="reject"] { border-top-color:var(--warn); background:var(--warnbg); }
 .remark { display:flex; padding:0 12px 5px; background:var(--bg); }
-.decide[data-choice="approve"] + .remark { background:var(--okbg); } .decide[data-choice="send_back"] + .remark { background:var(--warnbg); }
+.decide[data-choice="approve"] + .remark, .decide[data-choice="accept"] + .what { background:var(--okbg); }
+.decide[data-choice="send_back"] + .remark, .decide[data-choice="reject"] + .what { background:var(--warnbg); }
+.card.cand { border-left-style:dashed; } .what { margin:0; padding:0 12px 4px; background:var(--bg); }
 .remark textarea { font-size:12px; }
 .opts { display:flex; gap:10px; white-space:nowrap; padding-top:2px; } .opts label { cursor:pointer; }
 textarea { flex:1; min-width:0; font:inherit; font-size:13px; padding:2px 8px; background:var(--card); color:var(--fg);
@@ -1602,11 +2222,11 @@ textarea { flex:1; min-width:0; font:inherit; font-size:13px; padding:2px 8px; b
 <label class="mut"><input type="checkbox" id="foldDone"> 判断したものを畳む</label>
 <span id="count"></span>
 <button class="primary" id="save">判断ファイルを保存</button>
-<span class="mut keys">j/k 移動・1 保留・2 承認・3 差し戻し・r 理由・m 指摘・f 畳む</span></div>
+<span class="mut keys">j/k 移動・1 保留・2 承認（受け入れ）・3 差し戻し（却下）・r 理由・m 指摘・f 畳む</span></div>
 <main>
 <p class="note">本文と根拠の逐語を読んでから判断する。点線の枠は AI の候補である。この HTML は何も書き込まない。
-保存した判断ファイルを <code>python .claude/skills/cite-bridge/bridge.py apply &lt;ファイル&gt;</code> に渡すと、
-この HTML を作った時点から本文・根拠・要約が変わっていないものだけが書き込まれる。</p>
+保存した判断ファイルを cite-bridge の apply に渡すと、この HTML を作った時点から本文・根拠・要約・候補が変わっていないものだけが書き込まれる。
+左の縁が破線のカードは、印の無い出典に対する AI の候補で、受け入れると原稿に印が置かれる。</p>
 {{CARDS}}
 </main>
 <script type="application/json" id="data">{{DATA}}</script>
@@ -1638,9 +2258,10 @@ function collect() {
   document.querySelectorAll('article.card').forEach(a => {
     const id = a.dataset.id, r = a.querySelector('input[type=radio]:checked');
     const note = a.querySelector('textarea[data-note]').value.trim();
-    const remark = a.querySelector('textarea[data-remark]').value.trim();
-    if ((r && r.value) || note || remark) s.decisions[id] = {action: r ? r.value : '', note, remark,
-      fingerprint: byId[id].fingerprint, evidence: byId[id].evidence};
+    const rm = a.querySelector('textarea[data-remark]'), remark = rm ? rm.value.trim() : '';
+    if ((r && r.value) || note || remark) s.decisions[id] = byId[id].candidate
+      ? {cand: true, action: r ? r.value : '', note, cfp: byId[id].cfp}
+      : {action: r ? r.value : '', note, remark, fingerprint: byId[id].fingerprint, evidence: byId[id].evidence};
     a.querySelector('.decide').dataset.choice = r ? r.value : '';
   });
   document.querySelectorAll('input[data-confirm]:checked').forEach(c => s.confirms.push(c.dataset.confirm));
@@ -1658,11 +2279,12 @@ function restore() {
   if (s.foldDone) document.getElementById('foldDone').checked = true;
   for (const [id, d] of Object.entries(s.decisions || {})) {
     const a = document.getElementById(id); if (!a || !byId[id]) continue;
-    // 判断した後に本文か根拠が変わった引用は、入力を戻さない（見直してもらう）
-    if (d.fingerprint && (d.fingerprint !== byId[id].fingerprint || d.evidence !== byId[id].evidence)) continue;
+    // 判断した後に本文か根拠（候補なら候補の中身）が変わったものは、入力を戻さない（見直してもらう）
+    if (byId[id].candidate ? d.cfp !== byId[id].cfp
+        : (d.fingerprint && (d.fingerprint !== byId[id].fingerprint || d.evidence !== byId[id].evidence))) continue;
     const r = a.querySelector('input[type=radio][value="' + (d.action || '') + '"]'); if (r) r.checked = true;
     a.querySelector('textarea[data-note]').value = d.note || '';
-    a.querySelector('textarea[data-remark]').value = d.remark || '';
+    const rm = a.querySelector('textarea[data-remark]'); if (rm) rm.value = d.remark || '';
   }
   (s.confirms || []).forEach(e => document.querySelectorAll('input[data-confirm="' + e + '"]').forEach(c => c.checked = true));
 }
@@ -1704,32 +2326,35 @@ document.addEventListener('keydown', e => {
   if (e.key === 'j') { go(i + 1); e.preventDefault(); return; }
   if (e.key === 'k') { go(i - 1); e.preventDefault(); return; }
   if (!cur) return;
-  const v = {'1': '', '2': 'approve', '3': 'send_back'}[e.key];
+  const v = {'1': 0, '2': 1, '3': 2}[e.key];  // 保留・承認（受け入れ）・差し戻し（却下）の順に並ぶ
   if (v !== undefined) {
-    cur.querySelector('input[type=radio][value="' + v + '"]').checked = true; refresh(); foldDecided();
-    if (v === 'send_back') cur.querySelector('textarea[data-note]').focus();
+    cur.querySelectorAll('input[type=radio]')[v].checked = true; refresh(); foldDecided();
+    if (v === 2) cur.querySelector('textarea[data-note]').focus();
     e.preventDefault(); return;
   }
   if (e.key === 'r') { cur.querySelector('textarea[data-note]').focus(); e.preventDefault(); }
-  if (e.key === 'm') { cur.querySelector('textarea[data-remark]').focus(); e.preventDefault(); }
+  if (e.key === 'm') { const rm = cur.querySelector('textarea[data-remark]'); if (rm) rm.focus(); e.preventDefault(); }
   if (e.key === 'f') { cur.classList.toggle('folded'); e.preventDefault(); }
 });
 document.getElementById('save').addEventListener('click', () => {
   const s = collect(), by = s.by.trim();
   if (!by) { alert('判断する者を書く'); return; }
-  const missing = Object.entries(s.decisions).filter(([id, d]) => d.action === 'send_back' && !d.note).map(([id]) => id);
-  if (missing.length) { alert('差し戻しには理由が要る: ' + missing.join(', ')); return; }
+  const missing = Object.entries(s.decisions).filter(([id, d]) => (d.action === 'send_back' || d.action === 'reject') && !d.note)
+    .map(([id]) => id);
+  if (missing.length) { alert('差し戻しと却下には理由が要る: ' + missing.join(', ')); return; }
   const confirms = [];
   for (const e of s.confirms) {
     const c = D.citations.find(c => e in c.excerpts); if (c) confirms.push({id: e, fingerprint: c.excerpts[e]});
   }
+  const ds = Object.entries(s.decisions);
   const out = {format: 'cite-bridge-decisions/1', manuscript: D.manuscript, generated: D.generated, by,
     saved: new Date().toISOString(),
-    decisions: Object.entries(s.decisions).filter(([id, d]) => d.action || d.remark).map(([id, d]) => ({id, action: d.action,
+    decisions: ds.filter(([id, d]) => !d.cand && (d.action || d.remark)).map(([id, d]) => ({id, action: d.action,
       note: d.note, remark: d.remark || '',
       fingerprint: byId[id].fingerprint, evidence: byId[id].evidence})),
+    candidates: ds.filter(([id, d]) => d.cand && d.action).map(([id, d]) => ({id, action: d.action, note: d.note, cfp: byId[id].cfp})),
     confirms};
-  if (!out.decisions.length && !out.confirms.length) { alert('判断がまだ無い'); return; }
+  if (!out.decisions.length && !out.candidates.length && !out.confirms.length) { alert('判断がまだ無い'); return; }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 1)], {type: 'application/json'}));
   a.download = 'decisions_' + D.manuscript.replace(/[^\w.-]+/g, '_').replace(/\.md$/, '') + '.json';
@@ -2010,6 +2635,20 @@ def main():
     w.set_defaults(func=cmd_snapshot)
     cv = sub.add_parser("coverage")
     cv.set_defaults(func=cmd_coverage)
+    pr = sub.add_parser("propose")
+    pr.add_argument("items", nargs="*", help="作業票を作る item（省くと、絞り込みに当たる印の無い出典）")
+    pr.add_argument("--section", help="見出しにこの文字列を含む節だけ")
+    pr.add_argument("--lines", help="原稿の行の範囲（例 80-120）")
+    pr.add_argument("--limit", type=int, default=15, help="作業票の件数の上限（既定 15。一回の承認が30分ほどに収まる数）")
+    pr.add_argument("--top", type=int, default=6, help="key ごとに載せる原典の文と既存の抜き書きの数")
+    pr.add_argument("--add-key", action="append", metavar="ITEM=KEY", help="key の候補に足す（推定が外れたとき）")
+    pr.add_argument("--load", metavar="DRAFTS", help="書き手の下書き（JSON）を検査して候補にする")
+    pr.set_defaults(func=cmd_propose)
+    se = sub.add_parser("sentences")
+    se.add_argument("key")
+    se.add_argument("--grep", action="append", help="この語を含む文だけ（複数なら全部を含む文）")
+    se.add_argument("--range", help="文の番号の範囲（例 40-50）")
+    se.set_defaults(func=cmd_sentences)
     cp = sub.add_parser("checkpoint")
     cp.add_argument("--label", default="")
     cp.set_defaults(func=cmd_checkpoint)

@@ -109,6 +109,7 @@ quote_patterns = ['「([^「」]{10,})」', '"([^"]{20,})"']  # 抜き書きと�
 not_quote_separator = "／"                        # 引用でない句の区切り
 sentence_end = '[。！？]'                         # 文の終わり。英語の原稿は '[。！？]|[.!?](?=\s)'
 paragraph = "line"                               # line は一行が一段落、blank は空行で段落を区切る（行を折り返す原稿）
+# mark_format = "〔{id}〕"                        # 候補を受け入れたときに原稿へ置く印（{id} と {key}）。mark_pattern を替えたら必須
 [output]
 language = "ja"                                  # 導く欄の名前を書く言語（ja / en）
 [section_kinds]                                  # 節の種類を判定する語を足す（既定は英語と日本語）
@@ -120,7 +121,8 @@ language = "ja"                                  # 導く欄の名前を書く�
 [coverage]
 # pattern = '…'                                  # 出典らしき括弧（既定は年を含む括弧）。印の無い文にあるものを数える
 ```
-（[bridge] には applied も置ける。適用した判断ファイルの記録で、既定は citations と同じフォルダの applied.json）
+（[bridge] には applied、candidates、excluded も置ける。適用した判断ファイルの記録、候補の作業のフォルダ、引用でないと判断した括弧の記録で、
+既定は citations と同じフォルダの applied.json、candidates/、excluded.json）
 
 - LaTeX では印を \cite の直後のコメントに置く（組版に影響しない）。例 `\cite{doe2020}%c017`。設定は
   `mark_pattern = '\\cite\{(?P<key>[^}]+)\}(?P<strip>%(?P<id>c\d+))'`、`paragraph = "blank"`、英語の sentence_end。
@@ -143,6 +145,9 @@ python .claude/skills/cite-bridge/bridge.py review --html -o preview/cite_review
 python .claude/skills/cite-bridge/bridge.py apply <判断ファイル.json> [--dry-run]          # 承認の HTML が保存した判断を書き込む
 python .claude/skills/cite-bridge/bridge.py apply --latest [--from DIR] [--dry-run]       # ダウンロード（既定）の最新の判断ファイルを使う
 python .claude/skills/cite-bridge/bridge.py coverage                                     # 印の無い文にある出典らしき括弧の一覧
+python .claude/skills/cite-bridge/bridge.py propose [--section 2.2] [--lines 80-120] [--limit 15] [--add-key ITEM=KEY]  # 印の無い出典の作業票
+python .claude/skills/cite-bridge/bridge.py sentences <key> [--grep 語 ...] [--range 40-50]   # 原典を作業票と同じ番号の文で引く
+python .claude/skills/cite-bridge/bridge.py propose --load bridge/candidates/drafts.json     # 書き手の下書きを検査して候補にする
 python .claude/skills/cite-bridge/bridge.py approve c001 --by 人 [--note 理由]
 python .claude/skills/cite-bridge/bridge.py approve c001 --by 人 --send-back --note 理由   # 差し戻し
 python .claude/skills/cite-bridge/bridge.py confirm kawahara2013#e2 --by 人            # 要約の確認
@@ -177,6 +182,22 @@ python .claude/skills/cite-bridge/bridge.py checkpoint [--label 中間提出]   
 - check は「網羅」の行に、原稿の出典らしき括弧のうち印の無い文にあるものの数を出す。印の無い引用はこのツールが何も確かめていない。
   「確認待ち 0」や checkpoint は、印のある引用についての状態であって、原稿の引用全体の確認ではない。一覧は coverage で出す。
   パターンは数え方の下限の目安で、括弧を使わない出典は数えない。
+- 印の無い出典は、候補として作って人が受け入れる（構想メモ §18）。役割は、道具が拾う・絞る・確かめる・書く、書き手の AI が選ぶ・解釈の欄を書く、
+  人が受け入れる。
+  1. propose が、印の無い出典の括弧ごとに作業票（`candidates/work.md` と `work.json`）を作る。括弧が受け持つ句（同じ文の前後の出典の括弧の間）、
+     書誌の key の候補（括弧と直前の語の名前と年から推す）、同じ文献の既存の抜き書き、原典の文の上位（番号 n つき）を載せる。
+  2. 書き手は `candidates/drafts.json`（format `cite-bridge-drafts/1`）に下書きを書く。一件は item、kind（主張・指示・引用でない）、key、
+     理由、記入、主張なら excerpts・解釈・原文との差・引用でない句。excerpts の一つは既存の `{"use": "e3"}` か、新しい
+     `{"sentences": [n1, n2], "from": "…", "to": "…", "強さ", "要約", "言っていないこと"}`（連続した6文まで。from と to はその中の部分の文字列で省ける）。
+     上位の文に無ければ sentences で原典を引く（和文の句と英語の原典では順位付けが効かない）。
+  3. propose --load が検査し、通ったものだけを `candidates/candidates.json` に置く。逐語は道具が原典から写す（書き手の文は逐語に入らない）。
+     作業票の後に原稿の文か原典のテキストが変わった、key が書誌に無い、範囲が原典で一致しない、のどれかなら断る。
+  4. 承認の HTML に候補のカード（左の縁が破線）が原稿の行の順に並ぶ。判断は保留・受け入れる・却下（理由が要る）。
+  5. apply が、受け入れた候補を書く。主張なら抜き書き（新しい eN。同じ逐語が既にあれば使う）と引用のブロック（新しい cNNN）を書き、
+     原稿の括弧の直後に印を置き、承認と新しい抜き書きの要約の確認を記録する（受け入れは承認を兼ねる）。指示なら引用のブロックと印。
+     引用でないなら excluded.json に記録し、網羅の数から外す。候補を作った後に候補か原稿の文が変わっていれば書かない。却下は理由とともに候補に残り、
+     次の propose の作業票に出る。
+  網羅の数は括弧ごとに見る。括弧の直後に印があれば印のある出典で、同じ文に括弧へ付いていない印が残っていればその数だけ前から印のあるものとみなす。
 - md2docx の review_html.py（差分のレビュー）は review --json を読み、本文の〔c003〕に状態の印を付ける。承認の HTML が出力先の隣に
   （既定の名前 cite_review.html で）あれば、印はその引用のカードへのリンクになる。依存は表示 → bridge の一方向で、bridge は表示を知らない。
 - review の md 出力は、AI に渡す材料と、HTML を開けない場面のために残す。
@@ -205,13 +226,15 @@ python .claude/skills/cite-bridge/bridge.py checkpoint [--label 中間提出]   
 `python -m unittest discover -s .claude/skills/cite-bridge/tests`。論文のデータに依らず、一時フォルダに小さな一式を作って動かす
 （照合と所在、節の種類、含む文、導く欄の古さ、和文の小書きの仮名、承認と再確認、引用でない句、孤児、英語の欄名、三つの書誌の形式、
 strip、印の形の設定、URL の PDF の写し、LaTeX の \cite と印の key、checkpoint、OCR の印、承認の理由と根拠、差し戻し、
-要約の確認、欄の中の参照、review（md と JSON と HTML）、apply（書き込みと指紋の食い違いの拒否）、折りたたみの見出しと作り直し。23件）。hook は道具の側を直したときに試験も走らせる。
+要約の確認、欄の中の参照、review（md と JSON と HTML）、apply（書き込みと指紋の食い違いの拒否）、折りたたみの見出しと作り直し、
+網羅の数え方、作業票、候補の検査と受け入れと拒否。31件）。hook は道具の側を直したときに試験も走らせる。
 
 ## AI が守ること
 
 - 逐語は抽出テキストか原本から写す。記憶や要約から作らない。
 - 判断の欄に書いた者を記入に残す。AI が書いた要約や言っていないことは、人が見るまで候補である。
 - 承認（approve）は人の指示があるときだけ行う。AI が自分の書いた引用を承認しない。差し戻しと要約の確認（confirm）も同じ。
-  apply は人が承認の HTML で作った判断ファイルを書き込むもので、AI が判断ファイルを作らない。
+  apply は人が承認の HTML で作った判断ファイルを書き込むもので、AI が判断ファイルを作らない。候補の受け入れも同じで、AI は下書きまでを書く。
+- 候補の下書きでは、原典と本文がずれていれば、ずれのまま書く（原文との差を外挿にし、解釈と言っていないことに理由を書く）。本文に合わせて読みを寄せない。
 - 人に確認を頼むときは review の出力を見せる。手で材料を組むときも、前後の文を補って見せない。OCR の層では頁の画像を見せる。
 - 導く欄を手で直さない。おかしければ逐語か抽出テキストを直して derive する。
