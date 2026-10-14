@@ -3,12 +3,11 @@ name: cite-bridge
 description: 引用ごとに錨（原典の逐語と、道具が導いた所在）を持たせ、その確認の状態を執筆中ずっと正しく保つ。抜き書き（原典の一箇所）と引用（原稿の一箇所）を決まった欄の md で書き、bridge.py が所在・前後の文・節の種類・照合の段階を導いて検査する。原典の抜き書きを足すとき、原稿に引用を足すとき、提出前に引用の確認状態を見るときに使う。
 ---
 
-# 引用ブリッジ（試作、2026-10-10）
+# 引用ブリッジ
 
-構想と決定の経緯は `notes/構想_AI協調の論文執筆ツールセットと引用ブリッジ_2026-10-10.md`（§6 の 7、§13）。
-ファイルの形式（欄、指紋、判断ファイル、マニフェスト等）の正本は `SPEC.md`。この文書は使い方と運用の作法である。
-道具の概要は `README.md`。
-論文とは別のプロジェクトとして切り出す予定の道具で、それまでこの場所に置く。
+道具の概要は `README.md`。ファイルの形式（欄、指紋、判断ファイル、マニフェスト等）の正本は `SPEC.md`。この文書は使い方と運用の作法である。
+設計の経緯は、この道具を作った論文のリポジトリ（thesis）の `notes/構想_AI協調の論文執筆ツールセットと引用ブリッジ_2026-10-10.md`（§6 の 7、§13）にある。
+使う側のリポジトリでは `.claude/skills/cite-bridge/` に置く（submodule）。以下のコマンド例はこの置き場所を前提にしている。
 
 ## 保証と持ち主
 
@@ -54,12 +53,12 @@ description: 引用ごとに錨（原典の逐語と、道具が導いた所在�
 
 ```
 # 引用
-対象: thesis_vcp_workingEdition.md
+対象: manuscript.md
 
 ## c001
 種類: 主張
-抜き書き: kobayashi2002#e1
-理由: §2.4 で、状態が伝わりにくいという問題を小林から引き継ぐ根拠として引く
+抜き書き: stepwrite2025#e2
+理由: §2.4 で、戻って直すと以降の質問と回答が削除される仕様を、先行システムの制約として引く
 解釈: …
 原文との差: 言い換え
 記入: Claude 2026-10-10
@@ -97,7 +96,7 @@ check を走らせ、整合の崩れ（ERROR）があるときだけコミット
 
 ## 設定
 
-道具はこの論文のパスや書誌の書き方を知らない。すべて設定ファイル（既定は `bridge/bridge.toml`、`--config` で替える）から受け取る。
+道具は、使う論文のパスや書誌の書き方を知らない。すべて設定ファイル（既定は `bridge/bridge.toml`、`--config` で替える）から受け取る。
 
 ```toml
 [bibliography]
@@ -151,7 +150,7 @@ language = "ja"                                  # 導く欄の名前を書く�
 python .claude/skills/cite-bridge/bridge.py derive          # 導く欄を書き直す
 python .claude/skills/cite-bridge/bridge.py check           # 整合の崩れがあれば exit 1
 python .claude/skills/cite-bridge/bridge.py check --strict  # 確認待ちが残っていても exit 1（提出前）
-python .claude/skills/cite-bridge/bridge.py grade --keys-from notes/引用対応表_中途レポート.md
+python .claude/skills/cite-bridge/bridge.py grade --keys-from <key を含む md>
 python .claude/skills/cite-bridge/bridge.py review [c001 ...] [--images DIR] [-o 出力.md]  # 確認用の一覧（省くと確認待ちすべて）
 python .claude/skills/cite-bridge/bridge.py review --json --all [--images DIR]          # 外の表示へ渡す JSON（承認済と指示も含める）
 python .claude/skills/cite-bridge/bridge.py review --html -o preview/cite_review.html     # 承認の HTML（人が見て判断する画面）
@@ -163,7 +162,7 @@ python .claude/skills/cite-bridge/bridge.py sentences <key> [--grep 語 ...] [--
 python .claude/skills/cite-bridge/bridge.py propose --load bridge/candidates/drafts.json     # 書き手の下書きを検査して候補にする
 python .claude/skills/cite-bridge/bridge.py approve c001 --by 人 [--note 理由]
 python .claude/skills/cite-bridge/bridge.py approve c001 --by 人 --send-back --note 理由   # 差し戻し
-python .claude/skills/cite-bridge/bridge.py confirm kawahara2013#e2 --by 人            # 要約の確認
+python .claude/skills/cite-bridge/bridge.py confirm stepwrite2025#e2 --by 人            # 要約の確認
 python .claude/skills/cite-bridge/bridge.py --citations <別の引用ファイル> check   # 原稿が複数あるとき、写しで試すとき
 python .claude/skills/cite-bridge/bridge.py extract [<key> ...] [--force]  # 原本の PDF から抽出テキストを作る（pymupdf）
 python .claude/skills/cite-bridge/bridge.py snapshot <key> [<URL>]       # Web 資料の写し（既定は書誌の行の URL）
@@ -191,8 +190,8 @@ python .claude/skills/cite-bridge/bridge.py precommit                       # gi
 - 承認者の一覧（approvers）があれば、承認・差し戻し・要約の確認・判断ファイルは一覧の名前でしか書けない。承認の HTML は一覧から選ぶ形になる。
   check は一覧に無い名前の承認を確認待ちとし、マニフェストは承認を種類（human / model）ごとにも数える。一覧が防ぐのは打ち間違いや別名などの
   事故で、悪意は防がない（判断ファイルは誰でも書ける）。
-- 承認の HTML には、判断とは別に「指摘」の欄がある。論文への気づきを書く欄で、apply は引用ブロックの「指摘」に足す（承認の指紋には入らない）。
-  指摘だけを書いて判断を保留にしてもよい。承認の理由に論文への指摘を書かずに済むようにした（§16.7）。
+- 承認の HTML には、判断とは別に「指摘」の欄がある。原稿への気づきを書く欄で、apply は引用ブロックの「指摘」に足す（承認の指紋には入らない）。
+  指摘だけを書いて判断を保留にしてもよい。承認の理由に原稿への指摘を書かずに済むようにした（§16.7）。
 - check は「網羅」の行に、原稿の出典らしき括弧のうち印の無い文にあるものの数を出す。印の無い引用はこのツールが何も確かめていない。
   「確認待ち 0」や checkpoint は、印のある引用についての状態であって、原稿の引用全体の確認ではない。一覧は coverage で出す。
   パターンは数え方の下限の目安で、括弧を使わない出典は数えない。
