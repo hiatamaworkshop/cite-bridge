@@ -10,6 +10,7 @@
     python bridge.py checkpoint [--label …]       check --strict を通った地点をマニフェスト（JSON）で残す
     python bridge.py strip <原稿> <出力>          原稿から引用の印を外した写しを作る（提出物を作る前段）
     python bridge.py snapshot <key> [<URL>]       Web 資料の写しを取得日とハッシュつきで保存する（既定は書誌の URL）
+    python bridge.py precommit                    git の pre-commit から呼ぶ。ステージ内容が監視対象のときだけ check（と道具の試験）を走らせる
 
 この論文に固有のこと（パス、書誌の書き方）は設定ファイルから受け取り、コードには書かない。
 
@@ -26,6 +27,9 @@ import sys
 import unicodedata
 from pathlib import Path
 
+TOOL_NAME = "cite-bridge"
+TOOL_VERSION = "0.1.0"  # 形式（欄・判断ファイル・マニフェスト）を変えたら上げる。マニフェストに記録する
+
 # 設定（bridge.toml）から main で埋める
 CONFIG = Path("bridge/bridge.toml")
 CONFIG_USED = CONFIG
@@ -36,6 +40,7 @@ APPLIED = None      # 適用した判断ファイルの記録（bridge.applied�
 CAND_DIR = None     # 候補の作業票・下書き・候補（bridge.candidates）
 EXCLUDED = None     # 「引用でない」と判断した括弧の記録（bridge.excluded）。coverage が数えない
 MARK_FORMAT = "〔{id}〕"
+WATCH_EXTRA = []    # pre-commit が監視する、設定が指す以外のパス（hook.watch）
 APPROVERS = {}      # 承認者の一覧 {名前: human / model}。空なら名前を問わない（approvers）
 # 出典らしき括弧（著者と年など）。印の無い文にあるものを「印の無い出典」として数える（coverage.pattern で替える）
 COVER_RE = re.compile(r"[（(][^（）()\n]*?(?<!\d)(?:19|20)\d{2}[a-z]?(?![\d年月日-])[^（）()\n]*[）)]")
@@ -84,6 +89,8 @@ def load_config(path):
     if c.get("coverage", {}).get("pattern"):
         COVER_RE = re.compile(c["coverage"]["pattern"])
     OUTPUT_LANG = c.get("output", {}).get("language", OUTPUT_LANG)
+    global WATCH_EXTRA
+    WATCH_EXTRA = [Path(x) for x in c.get("hook", {}).get("watch", [])]
     # 節の種類の語と、抽出が読めるかを見る頻出語は、既定（英語と日本語）に足せる
     extra = c.get("section_kinds", {})
     KIND_WORDS = [(k, ws + [w.lower() for w in extra.get(k, [])]) for k, ws in KIND_WORDS]
@@ -2554,6 +2561,8 @@ def cmd_checkpoint(args):
     files["texts"] = {t: _sha256(t) for t in r["texts"]}
     tracked = [v for v in inputs.values() if v] + [EXC_DIR.as_posix()]
     manifest = {
+        "format": "cite-bridge-manifest/1",
+        "tool": tool_version(),
         "checkpoint": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "label": args.label,
         "git": {"head": _git("rev-parse", "HEAD"),
@@ -2573,6 +2582,68 @@ def cmd_checkpoint(args):
     print(f"ok checkpoint: {out.as_posix()}")
     if manifest["git"]["uncommitted"]:
         print("注意: 未コミットの変更がある状態で書いた（git.uncommitted を参照）")
+
+
+def tool_version():
+    """この道具の版。別のリポジトリから使うと、どの版の検査で通ったかが論文側から分からなくなるので、マニフェストに残す。
+
+    version は形式の版、sha256 は bridge.py の内容、commit は道具のフォルダを最後に変えたコミット（git の外では None）。
+    dirty は道具のフォルダに未コミットの変更があること。
+    """
+    here = Path(__file__).resolve()
+    d = str(here.parent)
+    commit = _git("-C", d, "log", "-1", "--format=%H", "--", ".")
+    dirty = None
+    if commit is not None:
+        dirty = bool(_git("-C", d, "-c", "core.quotepath=off", "status", "--porcelain", "--", "."))
+    return {"name": TOOL_NAME, "version": TOOL_VERSION, "sha256": _sha256(here), "commit": commit or None, "dirty": dirty}
+
+
+def cmd_precommit(args):
+    """git の pre-commit から呼ぶ。ステージした内容が監視対象のときだけ check を走らせ、整合の崩れ（ERROR）で止める。
+
+    監視するのは、設定が指す原稿・書誌・抜き書き・引用・抽出テキスト・Web の写し・設定ファイルと、道具のフォルダ。
+    設定の [hook] watch に足せる。確認待ち（NOTE）では止めない（提出前は check --strict）。
+    道具のフォルダをステージしたとき（道具を直したとき）は、tests の試験も走らせる。
+    検査するのは作業ツリーの状態で、ステージした内容そのものではない。
+    """
+    import subprocess
+    top = _git("rev-parse", "--show-toplevel")
+    if not top:
+        sys.exit("git のリポジトリの中で実行する")
+    top = Path(top).resolve()
+    out = subprocess.run(["git", "-c", "core.quotepath=off", "diff", "--cached", "--name-only", "--diff-filter=ACMRD"],
+                         capture_output=True, text=True, encoding="utf-8", cwd=top).stdout
+    staged = [(top / ln).resolve() for ln in out.splitlines() if ln.strip()]
+    if not staged:
+        return
+
+    def under(path, roots):
+        return any(path == r or r in path.parents for r in roots)
+
+    tool_dir = Path(__file__).resolve().parent
+    manuscript = _manuscript() if CIT.exists() else None
+    if manuscript == Path(""):
+        manuscript = None
+    watch = [BIB, EXC_DIR, CIT, TXT_DIR, WEB_DIR, CONFIG_USED, *WATCH_EXTRA]
+    if manuscript:
+        watch.append(manuscript)
+    roots = [(Path.cwd() / p).resolve() for p in watch] + [tool_dir]
+    if not any(under(p, roots) for p in staged):
+        return
+    r = run_check()
+    for e in r["errors"]:
+        print("ERROR", e)
+    if r["errors"]:
+        print(f"{TOOL_NAME}: 整合の崩れがあるのでコミットを止めた（bridge.py check で確認）")
+        sys.exit(1)
+    if any(under(p, [tool_dir]) for p in staged) and (tool_dir / "tests").is_dir():
+        t = subprocess.run([sys.executable, "-I", "-X", "utf8", "-m", "unittest", "discover", "-s", str(tool_dir / "tests")],
+                           capture_output=True, text=True, encoding="utf-8")
+        if t.returncode != 0:
+            print("\n".join((t.stdout + t.stderr).splitlines()[-20:]))
+            print(f"{TOOL_NAME}: 試験が通らないのでコミットを止めた")
+            sys.exit(1)
 
 
 def cmd_strip(args):
@@ -2652,6 +2723,8 @@ def main():
     cp = sub.add_parser("checkpoint")
     cp.add_argument("--label", default="")
     cp.set_defaults(func=cmd_checkpoint)
+    pc = sub.add_parser("precommit")
+    pc.set_defaults(func=cmd_precommit)
     st = sub.add_parser("strip")
     st.add_argument("src")
     st.add_argument("out")

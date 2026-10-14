@@ -80,9 +80,17 @@ description: 引用ごとに錨（原典の逐語と、道具が導いた所在�
 
 ## hook
 
-`.githooks/pre-commit` が、bridge・清書・書誌リスト・抽出テキスト・このスキルをステージしたときに check を走らせ、
-整合の崩れ（ERROR）があるときだけコミットを止める。確認待ちでは止めない。有効にするのは `git config core.hooksPath .githooks`
-（2026-10-10 にこのリポジトリで設定した。clone し直したら設定し直す）。検査するのは作業ツリーで、ステージした内容そのものではない。
+整合の検査を git の pre-commit に置く。検査の本体は `bridge.py precommit` で、何を監視するかは設定（bridge.toml）が決める。
+ステージしたものが、原稿・書誌・抜き書き・引用・抽出テキスト・Web の写し・設定ファイル・道具のフォルダのどれかに当たるときだけ
+check を走らせ、整合の崩れ（ERROR）があるときだけコミットを止める。確認待ち（NOTE）では止めない（提出前は `check --strict`）。
+道具のフォルダをステージしたとき（道具を直したとき）は、tests の試験も走らせる。検査するのは作業ツリーで、ステージした内容そのものではない。
+
+- 入れ方。道具に同梱の `hooks/pre-commit`（sh の数行）を、使うリポジトリの `.githooks/pre-commit` に置き、
+  `git config core.hooksPath .githooks` で有効にする（clone し直したら設定し直す）。
+  hook は sh で動くので、`.gitattributes` で `.githooks/* text eol=lf` にして改行変換を止める。
+- 道具の場所は環境変数 `CITE_BRIDGE`（bridge.py のパス）で替える。既定は `.claude/skills/cite-bridge/bridge.py`。
+  無ければ警告して検査を飛ばす（コミットは止めない）。
+- 設定以外のパスも監視したいときは `[hook] watch = ["…"]`。
 
 ## 設定
 
@@ -120,6 +128,8 @@ language = "ja"                                  # 導く欄の名前を書く�
 # alice = "human"
 [coverage]
 # pattern = '…'                                  # 出典らしき括弧（既定は年を含む括弧）。印の無い文にあるものを数える
+[hook]
+# watch = ["extra/dir"]                          # pre-commit が監視する、設定が指す以外のパス
 ```
 （[bridge] には applied、candidates、excluded も置ける。適用した判断ファイルの記録、候補の作業のフォルダ、引用でないと判断した括弧の記録で、
 既定は citations と同じフォルダの applied.json、candidates/、excluded.json）
@@ -156,7 +166,8 @@ python .claude/skills/cite-bridge/bridge.py extract [<key> ...] [--force]  # 原
 python .claude/skills/cite-bridge/bridge.py snapshot <key> [<URL>]       # Web 資料の写し（既定は書誌の行の URL）
 python .claude/skills/cite-bridge/bridge.py snapshot <key> --rebuild     # 保存した生の HTML から本文を作り直す（取り直さない）
 python .claude/skills/cite-bridge/bridge.py strip <原稿> <出力>            # 印を外した写しを作る
-python .claude/skills/cite-bridge/bridge.py checkpoint [--label 中間提出]   # check --strict を通った地点をマニフェストで残す
+python .claude/skills/cite-bridge/bridge.py checkpoint [--label 中間提出]   # check --strict を通った地点をマニフェストで残す（道具の版つき）
+python .claude/skills/cite-bridge/bridge.py precommit                       # git の pre-commit から呼ぶ（hook 節）
 ```
 
 - snapshot は生の HTML を `<web_dir>/<key>.html`（追跡しない）に、本文を `<key>.txt`（追跡する）に保存する。本文の頭書きに
@@ -210,7 +221,7 @@ python .claude/skills/cite-bridge/bridge.py checkpoint [--label 中間提出]   
 - 見出しの検出は推定である（番号が順に進むものだけを見出しとし、目次の行は除く）。節が誤って導かれたら、抽出テキストの見出しの行を確かめる。
 
 - checkpoint は、整合の崩れも確認待ちも無いときだけ `bridge/checkpoints/<UTC 時刻>.json` を書く。中身は git の HEAD と未コミットの入力、
-  設定・書誌・原稿・引用・抜き書き・抽出テキストの sha256、抜き書きの照合と格の内訳、引用の状態、承認者ごとの件数。分類器の欄は空（未実装）。
+  設定・書誌・原稿・引用・抜き書き・抽出テキストの sha256、抜き書きの照合と格の内訳、引用の状態、承認者ごとの件数、道具の版（tool: version・bridge.py の sha256・道具のフォルダの最終コミット・未コミットの変更の有無）。分類器の欄は空（未実装）。
 - OCR は道具に入れない（外部の依存を核に持ち込まないため）。OCR で作ったテキストは、頭に `<!-- ocr` で始まる頭書き（エンジン、日付）を置いて
   `<text_dir>/<PDF と同じ名>.txt` に置く。格は「PDF所持（OCR の抽出）」になり、機械で照合できる範囲には数えない。誤読があるので、照合は近似一致が多くなる。
 - 照合は key に結ばれた抽出テキスト（書誌が指す PDF と同名の `<text_dir>/<名>.txt`、無ければ `<web_dir>/<key>.txt`）の中だけで行う。

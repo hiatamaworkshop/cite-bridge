@@ -119,7 +119,10 @@ class BridgeTest(unittest.TestCase):
             p.write_text(text, encoding="utf-8", newline="\n")
 
     def tearDown(self):
-        shutil.rmtree(self.dir)
+        def writable(func, path, _exc):  # Windows では .git の中が読み取り専用で消せない
+            os.chmod(path, 0o700)
+            func(path)
+        shutil.rmtree(self.dir, onerror=writable)
 
     def run_bridge(self, *args):
         env = dict(os.environ, PYTHONIOENCODING="utf-8")
@@ -292,6 +295,44 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(m["approvers"], {"tester": 1})
         self.assertEqual(m["citations"]["承認済"], 1)
         self.assertTrue(m["files"]["manuscript"]["sha256"])
+        # 別のリポジトリから使っても、どの版の検査で通ったかが残る
+        self.assertEqual(m["format"], "cite-bridge-manifest/1")
+        self.assertEqual(m["tool"]["name"], "cite-bridge")
+        self.assertRegex(m["tool"]["version"], r"^\d+\.\d+\.\d+$")
+        import hashlib
+        self.assertEqual(m["tool"]["sha256"], hashlib.sha256(BRIDGE.read_bytes()).hexdigest())
+
+    def git(self, *a):
+        r = subprocess.run(["git", *a], cwd=self.dir, capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
+
+    def test_precommit_watches_only_what_the_config_points_at(self):
+        self.git("init", "-q")
+        self.git("config", "user.email", "t@example.com")
+        self.git("config", "user.name", "t")
+        self.run_bridge("derive")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "init")
+        # 何もステージしていなければ素通り
+        self.assertEqual(self.run_bridge("precommit")[0], 0)
+        # 監視外のファイルをステージしても、引用が壊れていても検査しない
+        self.write("bridge/citations.md", self.read("bridge/citations.md") + "\n## c099\n種類: 主張\n")
+        self.write("other.txt", "x")
+        self.git("add", "other.txt")
+        self.assertEqual(self.run_bridge("precommit")[0], 0)
+        # 設定が指す原稿をステージして、整合が崩れていれば止める
+        self.write("manuscript.md", self.read("manuscript.md").replace("〔c001〕", ""))
+        self.git("add", "manuscript.md")
+        code, out = self.run_bridge("precommit")
+        self.assertEqual(code, 1, out)
+        self.assertIn("ERROR", out)
+        # 直せば通る
+        self.git("checkout", "--", "manuscript.md")
+        self.git("reset", "-q", "HEAD", "manuscript.md")
+        self.git("checkout", "--", "bridge/citations.md")
+        self.git("add", "bridge/excerpts/doe2020.md")
+        self.assertEqual(self.run_bridge("precommit")[0], 0)
 
     def test_ocr_text_is_marked(self):
         self.write("refs/_txt/yamada2002.txt", "<!-- ocr\nengine: test\n-->\n" + JA_PAPER)

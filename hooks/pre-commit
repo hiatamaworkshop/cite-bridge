@@ -1,0 +1,10 @@
+#!/bin/sh
+# 引用ブリッジの整合の検査（cite-bridge）。何を監視するかは bridge/bridge.toml が決める（bridge.py precommit）。
+# 使うリポジトリの .githooks/pre-commit にこのファイルを置き、有効にする:  git config core.hooksPath .githooks
+# 道具の場所は環境変数 CITE_BRIDGE（bridge.py のパス）で替えられる。
+BRIDGE="${CITE_BRIDGE:-.claude/skills/cite-bridge/bridge.py}"
+if [ ! -f "$BRIDGE" ]; then
+  echo "cite-bridge: $BRIDGE が無いので検査を飛ばした（CITE_BRIDGE で道具の場所を指す）" >&2
+  exit 0
+fi
+exec python -I -X utf8 "$BRIDGE" precommit
