@@ -556,6 +556,40 @@ class BridgeTest(unittest.TestCase):
         self.assertIn("原稿のその文が変わった", out)
         self.assertNotIn("〔c002〕", self.read("manuscript.md"))
 
+    def test_human_reading_is_its_own_field(self):
+        """人の読みは独立の欄。人が書き、この引用の抜き書きへ錨を持ち、直すと承認が古くなる。"""
+        self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\nreviewer-model = "model"\n')
+        self.run_bridge("derive")
+        self.assertEqual(self.run_bridge("approve", "c001", "--by", "alice")[0], 0)
+        self.assertEqual(self.run_bridge("check")[0], 0)
+        base = self.read("bridge/citations.md")
+
+        def with_reading(reading, by="alice 2026-10-14"):
+            extra = f"人の読み: {reading}\n" + (f"人の読みの記入: {by}\n" if by else "")
+            self.write("bridge/citations.md", base.replace("承認: alice", extra + "承認: alice", 1))
+            return self.run_bridge("check")
+
+        # 読みを足すと、承認の後に根拠が変わったことになる（読みも承認の対象）
+        code, out = with_reading("e1 の平均は条件を揃えた試験の値だと読める")
+        self.assertEqual(code, 0, out)
+        self.assertIn("承認の後に根拠が変わった", out)
+        # 錨が無い読みは断る
+        code, out = with_reading("条件を揃えた試験だと読める")
+        self.assertEqual(code, 1)
+        self.assertIn("錨が要る", out)
+        # 記入が無い、記入者が人でない、この引用の根拠に無い抜き書きを指す、のどれも断る
+        self.assertIn("人の読みの記入", with_reading("e1 から読める", by="")[1])
+        self.assertIn("人（approvers の human）でない", with_reading("e1 から読める", by="reviewer-model 2026-10-14")[1])
+        code, out = with_reading("e3 から読める")
+        self.assertEqual(code, 1)
+        self.assertIn("この引用の抜き書きに無い", out)
+        # 英語の欄名でも書ける
+        text = base.replace("承認: alice", "human_reading: e1 から読める\nhuman_reading_by: alice 2026-10-14\n承認: alice", 1)
+        self.write("bridge/citations.md", text)
+        self.assertEqual(self.run_bridge("check")[0], 0)
+        # 承認の画面と JSON に出る
+        self.assertIn("e1 から読める", self.run_bridge("review", "--json", "--all")[1])
+
     def test_approvers_registry(self):
         self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\nreviewer-model = "model"\n')
         self.run_bridge("derive")

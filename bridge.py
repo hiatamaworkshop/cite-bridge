@@ -107,6 +107,7 @@ FIELD_ALIASES = {
     "verbatim": "逐語", "strength": "強さ", "summary": "要約", "not_said": "言っていないこと",
     "written_by": "記入", "source_check": "原本での確認", "kind": "種類", "excerpts": "抜き書き",
     "source": "文献", "reason": "理由", "interpretation": "解釈", "diff": "原文との差", "approval": "承認",
+    "human_reading": "人の読み", "human_reading_by": "人の読みの記入",
     "not_quotes": "引用でない句", "target": "対象",
     "grade": "格", "text": "抽出", "match": "照合", "location": "所在", "section_kind": "節の種類",
     "before": "前", "sentence": "含む文", "after": "後", "also_found_in": "他の文献で一致",
@@ -813,9 +814,11 @@ def coverage_items(text):
     return out
 
 
-def evidence_hash(refs, excerpts):
-    """引用の根拠（抜き書きの ID と逐語）の指紋。根拠を足したり逐語を直したりすると変わる。"""
+def evidence_hash(refs, excerpts, reading=""):
+    """引用の根拠（抜き書きの ID と逐語、あれば人の読み）の指紋。根拠を足す、逐語を直す、読みを直すと変わる。"""
     s = "\n".join(f"{r}\t{re.sub(r'\s', '', excerpts.get(r, {}).get('逐語', ''))}" for r in sorted(refs))
+    if reading:
+        s += "\n人の読み\t" + re.sub(r"\s", "", reading)
     return hashlib.sha1(s.encode("utf-8")).hexdigest()[:8]
 
 
@@ -995,6 +998,23 @@ def run_check():
             for name in ("理由", "原文との差", "記入"):
                 if not f.get(name):
                     errors.append(f"{w}: 欄 '{name}' が空")
+            # 人の読み：原文の語でない読みを、人が本文へ入れるときの欄。AI は書けず、この引用の抜き書きへ錨を持つ（§16.2 の 7）
+            if f.get("人の読み"):
+                by = f.get("人の読みの記入", "").split()
+                if not by:
+                    errors.append(f"{w}: 人の読みには 人の読みの記入（書いた人と日付）が要る")
+                elif APPROVERS and APPROVERS.get(by[0]) != "human":
+                    errors.append(f"{w}: 人の読みの記入者 '{by[0]}' は人（approvers の human）でない")
+                anchors = refs_in(f["人の読み"], ref_keys)
+                if not anchors:
+                    errors.append(f"{w}: 人の読みが抜き書きの ID（e6 や key#e6）を指していない。錨が要る")
+                for shown, cands in anchors:
+                    if not any(c in excerpts for c in cands):
+                        errors.append(f"{w}: 人の読みが指す抜き書き '{shown}' が無い")
+                    elif not any(c in refs for c in cands):
+                        errors.append(f"{w}: 人の読みが指す抜き書き '{shown}' がこの引用の抜き書きに無い（根拠に足す）")
+            elif f.get("人の読みの記入"):
+                errors.append(f"{w}: 人の読みの記入だけがある（人の読みを書く）")
             if f.get("原文との差") and f["原文との差"] not in DIFFS:
                 errors.append(f"{w}: 原文との差は {sorted(DIFFS)} のどれか")
             # 本文の引用符の中の文字列は、指している抜き書きの逐語に含まれていること
@@ -1010,7 +1030,7 @@ def run_check():
                 same = [p for p in pool if any(is_cjk(c) for c in p) == qcjk]
                 if same and not any(normalize(q, "alnum")[0] in normalize(p, "alnum")[0] for p in same):
                     errors.append(f"{w}: 本文の引用「{q[:30]}…」が抜き書きの逐語に無い")
-            state, extra = approval_state(f, b.get("records", {}), fp, evidence_hash(refs, excerpts))
+            state, extra = approval_state(f, b.get("records", {}), fp, evidence_hash(refs, excerpts, f.get("人の読み", "")))
             counts[state] = counts.get(state, 0) + 1
             if state == "未承認":
                 notes.append(f"{w}: 未承認（{heading_at(text, ids_in_text[cid][0])}）")
@@ -1163,7 +1183,7 @@ def _citation_now(cid):
         sys.exit(f"{CIT.as_posix()} に {cid} のブロックが無い")
     sent = sentence_at(text, offs[0])
     refs = [r.strip() for r in block["fields"].get("抜き書き", "").split(",") if r.strip()]
-    return sent, fingerprint(sent), evidence_hash(refs, load_excerpt_fields()), block["fields"]
+    return sent, fingerprint(sent), evidence_hash(refs, load_excerpt_fields(), block["fields"].get("人の読み", "")), block["fields"]
 
 
 APPROVAL_LINE_RE = r"^@?(承認|差し戻し|approval|approved_|returned_)"
@@ -1913,7 +1933,8 @@ def review_data(cids=None, images=None, include_done=False):
         refs = [r.strip() for r in f.get("抜き書き", "").split(",") if r.strip()]
         sent = sentence_at(text, pos[cid])
         if f.get("種類") == "主張":
-            state, extra = approval_state(f, b.get("records", {}), fingerprint(sent), evidence_hash(refs, excerpt_fields))
+            state, extra = approval_state(f, b.get("records", {}), fingerprint(sent),
+                                          evidence_hash(refs, excerpt_fields, f.get("人の読み", "")))
         else:
             state, extra = "指示", f.get("文献", "")
         if not cids and not include_done and state in ("承認済", "指示"):
@@ -1923,9 +1944,9 @@ def review_data(cids=None, images=None, include_done=False):
         ln_z = text.find("\n", pos[cid])
         para = re.sub(r"\s{2,}", " ", text[ln_a:ln_z if ln_z >= 0 else len(text)]).strip()
         item = {"id": cid, "kind": f.get("種類", ""), "state": state, "state_detail": extra,
-                "fingerprint": fingerprint(sent), "evidence_fp": evidence_hash(refs, excerpt_fields), "paragraph": para,
+                "fingerprint": fingerprint(sent), "evidence_fp": evidence_hash(refs, excerpt_fields, f.get("人の読み", "")), "paragraph": para,
                 "line": text.count("\n", 0, pos[cid]) + 1, "section": heading_at(text, pos[cid]), "sentence": sent,
-                "fields": {n: f[n] for n in ("理由", "解釈", "原文との差", "引用でない句", "記入", "承認", "承認の理由",
+                "fields": {n: f[n] for n in ("理由", "解釈", "人の読み", "人の読みの記入", "原文との差", "引用でない句", "記入", "承認", "承認の理由",
                                              "差し戻しの理由", "指摘") if f.get(n)},
                 "errors": [e for e in checked["errors"] if tag in e],
                 "notes": [n for n in checked["notes"] if tag in n],
@@ -1997,7 +2018,7 @@ def review_md(data):
             out += [f"要約と言っていないこと（{who}）:", "", f"- 強さ: {e['strength']}", f"- 要約: {e['summary']}",
                     f"- 言っていないこと: {e['not_said']}", ""]
         out += [f"### 引用の欄（記入: {it['fields'].get('記入', '')}）", ""]
-        out += [f"- {n}: {it['fields'][n]}" for n in ("理由", "解釈", "原文との差", "引用でない句", "承認", "承認の理由", "指摘")
+        out += [f"- {n}: {it['fields'][n]}" for n in ("理由", "解釈", "人の読み", "人の読みの記入", "原文との差", "引用でない句", "承認", "承認の理由", "指摘")
                 if it["fields"].get(n)] + [""]
         if it["commands"]:
             c = it["commands"]
@@ -2129,7 +2150,7 @@ def review_page(data):
         h.append(f'<div class="sent">{sent}<details class="inline"><summary>段落</summary><span class="para">{para}</span></details></div>')
         for i, e in enumerate(it["evidence"], 1):
             h.append(ev_html(i, e, it["id"]))
-        rows = [(n, f[n]) for n in ("理由", "解釈", "引用でない句", "承認の理由", "指摘") if f.get(n)]
+        rows = [(n, f[n]) for n in ("理由", "解釈", "人の読み", "人の読みの記入", "引用でない句", "承認の理由", "指摘") if f.get(n)]
         h.append('<dl class="cf-rows">' + "".join(f"<dt>{n}</dt><dd>{E(v)}</dd>" for n, v in rows) + "</dl>"
                  + f'<p class="mut sm" title="{E(f.get("記入", ""))}">記入：{E(short(f.get("記入", ""), 60))}</p></div>')
         h.append(f'<div class="decide" data-choice=""><span class="opts">'
