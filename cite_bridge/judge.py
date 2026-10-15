@@ -17,7 +17,9 @@ from .manuscript import unmark
 
 ABSTAIN = "判定できない"
 
-# 既定の型（最小の四つ）。足すときは bridge.toml の [[checks]] に同じ形で書く。同じ type 名は上書きになる。
+# 既定の型（最小の三つ）。足すときは bridge.toml の [[checks]] に同じ形で書く。同じ type 名は上書きになる。
+# cite.strength（本文の強さ）は既定から外した。実機の測定（2026-10-15）で、承認済みの引用にも「強めている」と答え、区別ができなかった。
+# 言い過ぎは cite.diff の 限定つき一般化 と 外挿 で拾う。使うときは [[checks]] で足す（README に例）。
 DEFAULT_CHECKS = [
     {
         "type": "cite.diff", "version": 2, "for": "citation",
@@ -28,15 +30,6 @@ DEFAULT_CHECKS = [
                   "外挿": "逐語に書かれていないことまで述べている", ABSTAIN: "材料から決められない"},
         "materials": {"claim": "citation.sentence", "source": "excerpt.逐語", "before": "excerpt.前", "after": "excerpt.後"},
         "compare": "citation.原文との差",
-    },
-    {
-        "type": "cite.strength", "version": 2, "for": "citation",
-        "question": "本文の文のうち、この逐語を引いている部分（前置きや他の出典の部分は除く）は、原典の内容を、どの強さで述べているか。",
-        "labels": ["観察", "示唆", "主張", "一般化", "条件付き", ABSTAIN],
-        "gloss": {"観察": "観察した事実を述べる", "示唆": "かもしれない、と示す", "主張": "著者の主張として述べる",
-                  "一般化": "広い範囲に一般化して述べる", "条件付き": "条件や範囲を限って述べる", ABSTAIN: "材料から決められない"},
-        "materials": {"claim": "citation.sentence", "source": "excerpt.逐語", "before": "excerpt.前", "after": "excerpt.後"},
-        "compare": "excerpt.強さ",
     },
     {
         "type": "cite.attribution", "version": 1, "for": "excerpt",
@@ -463,10 +456,23 @@ def _variant(path):
 
 
 def expected_flag(item, t):
-    """True は印が立つのが正しい、False は立たないのが正しい、None は数えない。"""
-    if item.get("base"):
-        return True if t in item.get("flag", []) else None
+    """True は印が立つのが正しい、False は立たないのが正しい、None は数えない。flag を持つ件が改変。"""
+    if "flag" in item:
+        return True if t in item["flag"] else None
     return False
+
+
+def resolve_twin(item, by_id):
+    """twin を持つ件は、元の件と同じ内容を別の言語で書いた本文（claim）を持つ。base・split・flag・level・mutation は元の件から引き継ぐ。"""
+    if "twin" not in item:
+        return item
+    src = by_id.get(item["twin"])
+    if src is None:
+        sys.exit(f"測定の組: {item['id']} の twin '{item['twin']}' が無い")
+    out = {k: v for k, v in src.items() if k not in ("id", "claim")}
+    out.setdefault("base", src["id"])
+    out.update(item)
+    return out
 
 
 def cmd_eval(args):
@@ -479,7 +485,8 @@ def cmd_eval(args):
     data = review_data(None, None, include_done=True)
     by = {u["id"]: u for u in units_from_data(data) if u["scope"] == "citation"}
     eunits = []
-    for it in es["items"]:
+    by_id = {it["id"]: it for it in es["items"]}
+    for it in (resolve_twin(i, by_id) for i in es["items"]):
         if args.split != "all" and it.get("split") != args.split:
             continue
         u = by.get(it.get("base", it["id"]))
@@ -500,9 +507,11 @@ def cmd_eval(args):
     langs = {}
     for _, v in eunits:
         langs[lang_pair(v)] = langs.get(lang_pair(v), 0) + 1
-    print(f"測定: 組 {len(eunits)} 件（承認済み {sum(1 for i, _ in eunits if not i.get('base'))}、改変 "
-          f"{sum(1 for i, _ in eunits if i.get('base'))}。言語（本文/原典） "
-          f"{'、'.join(f'{k} {n}' for k, n in sorted(langs.items()))}）、型 {', '.join(types)}、"
+    twins = sum(1 for i, _ in eunits if i.get("twin"))
+    print(f"測定: 組 {len(eunits)} 件（承認済み {sum(1 for i, _ in eunits if 'flag' not in i)}、改変 "
+          f"{sum(1 for i, _ in eunits if 'flag' in i)}。言語（本文/原典） "
+          f"{'、'.join(f'{k} {n}' for k, n in sorted(langs.items()))}"
+          + (f"。うち別の言語で書いた本文 {twins}" if twins else "") + f"）、型 {', '.join(types)}、"
           f"案 {', '.join(n for n, *_ in plans)}、各 {args.reps} 回。" + estimate(total))
     clf = _classifier_or_stop(args.send)
     if clf is None:
@@ -515,19 +524,19 @@ def cmd_eval(args):
                 if results is None:
                     continue
                 it = items_by_unit[r["item"]]
-                lang = lang_pair(r["unit"])
+                head = {"variant": name, "rep": rep, "item": it["id"], "split": it.get("split", ""),
+                        "lang": lang_pair(r["unit"]), "level": it.get("level", ""), "twin": it.get("twin", "")}
                 for (c, about, mat), v in results:
                     exp = expected_flag(it, c["type"])
                     if v is None:
-                        rows.append({"variant": name, "rep": rep, "item": it["id"], "split": it.get("split", ""), "lang": lang,
-                                     "type": c["type"], "label": None, "expected": exp, "ok": False if exp is not None else None})
+                        rows.append({**head, "type": c["type"], "label": None, "expected": exp,
+                                     "ok": False if exp is not None else None})
                         continue
                     record = [x for p in [c.get("compare")] if p for x in values_at(r["unit"], p) if x]
                     status = judge_status(c, v.label, record)
                     top = sorted(v.scores.values(), reverse=True) + [0.0, 0.0]
                     flagged = status in FLAGGED
-                    rows.append({"variant": name, "rep": rep, "item": it["id"], "split": it.get("split", ""), "lang": lang,
-                                 "type": c["type"], "label": v.label, "status": status, "record": record,
+                    rows.append({**head, "type": c["type"], "label": v.label, "status": status, "record": record,
                                  "margin": round(top[0] - top[1], 3), "flagged": flagged, "expected": exp,
                                  "ok": (flagged == exp) if exp is not None else None, "mutation": it.get("mutation", "")})
     _eval_report(rows, plans, args.verbose)
@@ -552,6 +561,14 @@ def _eval_report(rows, plans, verbose=False):
         print("言語の組（本文/原典）ごと")
         _eval_table(rows, plans, "分けと言語", lambda r: f"{r['split']} {r.get('lang', '')}",
                     [f"{s} {l}" for s in splits for l in langs])
+    levels = sorted({str(r["level"]) for r in rows if r.get("level") not in ("", None)})
+    if levels:
+        print("改変の難しさ（1 目立つ ～ 3 繊細）と言語ごと。調整用と確認用を合わせる")
+        _eval_table(rows, plans, "難しさと言語",
+                    lambda r: f"{r['level']} {r.get('lang', '')}" if r.get("level") not in ("", None) else None,
+                    [f"{lv} {l}" for lv in levels for l in langs])
+    if any(r.get("twin") for r in rows):
+        _twin_report(rows, plans)
     if verbose:
         for r in rows:
             if r.get("ok") is False:
@@ -559,6 +576,29 @@ def _eval_report(rows, plans, verbose=False):
                 print(f"  外れ {r['variant']} {r['type']} {r['item']}（{r.get('lang', '')}、{exp}）: {r.get('label')}"
                       + (f"／記録 {'・'.join(r.get('record') or [])}" if r.get("record") else "")
                       + (f"／{r['mutation']}" if r.get("mutation") else ""))
+
+
+def _twin_report(rows, plans):
+    """同じ内容を別の言語で書いた本文（twin）と元の件で、印の立ち方が同じかを数える。違った組は全部出す。"""
+    by = {(r["variant"], r["type"], r["item"], r["rep"]): r for r in rows}
+    print("同じ内容の言語違い（元の件 と 別の言語で書いた本文）")
+    print(f"{'案':<14}{'型':<16}{'件':<8}{'両方に印':<8}{'元だけ印':<8}{'訳だけ印':<8}{'両方なし'}")
+    diffs = []
+    for name, *_ in plans:
+        for t in sorted({r["type"] for r in rows if r["variant"] == name}):
+            pairs = [(by[k], r) for r in rows if r["variant"] == name and r["type"] == t and r.get("twin")
+                     for k in [(name, t, r["twin"], r["rep"])] if k in by]
+            for kind, want in (("承認済み", False), ("改変", True)):
+                sel = [(a, b) for a, b in pairs if a["expected"] is want]
+                if not sel:
+                    continue
+                n = [sum(1 for a, b in sel if (bool(a.get("flagged")), bool(b.get("flagged"))) == k)
+                     for k in ((True, True), (True, False), (False, True), (False, False))]
+                print(f"{name:<14}{t:<16}{kind:<10}{n[0]:<12}{n[1]:<12}{n[2]:<12}{n[3]}")
+                diffs += [(name, t, a, b) for a, b in sel if bool(a.get("flagged")) != bool(b.get("flagged"))]
+    for name, t, a, b in diffs:
+        print(f"  違い {name} {t} {a['item']}（{a['lang']}）{a.get('label')} ／ {b['item']}（{b['lang']}）{b.get('label')}"
+              + (f"／記録 {'・'.join(a.get('record') or [])}" if a.get("record") else ""))
 
 
 def _eval_table(rows, plans, head, key, groups):

@@ -96,7 +96,7 @@ class ClassifierTest(unittest.TestCase):
         code, out = self.run_bridge("classify")
         self.assertEqual(code, 0, out)
         self.assertIn("送るには --send を付ける", out)
-        self.assertIn("要求 4 回、問い 8 件", out)
+        self.assertIn("要求 4 回、問い 7 件", out)  # 引用一つに diff、抜き書き三つに attribution と not_said
         self.assertEqual(FakeJev.log, [])
         self.assertEqual(self.ledger(), [])
 
@@ -140,10 +140,10 @@ class ClassifierTest(unittest.TestCase):
         code, out = self.run_bridge("classify", "--send")
         self.assertEqual(code, 0, out)
         led = {(e["item"], e["type"]): e for e in self.ledger()}
-        self.assertEqual(len(led), 8)
+        self.assertEqual(len(led), 7)
         d = led[("cite:c001", "cite.diff")]
         self.assertEqual((d["label"], d["record"], d["status"]), ("外挿", ["一致"], "食い違い"))
-        self.assertEqual(led[("cite:c001", "cite.strength")]["status"], "一致")
+        self.assertNotIn(("cite:c001", "cite.strength"), led)  # 強さの型は既定から外した
         self.assertEqual(led[("exc:doe2020#e1", "cite.attribution")]["status"], "要確認")
         self.assertEqual(led[("exc:doe2020#e1", "cite.not_said")]["status"], "問題なし")
         self.assertEqual(d["provider"], "jev")
@@ -156,15 +156,15 @@ class ClassifierTest(unittest.TestCase):
         self.assertEqual(first["body"]["model"], "jev-test")
         self.assertIn("[原典の逐語]", first["body"]["state"])
         qs = list(first["body"]["questions"].values())
-        self.assertEqual([q["type"] for q in qs], ["choice", "choice"])
+        self.assertEqual([q["type"] for q in qs], ["choice"])
         self.assertTrue(qs[0]["criteria"]["1"].startswith("一致"))
         # 台帳の印が、一覧と check と review に出る
         out = self.run_bridge("classify", "--list")[1]
         self.assertIn("食い違い", out)
         self.assertIn("cite.diff", out)
-        self.assertIn("分類器: 判定 8 件のうち印 4 件", self.run_bridge("check")[1])
+        self.assertIn("分類器: 判定 7 件のうち印 4 件", self.run_bridge("check")[1])
         rows = json.loads(self.run_bridge("review", "--json", "--all")[1])["citations"][0]["classifier"]
-        self.assertEqual({r["type"] for r in rows}, {"cite.diff", "cite.strength", "cite.attribution", "cite.not_said"})
+        self.assertEqual({r["type"] for r in rows}, {"cite.diff", "cite.attribution", "cite.not_said"})
         # 印を立てるだけで、承認の状態は変えない
         self.assertIn("未承認 1", self.run_bridge("check")[1])
 
@@ -212,7 +212,7 @@ class ClassifierTest(unittest.TestCase):
                  'labels = ["断定", "留保", "判定できない"]\nflag_on = ["断定"]\n[checks.materials]\nsource = "excerpt.逐語"\n')
         self.write("bridge/bridge.toml", self.read("bridge/bridge.toml") + extra)
         out = self.run_bridge("classify")[1]
-        self.assertIn("問い 11 件", out)  # 既定の八件に、抜き書き三件の新しい型が足される
+        self.assertIn("問い 10 件", out)  # 既定の七件に、抜き書き三件の新しい型が足される
         self.run_bridge("classify", "--send")
         self.assertEqual(self.run_bridge("approve", "c001", "--by", "tester")[0], 0)
         code, out = self.run_bridge("checkpoint")
@@ -235,10 +235,14 @@ class ClassifierTest(unittest.TestCase):
 
     def _eval_set(self):
         self.run_bridge("approve", "c001", "--by", "tester")
-        es = {"format": "cite-bridge-eval/1", "types": ["cite.diff", "cite.strength"], "items": [
+        es = {"format": "cite-bridge-eval/1", "types": ["cite.diff"], "items": [
             {"id": "c001", "split": "tune"},
-            {"id": "m1", "base": "c001", "split": "holdout", "flag": ["cite.diff"], "mutation": "結論を足した",
-             "claim": "Doe らの実験では、参加者は常に12秒で課題を終え、格子が最良であると証明された（Doe, 2020）。"}]}
+            {"id": "m1", "base": "c001", "split": "holdout", "flag": ["cite.diff"], "level": 1, "mutation": "結論を足した",
+             "claim": "Doe らの実験では、参加者は常に12秒で課題を終え、格子が最良であると証明された（Doe, 2020）。"},
+            # 同じ内容を英語で書いた本文。base・split・flag・level は元の件から引き継ぐ
+            {"id": "c001.en", "twin": "c001", "claim": "In Doe's experiment, participants finished the task in about 12 seconds (Doe, 2020)."},
+            {"id": "m1.en", "twin": "m1",
+             "claim": "In Doe's experiment, participants always finished in 12 seconds, and the grid was proven best (Doe, 2020)."}]}
         self.write("eval/set.json", json.dumps(es, ensure_ascii=False))
         self.write("eval/v.toml", '[[checks]]\ntype = "cite.diff"\nversion = 3\nfor = "citation"\n'
                                   'question = "{about} を引いている部分は、どれに当たるか。"\n'
@@ -250,7 +254,7 @@ class ClassifierTest(unittest.TestCase):
         self._eval_set()
         code, out = self.run_bridge("classify", "--eval", "eval/set.json", "--variant", "eval/v.toml", "--reps", "2")
         self.assertEqual(code, 0, out)
-        self.assertIn("組 2 件（承認済み 1、改変 1。言語（本文/原典） ja/en 2）", out)
+        self.assertIn("組 4 件（承認済み 2、改変 2。言語（本文/原典） en/en 2、ja/en 2。うち別の言語で書いた本文 2）", out)
         self.assertIn("案 設定, v", out)
         self.assertEqual(FakeJev.log, [])
 
@@ -267,8 +271,13 @@ class ClassifierTest(unittest.TestCase):
         # 偽のサーバは diff に「外挿」と答える。承認済み（記録 一致）では誤った印、改変では検出になる
         self.assertEqual((rows[("設定", "c001", "cite.diff")]["flagged"], rows[("設定", "c001", "cite.diff")]["ok"]), (True, False))
         self.assertEqual((rows[("設定", "m1", "cite.diff")]["flagged"], rows[("設定", "m1", "cite.diff")]["ok"]), (True, True))
-        self.assertIsNone(rows[("設定", "m1", "cite.strength")]["ok"])  # flag に無い型は数えない
         self.assertEqual(rows[("設定", "m1", "cite.diff")]["lang"], "ja/en")  # 日本語の本文が英語の原典を引く組
+        # 英語で書いた本文は en/en になり、元の件の split・flag・level を引き継ぐ
+        tw = rows[("設定", "m1.en", "cite.diff")]
+        self.assertEqual((tw["lang"], tw["split"], tw["level"], tw["twin"], tw["expected"]), ("en/en", "holdout", 1, "m1", True))
+        self.assertIs(rows[("設定", "c001.en", "cite.diff")]["expected"], False)
+        self.assertIn("同じ内容の言語違い", out)
+        self.assertIn("改変の難しさ", out)
         # 案の文面に出典の名前が入り、本文から出典の括弧が外れている
         mark = "を引いている部分は、どれに当たるか"  # 案（v.toml）の問いだけが持つ句
         sent = [r["body"] for r in FakeJev.log if any(mark in q["instructions"] for q in r["body"]["questions"].values())]
@@ -319,6 +328,15 @@ class MaterialTest(unittest.TestCase):
         self.assertEqual(self.j.lang_pair(u), "ja/en+ja")
         self.assertEqual(self.j.lang_pair(dict(u, excerpts=u["excerpts"][:1])), "ja/en")
         self.assertEqual(self.j.lang_pair({"scope": "excerpt", "excerpts": u["excerpts"][:1]}), "en")  # 抜き書きは原典の言語だけ
+
+    def test_expected_flag_and_twin(self):
+        self.assertIs(self.j.expected_flag({"id": "c1"}, "cite.diff"), False)       # 承認済み: 印が立たないのが正しい
+        self.assertIs(self.j.expected_flag({"id": "m1", "flag": ["cite.diff"]}, "cite.diff"), True)
+        self.assertIsNone(self.j.expected_flag({"id": "m1", "flag": ["cite.diff"]}, "cite.x"))  # flag に無い型は数えない
+        by = {"m1": {"id": "m1", "base": "c1", "split": "tune", "flag": ["cite.diff"], "claim": "ja"}, "c1": {"id": "c1"}}
+        t = self.j.resolve_twin({"id": "m1.en", "twin": "m1", "claim": "en"}, by)
+        self.assertEqual((t["base"], t["split"], t["flag"], t["claim"]), ("c1", "tune", ["cite.diff"], "en"))
+        self.assertEqual(self.j.resolve_twin({"id": "c1.en", "twin": "c1", "claim": "en"}, by)["base"], "c1")
 
     def test_eval_report_splits_by_language_pair_when_mixed(self):
         import contextlib

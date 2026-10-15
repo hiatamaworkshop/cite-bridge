@@ -211,15 +211,19 @@ status は pending / accepted / rejected。decided は、受け入れたとき�
 ### 測定の組（`cite-bridge-eval/1`）と結果（`cite-bridge-eval-result/1`）
 
 ```json
-{"format": "cite-bridge-eval/1", "note": "…", "types": ["cite.diff", "cite.strength"],
+{"format": "cite-bridge-eval/1", "note": "…", "types": ["cite.diff"],
  "items": [{"id": "c001", "split": "tune"},
-           {"id": "m01", "base": "c001", "split": "tune", "flag": ["cite.diff"], "mutation": "何をどう壊したか", "claim": "壊した本文の文"}]}
+           {"id": "m01", "base": "c001", "split": "tune", "flag": ["cite.diff"], "level": 1, "mutation": "何をどう壊したか", "claim": "壊した本文の文"},
+           {"id": "m01.en", "twin": "m01", "claim": "同じ内容を別の言語で書いた本文"}]}
 ```
 
 - id だけの件は承認済みの引用で、types のどの型でも印が立たないのが正しい。
-- base と claim を持つ件は、base の引用の本文を claim に置き換えた試験の件で、flag に挙げた型で印が立つのが正しい（挙げない型は数えない）。
+- flag を持つ件は改変で、base の引用の本文を claim に置き換えた試験の件である。flag に挙げた型で印が立つのが正しい（挙げない型は数えない）。
   材料のほかの部分（逐語、前後の文、記録）は base のものを使う。claim は原稿にも引用のファイルにも入らない。
-- 結果は、行ごとに `{variant, rep, item, split, lang, type, label, status, record, margin, flagged, expected, ok, mutation}`。
+- level は改変の難しさ（任意）。結果を難しさと言語の組ごとにも数える。段の意味は組の note に書く。
+- twin を持つ件は、twin の件と同じ内容を別の言語で書いた本文（claim）だけを持ち、base・split・flag・level・mutation を twin の件から引き継ぐ。
+  元が承認済みなら base は元の id。同じ内容で言語だけが違う組の印の立ち方を比べ、違った組を出す。
+- 結果は、行ごとに `{variant, rep, item, split, lang, level, twin, type, label, status, record, margin, flagged, expected, ok, mutation}`。
   margin は確からしさの一位と二位の差で、曖昧さの目安として残す（規則には使わない）。台帳には書かない。
 - lang は本文と原典の言語の組（`本文/原典`、例 `ja/en`。根拠の逐語が複数の言語にまたがれば `ja/en+ja`）。仮名か漢字を含む文は ja、
   欧字だけの文は en（英語以外の欧文も en に数える）。測定の組には書かず、道具が判別する。
