@@ -173,7 +173,7 @@ python .claude/skills/cite-bridge/bridge.py strip <原稿> <出力>            #
 python .claude/skills/cite-bridge/bridge.py checkpoint [--label 中間提出]   # check --strict を通った地点をマニフェストで残す（道具の版つき）
 python .claude/skills/cite-bridge/bridge.py precommit                       # git の pre-commit から呼ぶ（hook 節）
 python .claude/skills/cite-bridge/bridge.py classify [--send] [--list [--all]] [--cids c001 ...] [--limit N]   # 分類器による検査（README「分類器」。--send が無ければ送らない）
-python .claude/skills/cite-bridge/bridge.py classify --eval <組.json> --variant <案.toml> [--reps 2] [--send]   # 文面の測定（台帳に書かない）
+python .claude/skills/cite-bridge/bridge.py classify --eval <組.json> --variant <案.toml> [--types 型 …] [--reps 2] [--send]   # 文面の測定（台帳に書かない）
 ```
 
 - snapshot は生の HTML を `<web_dir>/<key>.html`（追跡しない）に、本文を `<key>.txt`（追跡する）に保存する。本文の頭書きに
@@ -229,7 +229,8 @@ python .claude/skills/cite-bridge/bridge.py classify --eval <組.json> --variant
 - 見出しの検出は推定である（番号が順に進むものだけを見出しとし、目次の行は除く）。節が誤って導かれたら、抽出テキストの見出しの行を確かめる。
 
 - checkpoint は、整合の崩れも確認待ちも無いときだけ `bridge/checkpoints/<UTC 時刻>.json` を書く。中身は git の HEAD と未コミットの入力、
-  設定・書誌・原稿・引用・抜き書き・抽出テキストの sha256、抜き書きの照合と格の内訳、引用の状態、承認者ごとの件数、道具の版（tool: version・bridge.py の sha256・道具のフォルダの最終コミット・未コミットの変更の有無）。分類器の欄は空（未実装）。
+  設定・書誌・原稿・引用・抜き書き・抽出テキストの sha256、抜き書きの照合と格の内訳、引用の状態、承認者ごとの件数、道具の版（tool: version・道具のソースの sha256・道具のフォルダの最終コミット・未コミットの変更の有無）。分類器を設定していれば、
+  提供元・モデル・型（名前、版、文面の指紋）・判定数・印の数も残す（SPEC §8）。
 - OCR は道具に入れない（外部の依存を核に持ち込まないため）。OCR で作ったテキストは、頭に `<!-- ocr` で始まる頭書き（エンジン、日付）を置いて
   `<text_dir>/<PDF と同じ名>.txt` に置く。格は「PDF所持（OCR の抽出）」になり、機械で照合できる範囲には数えない。誤読があるので、照合は近似一致が多くなる。
 - 照合は key に結ばれた抽出テキスト（書誌が指す PDF と同名の `<text_dir>/<名>.txt`、無ければ `<web_dir>/<key>.txt`）の中だけで行う。
@@ -246,7 +247,8 @@ python .claude/skills/cite-bridge/bridge.py classify --eval <組.json> --variant
 （照合と所在、節の種類、含む文、導く欄の古さ、和文の小書きの仮名、承認と再確認、引用でない句、孤児、英語の欄名、三つの書誌の形式、
 strip、印の形の設定、URL の PDF の写し、LaTeX の \cite と印の key、checkpoint、OCR の印、承認の理由と根拠、差し戻し、
 要約の確認、欄の中の参照、review（md と JSON と HTML）、apply（書き込みと指紋の食い違いの拒否）、折りたたみの見出しと作り直し、
-網羅の数え方、作業票、候補の検査と受け入れと拒否、人の読み、precommit、引用に使われていない抜き書きの確認、文面の測定と材料の整え。承認の HTML の JavaScript のうち、
+網羅の数え方、作業票、候補の検査と受け入れと拒否、人の読み、precommit、引用に使われていない抜き書きの確認、文面の測定と材料の整え、
+言語の組と言語違いの組、改変の難しさ、実際の誤りの件、記録より重い判定だけの印。承認の HTML の JavaScript のうち、
 画面に依らない部分（保存した入力の統合、古い判断の判定、判断ファイルの組み立て）は node で動かす（`tests/test_review_js.py`。node が無ければ飛ばす）。分類器（偽のサーバで Jev の API の形に答えさせる。外へは送らない）の型の登録・台帳・古さ・見積り。67件）。
 hook は道具の側を直したときに試験も走らせる。
 

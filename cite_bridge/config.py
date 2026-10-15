@@ -6,7 +6,7 @@ import sys
 
 
 TOOL_NAME = "cite-bridge"
-TOOL_VERSION = "0.1.0"  # 形式（欄・判断ファイル・マニフェスト）を変えたら上げる。マニフェストに記録する
+TOOL_VERSION = "0.2.0"  # 形式（欄・判断ファイル・マニフェスト）を変えたら上げる。マニフェストに記録する
 
 # 設定（bridge.toml）から main で埋める
 CONFIG = Path("bridge/bridge.toml")
