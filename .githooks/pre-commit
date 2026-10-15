@@ -1,0 +1,12 @@
+#!/bin/sh
+# cite-bridge 自身の pre-commit。コミットの前に試験を走らせ、通らなければ止める。
+# 有効にするには（clone ごとに一度）:  git config core.hooksPath .githooks
+# 使う側のリポジトリに置く hook は、hooks/pre-commit（原稿・書誌・引用の整合の検査）である。
+# hook の中では GIT_DIR などが環境に入っている。試験の git が、このリポジトリの設定を書き換えないよう外す
+unset $(git rev-parse --local-env-vars)
+if ! python -I -X utf8 -m unittest discover -s tests >/dev/null 2>&1; then
+  python -I -X utf8 -m unittest discover -s tests 2>&1 | tail -20
+  echo "cite-bridge: 試験が通らないのでコミットを止めた"
+  exit 1
+fi
+exit 0

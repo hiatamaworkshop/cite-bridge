@@ -1,9 +1,9 @@
 # cite-bridge データ形式の仕様
 
-この文書は、道具が読み書きするファイルの形式の正本である。bridge.py の実装と食い違ったときは、この文書に合わせて実装か文書を直す。
+この文書は、道具が読み書きするファイルの形式の正本である。実装（bridge.py と cite_bridge/）と食い違ったときは、この文書に合わせて実装か文書を直す。
 使い方と運用の作法は SKILL.md、設計の経緯は、この道具を作った論文のリポジトリ（thesis）の構想メモ（`notes/構想_AI協調の論文執筆ツールセットと引用ブリッジ_2026-10-10.md`）にある。
 
-- 形式の版: 0.1.0（bridge.py の `TOOL_VERSION`）。欄の追加・削除・意味の変更をしたら版を上げ、マニフェストに記録する。
+- 形式の版: 0.1.0（cite_bridge/config.py の `TOOL_VERSION`）。欄の追加・削除・意味の変更をしたら版を上げ、マニフェストに記録する。
 - 文字コードは UTF-8、改行は LF。
 - 欄名と値は日本語を正とし、英語の別名も受ける（§10）。内部では日本語にそろえる。
 
@@ -133,6 +133,7 @@ Web 写し（保存あり）/ Web 資料（写しなし）/ 未入手 / 書誌�
  "confirms": [{"id": "key#e1", "fingerprint": "<要約の指紋>"}]}
 ```
 
+- confirms は、引用の根拠の抜き書きに限らず、どの引用にも使われていない抜き書きも指せる（承認の HTML の「引用に使われていない抜き書き」）。
 - 差し戻しと却下は note が要る。
 - apply は、HTML を作った時点の指紋が現在と合うものだけを書く（合わなければ読み飛ばして理由を出す）。
 - `by` は承認者の一覧に載っていなければならない。一覧に無い名前は断る。
@@ -181,7 +182,7 @@ status は pending / accepted / rejected。decided は、受け入れたとき�
 
 ```json
 {"format": "cite-bridge-manifest/1",
- "tool": {"name": "cite-bridge", "version": "0.1.0", "sha256": "<bridge.py>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
+ "tool": {"name": "cite-bridge", "version": "0.1.0", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
  "checkpoint": "<UTC 時刻>", "label": "",
  "git": {"head": "<HEAD>", "uncommitted": ["…"]},
  "files": {"config": {"path", "sha256"}, "bibliography": {…}, "manuscript": {…}, "citations": {…},
@@ -191,7 +192,7 @@ status は pending / accepted / rejected。decided は、受け入れたとき�
  "classifier": null}
 ```
 
-`tool` は、どの版の検査で通ったかを残す。別のリポジトリから道具を使っても、使う側から版が分かる。`classifier` は分類器の段（未実装）。
+`tool` は、どの版の検査で通ったかを残す。sha256 は、道具のソース（bridge.py と cite_bridge/ の下の .py・.html・.js）の相対パスと内容の sha256 を、パスの順に並べてもう一度 sha256 にかけたもの。別のリポジトリから道具を使っても、使う側から版が分かる。`classifier` は分類器の段（未実装）。
 
 ## 9. 設定（bridge.toml）
 
@@ -227,7 +228,7 @@ SKILL.md の「設定」の節にひな形がある。表は鍵の一覧であ�
 
 値の別名: 強さ（observation / suggestion / claim / generalization / conditional）、種類（pointer / claim）、
 原文との差（identical / paraphrase / qualified_generalization / extrapolation）、承認（none = 未、returned = 差し戻し）。
-導く欄と記録の欄の名前の対応は bridge.py の `FIELD_ALIASES` にある。
+導く欄と記録の欄の名前の対応は cite_bridge/config.py の `FIELD_ALIASES` にある。
 
 ## 11. 版の方針
 

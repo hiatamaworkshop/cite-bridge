@@ -1,0 +1,184 @@
+# -*- coding: utf-8 -*-
+"""承認・差し戻し・要約の確認・指摘の書き込み（approve・confirm）。"""
+from pathlib import Path
+import datetime
+import re
+import sys
+from . import config as cfg
+from .bib import parse_bib
+from .blocks import parse_blocks, rewrite_derived
+from .config import RETURNED, out_name
+from .derive import derive_excerpts
+from .manuscript import (
+    approval_state,
+    evidence_hash,
+    fingerprint,
+    manuscript_marks,
+    mask_comments,
+    sentence_at,
+    summary_fingerprint,
+)
+
+
+def load_excerpt_fields():
+    """{key#eN: 書く欄}。derive をせずに読む（承認と review が使う）。"""
+    res = {}
+    for path in sorted(cfg.EXC_DIR.glob("*.md")):
+        head, blocks = parse_blocks(path)
+        for b in blocks:
+            res[f"{head['title']}#{b['id']}"] = b["fields"]
+    return res
+
+
+def _replace_block_lines(path, bid, drop_re, new_lines):
+    """path の ## bid のブロックから drop_re に当たる行を除き、ブロックの末尾に new_lines を置く。"""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    out, inblock, done = [], False, False
+    for ln in lines:
+        if ln.startswith("## "):
+            if inblock and not done:
+                while out and not out[-1].strip():
+                    out.pop()
+                out.extend(new_lines + [""])
+                done = True
+            inblock = ln[3:].strip() == bid
+        if inblock and re.match(drop_re, ln):
+            continue
+        out.append(ln)
+    if inblock and not done:
+        while out and not out[-1].strip():
+            out.pop()
+        out.extend(new_lines)
+    path.write_text("\n".join(out) + "\n", encoding="utf-8", newline="\n")
+
+
+def _citation_now(cid):
+    """(本文の文, 本文の指紋, 根拠の指紋, ブロックの欄)。"""
+    head, blocks = parse_blocks(cfg.CIT)
+    target = Path(head["fields"].get("対象", ""))
+    text = mask_comments(target.read_text(encoding="utf-8"))
+    offs = [off for c, off, _ in manuscript_marks(text) if c == cid]
+    if len(offs) != 1:
+        sys.exit(f"原稿に〔{cid}〕がちょうど一つ無い（{len(offs)} 箇所）")
+    block = next((b for b in blocks if b["id"] == cid), None)
+    if block is None:
+        sys.exit(f"{cfg.CIT.as_posix()} に {cid} のブロックが無い")
+    sent = sentence_at(text, offs[0])
+    refs = [r.strip() for r in block["fields"].get("抜き書き", "").split(",") if r.strip()]
+    return sent, fingerprint(sent), evidence_hash(refs, load_excerpt_fields(), block["fields"].get("人の読み", "")), block["fields"]
+
+
+APPROVAL_LINE_RE = r"^@?(承認|差し戻し|approval|approved_|returned_)"
+
+
+def approver_problem(by):
+    """承認者の一覧があり、by がそこに無ければ理由の文を返す。一覧は事故（打ち間違い、別名）を防ぐもので、悪意は防がない。"""
+    if cfg.APPROVERS and by not in cfg.APPROVERS:
+        return f"'{by}' は承認者の一覧（設定の approvers）に無い。一覧: {', '.join(f'{k}（{v}）' for k, v in cfg.APPROVERS.items())}"
+    return None
+
+
+def default_approver():
+    """コマンドの例に出す名前。一覧の最初の人、一覧が無ければ「人」。"""
+    return next((k for k, v in cfg.APPROVERS.items() if v == "human"), "人")
+
+
+def write_approval(cid, by, note=None, send_back=False, seen=None, dry=False):
+    """承認か差し戻しを書く。seen=(本文の指紋, 根拠の指紋) を渡すと、今の指紋と合うときだけ書く。
+
+    返り値は (書いたか, 文言)。承認は人の指示があるときだけ行う（AI が自分の書いた引用を承認しない）。
+    """
+    if approver_problem(by):
+        return False, f"{cid}: " + approver_problem(by)
+    sent, fp, ev, f = _citation_now(cid)
+    if seen and tuple(seen) != (fp, ev):
+        return False, f"{cid}: 判断した後に{'本文' if seen[0] != fp else '根拠'}が変わった。書かなかった（review を作り直して見直す）"
+    if f.get("種類") != "主張":
+        return False, f"{cid}: 主張の引用ではない"
+    # 同じ者・同じ理由で、指紋も変わらず承認済みなら書き直さない（承認の HTML はブラウザに残った前の判断も判断ファイルに含める）
+    rec = next((b.get("records", {}) for b in parse_blocks(cfg.CIT)[1] if b["id"] == cid), {})
+    if (not send_back and approval_state(f, rec, fp, ev)[0] == "承認済" and (f.get("承認") or "").split()[:1] == [by]
+            and (note or "") == f.get("承認の理由", "")):
+        return True, f"{cid}: 承認は記録済み（同じ判断）"
+    today = datetime.date.today().isoformat()
+    if send_back:
+        if not note:
+            return False, f"{cid}: 差し戻しには理由が要る"
+        new = [f"{out_name('承認')}: {RETURNED} {by} {today}", f"{out_name('差し戻しの理由')}: {note}",
+               f"@{out_name('差し戻し時の指紋')}: {fp}", f"@{out_name('差し戻し時の根拠')}: {ev}"]
+        msg = f"差し戻しを記録: {cid} {by} {today}"
+    else:
+        new = [f"{out_name('承認')}: {by} {today}"]
+        if note:
+            new.append(f"{out_name('承認の理由')}: {note}")
+        new += [f"@{out_name('承認時の指紋')}: {fp}", f"@{out_name('承認時の根拠')}: {ev}",
+                f"@{out_name('承認時の本文')}: {sent}"]
+        msg = f"承認を記録: {cid} {by} {today} 指紋={fp} 根拠={ev}"
+    if dry:
+        return True, f"{cid}: {'差し戻し' if send_back else '承認'}"
+    _replace_block_lines(cfg.CIT, cid, APPROVAL_LINE_RE, new)
+    return True, msg
+
+
+def write_confirm(eid, by, note=None, seen=None, dry=False):
+    """抜き書きの要約・言っていないこと・強さを確かめた記録を書く。seen（要約の指紋）が今と合うときだけ書く。"""
+    if "#" not in eid:
+        return False, "抜き書きは key#eN で指す"
+    if approver_problem(by):
+        return False, f"{eid}: " + approver_problem(by)
+    key, bid = eid.split("#", 1)
+    for path in sorted(cfg.EXC_DIR.glob("*.md")):
+        head, blocks = parse_blocks(path)
+        if head["title"] != key:
+            continue
+        b = next((x for x in blocks if x["id"] == bid), None)
+        if b is None:
+            break
+        sfp = summary_fingerprint(b["fields"])
+        if seen and seen != sfp:
+            return False, f"{eid}: 確かめた後に要約か逐語が変わった。書かなかった"
+        if dry:
+            return True, f"{eid}: 要約の確認"
+        today = datetime.date.today().isoformat()
+        new = [f"{out_name('要約の確認')}: {by} {today}" + (f"（{note}）" if note else ""),
+               f"@{out_name('要約の確認時の指紋')}: {sfp}"]
+        _replace_block_lines(path, bid, r"^@?(要約の確認|summary_check)", new)
+        hd, bd = derive_excerpts(parse_bib(), {})[path]  # 導く欄をブロックの末尾へ並べ直す
+        rewrite_derived(path, hd, bd)
+        return True, f"要約の確認を記録: {eid} {by} {today}"
+    return False, f"抜き書き '{eid}' が無い"
+
+
+def write_remark(cid, by, remark, dry=False):
+    """引用の「指摘」の欄に足す。承認の判断とは別の、原稿への気づきで、指紋には入らない。同じ文は二度足さない。"""
+    head, blocks = parse_blocks(cfg.CIT)
+    b = next((x for x in blocks if x["id"] == cid), None)
+    if b is None:
+        return False, f"{cid}: 引用のブロックが無い"
+    remark = re.sub(r"\s+", " ", remark).strip()
+    have = b["fields"].get("指摘", "")
+    if remark in have:
+        return True, f"{cid}: 指摘は記録済み"
+    if dry:
+        return True, f"{cid}: 指摘"
+    entry = f"{remark}（{by} {datetime.date.today().isoformat()}）"
+    _replace_block_lines(cfg.CIT, cid, r"^(指摘|remarks):", [f"{out_name('指摘')}: " + (have + " ｜ " + entry if have else entry)])
+    return True, f"指摘を記録: {cid}"
+
+
+def cmd_approve(args):
+    """承認か差し戻しを記録する。承認は人の指示があるときだけ行う（AI が自分の書いた引用を承認しない）。"""
+    if args.send_back and not args.note:
+        sys.exit("差し戻しには --note で理由を書く")
+    ok, msg = write_approval(args.cid, args.by, args.note, args.send_back)
+    if not ok:
+        sys.exit(msg)
+    print(msg)
+
+
+def cmd_confirm(args):
+    """抜き書きの要約・言っていないこと・強さを、人（または書き手と別の者）が原文と照らして確かめたことを記録する。"""
+    ok, msg = write_confirm(args.eid, args.by, args.note)
+    if not ok:
+        sys.exit(msg)
+    print(msg)

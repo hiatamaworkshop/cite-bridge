@@ -124,10 +124,16 @@ class BridgeTest(unittest.TestCase):
             func(path)
         shutil.rmtree(self.dir, onerror=writable)
 
+    @staticmethod
+    def clean_env():
+        """git の hook から呼ばれると、GIT_DIR などが環境に入っている。試験の git が呼び出し元のリポジトリを触らないよう、外す。"""
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env["PYTHONIOENCODING"] = "utf-8"
+        return env
+
     def run_bridge(self, *args):
-        env = dict(os.environ, PYTHONIOENCODING="utf-8")
         r = subprocess.run([sys.executable, "-X", "utf8", str(BRIDGE), *args], cwd=self.dir,
-                           capture_output=True, text=True, encoding="utf-8", env=env)
+                           capture_output=True, text=True, encoding="utf-8", env=self.clean_env())
         return r.returncode, r.stdout + r.stderr
 
     def read(self, name):
@@ -300,10 +306,15 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(m["tool"]["name"], "cite-bridge")
         self.assertRegex(m["tool"]["version"], r"^\d+\.\d+\.\d+$")
         import hashlib
-        self.assertEqual(m["tool"]["sha256"], hashlib.sha256(BRIDGE.read_bytes()).hexdigest())
+        # 道具のソース（bridge.py と cite_bridge/ の .py・.html・.js）の指紋
+        root = BRIDGE.parent
+        files = [BRIDGE] + sorted(p for p in (root / "cite_bridge").rglob("*")
+                                  if p.suffix in (".py", ".html", ".js") and "__pycache__" not in p.parts)
+        lines = [f"{p.relative_to(root).as_posix()}\t{hashlib.sha256(p.read_bytes()).hexdigest()}" for p in files]
+        self.assertEqual(m["tool"]["sha256"], hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest())
 
     def git(self, *a):
-        r = subprocess.run(["git", *a], cwd=self.dir, capture_output=True, text=True, encoding="utf-8")
+        r = subprocess.run(["git", *a], cwd=self.dir, capture_output=True, text=True, encoding="utf-8", env=self.clean_env())
         self.assertEqual(r.returncode, 0, r.stderr)
         return r.stdout
 
@@ -446,6 +457,33 @@ class BridgeTest(unittest.TestCase):
         self.assertIn("承認済 1", out)
         self.assertIn("tester 1", out)  # 要約の確認
         self.assertIn("承認の理由: 原文のまま", self.read("bridge/citations.md"))
+
+    def test_excerpts_not_used_by_any_citation_can_be_confirmed(self):
+        """どの引用にも使われていない抜き書きは、引用のカードに出ないので、別の一覧で要約を確認できる。"""
+        import json
+        self.run_bridge("derive")
+        self.assertEqual(self.run_bridge("review", "--html", "-o", "review.html")[0], 0)
+        page = self.read("review.html")
+        # 試験用の抜き書きは e1 から e3。引用 c001 が使うのは e1 だけ
+        self.assertIn("引用に使われていない抜き書き（2 件）", page)
+        self.assertIn('data-confirm="doe2020#e2"', page)
+        self.assertIn('data-confirm="doe2020#e3"', page)
+        self.assertEqual(page.count('data-confirm="doe2020#e1"'), 1)  # 引用のカードの側に一つだけ
+        data = json.loads(self.run_bridge("review", "--json", "--all")[1])
+        self.assertEqual([e["id"] for e in data["excerpts_only"]], ["doe2020#e2", "doe2020#e3"])
+        # 判断ファイルに確認だけを入れて適用できる
+        fp = next(e["summary_fp"] for e in data["excerpts_only"] if e["id"] == "doe2020#e2")
+        d = {"format": "cite-bridge-decisions/1", "manuscript": "manuscript.md", "by": "tester",
+             "decisions": [], "confirms": [{"id": "doe2020#e2", "fingerprint": fp}]}
+        self.write("decisions.json", json.dumps(d, ensure_ascii=False))
+        code, out = self.run_bridge("apply", "decisions.json")
+        self.assertEqual(code, 0, out)
+        data = json.loads(self.run_bridge("review", "--json", "--all")[1])
+        self.assertEqual([e["id"] for e in data["excerpts_only"]], ["doe2020#e3"])  # 確認したものは一覧から消える
+        # 引用に使い始めると、一覧には出ない（引用のカードで確かめる）
+        self.write("bridge/citations.md", self.read("bridge/citations.md").replace("抜き書き: doe2020#e1", "抜き書き: doe2020#e1, doe2020#e3"))
+        data = json.loads(self.run_bridge("review", "--json", "--all")[1])
+        self.assertEqual(data["excerpts_only"], [])
 
     def test_apply_refuses_stale_and_records_send_back(self):
         self.run_bridge("derive")

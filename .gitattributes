@@ -1,2 +1,3 @@
 # hook は sh で動くので、Windows の改行変換をかけない
 hooks/* text eol=lf
+.githooks/* text eol=lf

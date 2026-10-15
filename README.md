@@ -37,6 +37,25 @@
 
 git の pre-commit に検査を置くには、同梱の `hooks/pre-commit` を使う（SKILL.md の「hook」）。
 
+## 実装の構成
+
+入口は `bridge.py`（引数を受けて `cite_bridge/cli.py` へ渡すだけ）。実装は `cite_bridge/` に責務ごとに分けてある。
+
+| モジュール | 内容 |
+|---|---|
+| config | 設定（bridge.toml）の読み込みと、設定で決まる状態（他のモジュールは `cfg.X` で読む）、欄名・値の定数 |
+| source | 原典の正規化、照合、見出しと節の検出、前後の文 |
+| bib | 書誌のアダプタ（keyline・BibTeX・CSL-JSON）と文献の格 |
+| blocks | 抜き書きと引用の md の読み書き |
+| derive | 導く欄（所在・照合・前後の文）を作る |
+| manuscript | 原稿の印・文・指紋、網羅、承認の状態の計算 |
+| check | 整合の検査（check）、網羅の一覧（coverage）、格の一覧（grade） |
+| approve / apply | 承認・差し戻し・要約の確認・指摘の書き込みと、判断ファイルの適用 |
+| propose | 印の無い出典の候補づくり |
+| review（templates/） | 確認の材料（md・JSON）と承認の HTML。HTML と JavaScript は templates/ に置く |
+| fetch | PDF の抽出と Web 資料の写し |
+| checkpoint | マニフェスト、道具の版、pre-commit、印の除去 |
+
 ## 文書
 
 | 文書 | 内容 |
@@ -51,6 +70,7 @@ git の pre-commit に検査を置くには、同梱の `hooks/pre-commit` を�
 - Python 3.11 以上（標準ライブラリの `tomllib` を使う）。
 - 標準ライブラリだけで動く。PDF の抽出（`extract`、PDF の URL の `snapshot`）にだけ `pymupdf` が要る。
 - 試験は `python -m unittest discover -s tests`。論文のデータに依らず、一時フォルダに小さな一式を作って動かす。
+  承認の HTML の JavaScript の試験には node を使う（無ければその試験だけ飛ばす）。
 
 ## 限界
 

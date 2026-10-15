@@ -1,0 +1,284 @@
+# -*- coding: utf-8 -*-
+"""整合の検査（check）、網羅の一覧（coverage）、文献の格の一覧（grade）。"""
+from pathlib import Path
+import re
+import sys
+from . import config as cfg
+from .bib import grade_of, parse_bib
+from .blocks import parse_blocks
+from .config import DIFFS, EXC_REQUIRED, KINDS, STRENGTHS
+from .derive import derive_excerpts
+from .manuscript import (
+    approval_state,
+    coverage_of,
+    evidence_hash,
+    fingerprint,
+    heading_at,
+    load_excluded,
+    manuscript_marks,
+    mask_comments,
+    refs_in,
+    sentence_at,
+    summary_fingerprint,
+)
+from .propose import load_candidates
+from .source import is_cjk, normalize
+
+
+def run_check():
+    """整合の検査。表示も終了もせず、結果を辞書で返す（check と checkpoint が使う）。"""
+    bib = parse_bib()
+    errors, notes, infos = [], [], []
+    approvers, grades, used = {}, {}, set()
+    cache = {}
+    res = derive_excerpts(bib, cache)
+    excerpts = {}
+    states = {}
+    exc_where, summary_checked = [], {}
+    for path, (hd, bd) in res.items():
+        head, blocks = parse_blocks(path)
+        key = head["title"]
+        where = path.as_posix()
+        if key not in bib:
+            errors.append(f"{where}: key '{key}' が書誌リストに無い")
+        if head["derived"] != hd:
+            errors.append(f"{where}: 導く欄（文献）が古い。derive を実行する")
+        grades[hd.get("格", "")] = grades.get(hd.get("格", ""), 0) + 1
+        if hd.get("抽出"):
+            used.add(hd["抽出"])
+        seen = set()
+        for b in blocks:
+            bid = f"{key}#{b['id']}"
+            w = f"{where}:{b['line']} {bid}"
+            if b["id"] in seen:
+                errors.append(f"{w}: ID の重複")
+            seen.add(b["id"])
+            f = b["fields"]
+            for name in EXC_REQUIRED:
+                if not f.get(name):
+                    errors.append(f"{w}: 欄 '{name}' が空")
+            if f.get("強さ") and f["強さ"] not in STRENGTHS:
+                errors.append(f"{w}: 強さ '{f['強さ']}' は {sorted(STRENGTHS)} のどれか")
+            if b["derived"] != bd.get(b["id"], {}):
+                errors.append(f"{w}: 導く欄が古い。derive を実行する")
+            d = bd.get(b["id"], {})
+            st = d.get("照合", "")
+            confirmed = bool(f.get("原本での確認")) and "確認者不明" not in f.get("原本での確認", "")
+            if st == "不一致" and not confirmed:
+                errors.append(f"{w}: 逐語が抽出テキストに無い" + (f"（他の文献で一致: {d['他の文献で一致']}）" if d.get("他の文献で一致") else ""))
+            if (st.startswith("近似一致") or st.startswith("照合不能")) and not confirmed:
+                notes.append(f"{w}: {st}。原本での確認が要る")
+            if d.get("節の種類") in ("関連研究", "参考文献"):
+                infos.append(f"{w}: 原典の{d['節の種類']}の節にある文。原典の著者の主張でない可能性")
+            excerpts[bid] = f
+            states[bid] = (st, confirmed)
+            exc_where.append((w, key, f))
+            if f.get("要約の確認"):
+                if b.get("records", {}).get("要約の確認時の指紋") != summary_fingerprint(f):
+                    notes.append(f"{w}: 要約の確認の後に欄が変わった。確認し直す")
+                else:
+                    summary_checked[f["要約の確認"].split()[0]] = summary_checked.get(f["要約の確認"].split()[0], 0) + 1
+            else:
+                summary_checked["未確認"] = summary_checked.get("未確認", 0) + 1
+
+    # 欄の中の抜き書きへの参照（key#e3、同じ文献の中なら e3）は実在すること。
+    # 言っていないことや解釈が原文の別の箇所に依るなら、その箇所を抜き書きにして ID で指す（§16.2 の 4）
+    for w, key, f in exc_where:
+        for name in ("要約", "言っていないこと"):
+            for shown, cands in refs_in(f.get(name, ""), [key]):
+                if not any(c in excerpts for c in cands):
+                    errors.append(f"{w}: {name}が指す抜き書き '{shown}' が無い")
+    infos.append("抜き書きの要約の確認: " + " / ".join(f"{k} {v}" for k, v in sorted(summary_checked.items())))
+
+    # 引用
+    if cfg.CIT.exists():
+        head, blocks = parse_blocks(cfg.CIT)
+        target = Path(head["fields"].get("対象", ""))
+        text = mask_comments(target.read_text(encoding="utf-8")) if target.is_file() else ""
+        if not text:
+            errors.append(f"{cfg.CIT.as_posix()}: 対象の原稿 '{target}' が読めない")
+        marks = manuscript_marks(text)
+        ids_in_text, keys_in_text = {}, {}
+        for cid, off, mkey in marks:
+            ids_in_text.setdefault(cid, []).append(off)
+            if mkey:
+                keys_in_text[cid] = {k.strip() for k in mkey.split(",")}
+        block_ids = set()
+        counts = {"承認済": 0, "要再確認": 0, "未承認": 0, "指示": 0}
+        for b in blocks:
+            cid = b["id"]
+            w = f"{cfg.CIT.as_posix()}:{b['line']} {cid}"
+            block_ids.add(cid)
+            f = b["fields"]
+            if cid not in ids_in_text:
+                errors.append(f"{w}: 原稿に〔{cid}〕が無い（孤児のブロック）")
+                continue
+            if len(ids_in_text[cid]) > 1:
+                errors.append(f"{w}: 原稿に〔{cid}〕が{len(ids_in_text[cid])}箇所ある")
+            kind = f.get("種類", "")
+            if kind not in KINDS:
+                errors.append(f"{w}: 種類は 指示 か 主張")
+                continue
+            sent = sentence_at(text, ids_in_text[cid][0])
+            fp = fingerprint(sent)
+            if kind == "指示":
+                if f.get("文献") not in bib:
+                    errors.append(f"{w}: 指示の引用は 文献 に書誌の key を書く")
+                if cid in keys_in_text and f.get("文献") not in keys_in_text[cid]:
+                    errors.append(f"{w}: 原稿の印の key {sorted(keys_in_text[cid])} と 文献 '{f.get('文献')}' が合わない")
+                counts["指示"] += 1
+                continue
+            refs = [r.strip() for r in f.get("抜き書き", "").split(",") if r.strip()]
+            if cid in keys_in_text and not ({r.split("#")[0] for r in refs} & keys_in_text[cid]):
+                errors.append(f"{w}: 原稿の印の key {sorted(keys_in_text[cid])} と抜き書きの文献が合わない")
+            if not refs:
+                errors.append(f"{w}: 主張の引用は 抜き書き が要る")
+            for r in refs:
+                if r not in excerpts:
+                    errors.append(f"{w}: 抜き書き '{r}' が無い")
+            ref_keys = list(dict.fromkeys(r.split("#")[0] for r in refs))
+            for name in ("理由", "解釈"):
+                for shown, cands in refs_in(f.get(name, ""), ref_keys):
+                    if not any(c in excerpts for c in cands):
+                        errors.append(f"{w}: {name}が指す抜き書き '{shown}' が無い")
+            for name in ("理由", "原文との差", "記入"):
+                if not f.get(name):
+                    errors.append(f"{w}: 欄 '{name}' が空")
+            # 人の読み：原文の語でない読みを、人が本文へ入れるときの欄。AI は書けず、この引用の抜き書きへ錨を持つ（§16.2 の 7）
+            if f.get("人の読み"):
+                by = f.get("人の読みの記入", "").split()
+                if not by:
+                    errors.append(f"{w}: 人の読みには 人の読みの記入（書いた人と日付）が要る")
+                elif cfg.APPROVERS and cfg.APPROVERS.get(by[0]) != "human":
+                    errors.append(f"{w}: 人の読みの記入者 '{by[0]}' は人（approvers の human）でない")
+                anchors = refs_in(f["人の読み"], ref_keys)
+                if not anchors:
+                    errors.append(f"{w}: 人の読みが抜き書きの ID（e6 や key#e6）を指していない。錨が要る")
+                for shown, cands in anchors:
+                    if not any(c in excerpts for c in cands):
+                        errors.append(f"{w}: 人の読みが指す抜き書き '{shown}' が無い")
+                    elif not any(c in refs for c in cands):
+                        errors.append(f"{w}: 人の読みが指す抜き書き '{shown}' がこの引用の抜き書きに無い（根拠に足す）")
+            elif f.get("人の読みの記入"):
+                errors.append(f"{w}: 人の読みの記入だけがある（人の読みを書く）")
+            if f.get("原文との差") and f["原文との差"] not in DIFFS:
+                errors.append(f"{w}: 原文との差は {sorted(DIFFS)} のどれか")
+            # 本文の引用符の中の文字列は、指している抜き書きの逐語に含まれていること
+            # 引用符の中でも原文の逐語でない句（コマンドの言い方、UI の文字列の一例等）は、人が「引用でない句」に挙げて外す
+            not_quotes = [x.strip() for x in re.sub(r"（[^（）]*）|\([^()]*\)$", "", f.get("引用でない句", "")).split(cfg.NOT_QUOTE_SEP)
+                          if x.strip()]
+            for q in [m.group(1) for rx in cfg.QUOTE_RES for m in rx.finditer(sent)]:
+                if q in not_quotes:
+                    infos.append(f"{w}: 「{q}」は引用でない句として外した")
+                    continue
+                qcjk = any(is_cjk(c) for c in q)
+                pool = [excerpts[r]["逐語"] for r in refs if r in excerpts]
+                same = [p for p in pool if any(is_cjk(c) for c in p) == qcjk]
+                if same and not any(normalize(q, "alnum")[0] in normalize(p, "alnum")[0] for p in same):
+                    errors.append(f"{w}: 本文の引用「{q[:30]}…」が抜き書きの逐語に無い")
+            state, extra = approval_state(f, b.get("records", {}), fp, evidence_hash(refs, excerpts, f.get("人の読み", "")))
+            counts[state] = counts.get(state, 0) + 1
+            if state == "未承認":
+                notes.append(f"{w}: 未承認（{heading_at(text, ids_in_text[cid][0])}）")
+            elif state == "要再確認":
+                notes.append(f"{w}: 承認の後に{extra}が変わった。要再確認")
+            elif state == "差し戻し":
+                notes.append(f"{w}: 差し戻し。書き手が直すのを待っている（{extra}）")
+            elif state == "差し戻し後に直された":
+                notes.append(f"{w}: 差し戻しの後に直された。確認を待っている（差し戻しの理由: {extra}）")
+            else:
+                approvers[extra] = approvers.get(extra, 0) + 1
+                if cfg.APPROVERS and extra not in cfg.APPROVERS:
+                    notes.append(f"{w}: 承認者 '{extra}' は承認者の一覧に無い")
+            for r in refs:
+                st, ok = states.get(r, ("", False))
+                if (st.startswith("近似一致") or st.startswith("照合不能")) and not ok:
+                    notes.append(f"{w}: 根拠 {r} は {st} で、原本での確認が無い")
+            if f.get("原文との差") == "外挿":
+                notes.append(f"{w}: 外挿。本文に限定を付けるか、自分の主張として書き直す")
+        for cid in ids_in_text:
+            if cid not in block_ids:
+                errors.append(f"{target}: 〔{cid}〕に対応するブロックが無い")
+        cov_marked, cov_unmarked = coverage_of(text)
+        coverage = {"spans": cov_marked + len(cov_unmarked), "in_marked_sentences": cov_marked, "unmarked": len(cov_unmarked)}
+        n_ex = len(load_excluded())
+        coverage["excluded"] = n_ex
+        if coverage["spans"]:
+            infos.append(f"網羅: 原稿の出典らしき括弧 {coverage['spans'] + n_ex} のうち、印のあるもの {cov_marked}、"
+                         f"印の無いもの {len(cov_unmarked)}" + (f"、引用でないと判断したもの {n_ex}" if n_ex else "")
+                         + "（印の無いものはこのツールが確かめていない。一覧は coverage、候補づくりは propose）")
+        pend = sum(1 for c in load_candidates()["items"].values() if c.get("status") == "pending")
+        if pend:
+            infos.append(f"候補: 人の判断を待つもの {pend} 件（review --html）")
+        returned = counts.get("差し戻し", 0) + counts.get("差し戻し後に直された", 0)
+        infos.append(f"引用: 主張 承認済 {counts['承認済']} / 要再確認 {counts['要再確認']} / 未承認 {counts['未承認']}"
+                     + (f" / 差し戻し {returned}" if returned else "") + f"、指示 {counts['指示']}")
+    else:
+        counts, target, coverage = {}, None, {}
+
+    summary = {}
+    for st, _ in states.values():
+        summary[st] = summary.get(st, 0) + 1
+    return {"errors": errors, "notes": notes, "infos": infos, "excerpt_states": summary, "excerpts": len(states),
+            "citations": counts, "approvers": approvers, "coverage": coverage,
+            "approver_kinds": {k: sum(v for n, v in approvers.items() if cfg.APPROVERS.get(n, "不明") == k)
+                               for k in sorted({cfg.APPROVERS.get(n, "不明") for n in approvers})}, "summary_checks": summary_checked, "grades": grades, "texts": sorted(used),
+            "manuscript": str(target) if target else None}
+
+
+def cmd_coverage(args):
+    """印の無い文にある出典らしき括弧を、行の順に並べる（このツールが確かめていない引用の一覧）。"""
+    head, _ = parse_blocks(cfg.CIT)
+    target = Path(head["fields"].get("対象", ""))
+    marked, unmarked = coverage_of(mask_comments(target.read_text(encoding="utf-8")))
+    for ln, span, sec in unmarked:
+        print(f"{target.as_posix()}:{ln}  {span}  （{sec}）")
+    print(f"--- 出典らしき括弧 {marked + len(unmarked)}、印のある文 {marked}、印の無い文 {len(unmarked)}")
+
+
+def cmd_check(args):
+    r = run_check()
+    errors, notes, infos, summary = r["errors"], r["notes"], r["infos"], r["excerpt_states"]
+    for e in errors:
+        print("ERROR", e)
+    for n in notes:
+        print("NOTE ", n)
+    for n in infos:
+        print("INFO ", n)
+    print(f"--- 抜き書き {r['excerpts']} 件 " + " / ".join(f"{k} {v}" for k, v in sorted(summary.items()))
+          + f" / 整合の崩れ {len(errors)} 件")
+    if errors:
+        sys.exit(1)
+    if args.strict and notes:
+        print("--strict: 確認待ちが残っている")
+        sys.exit(1)
+
+
+def cmd_grade(args):
+    bib = parse_bib()
+    keys = sorted(bib)
+    if args.keys_from:
+        text = Path(args.keys_from).read_text(encoding="utf-8")
+        keys = [k for k in keys if re.search(r"(?<![\w])" + re.escape(k) + r"(?![\w])", text)]
+        # 見出しに key を持つ表の列は、書誌に無い key も拾う（改名の取り残し等）
+        col = None
+        for ln in text.splitlines():
+            if not ln.startswith("|"):
+                continue
+            cells = [c.strip() for c in ln.strip().strip("|").split("|")]
+            if "key" in cells:
+                col = cells.index("key")
+            elif all(re.fullmatch(r":?-+:?", c) for c in cells if c):
+                continue
+            elif col is not None and col < len(cells) and re.fullmatch(r"\w+", cells[col]):
+                if cells[col] not in keys:
+                    keys.append(cells[col])
+    summary = {}
+    for k in keys:
+        g, _ = grade_of(k, bib)
+        summary.setdefault(g, []).append(k)
+    for g, ks in sorted(summary.items(), key=lambda x: -len(x[1])):
+        print(f"{g}: {len(ks)}  {', '.join(ks)}")
+    total = len(keys)
+    ok = len(summary.get("PDF所持（抽出あり）", [])) + len(summary.get("Web 写し（保存あり）", []))
+    print(f"--- {total} 件のうち、機械で照合できるもの {ok} 件（{round(100 * ok / max(1, total))}%）")
