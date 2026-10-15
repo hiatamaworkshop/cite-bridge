@@ -22,6 +22,7 @@ from .manuscript import (
     summary_fingerprint,
     unmark,
 )
+from .judge import attach_checks
 from .propose import _sources_for, candidate_fp, load_candidates
 from .source import context, locate, section_at
 
@@ -183,9 +184,18 @@ def review_data(cids=None, images=None, include_done=False):
         for c in cands:
             used.update(e["id"] for e in c["evidence"])
         only = [e for e in (ev_of(r) for r in sorted(exc) if r not in used) if not e.get("summary_checked")]
-    return {"manuscript": target.as_posix(), "date": datetime.date.today().isoformat(),
-            "generated": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "citations": items, "candidates": cands,
-            "excerpts_only": only}
+    res = {"manuscript": target.as_posix(), "date": datetime.date.today().isoformat(),
+           "generated": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "citations": items, "candidates": cands,
+           "excerpts_only": only}
+    attach_checks(res)  # 分類器の判定（台帳にあれば）。確認の材料に添えるだけで、承認の状態は変えない
+    return res
+
+
+def classifier_line(c):
+    """分類器の判定一件を、確認の画面と md に出す一行にする。"""
+    rec = f"（記録: {'・'.join(c['record'])}）" if c["record"] else ""
+    sc = f"・確からしさ {c['score']:.2f}" if isinstance(c.get("score"), float) else ""
+    return f"{c['label']}{rec}　{c['status']}{sc}" + ("" if c["fresh"] else "（本文か材料が変わった。判定し直す）")
 
 
 def review_md(data):
@@ -219,6 +229,9 @@ def review_md(data):
         out += [f"### 引用の欄（記入: {it['fields'].get('記入', '')}）", ""]
         out += [f"- {n}: {it['fields'][n]}" for n in ("理由", "解釈", "人の読み", "人の読みの記入", "原文との差", "引用でない句", "承認", "承認の理由", "指摘")
                 if it["fields"].get(n)] + [""]
+        if it.get("classifier"):
+            out += ["分類器の判定（印を立てるだけで、判断は人）:", ""]
+            out += [f"- {c['item']} {c['type']}: {classifier_line(c)}" for c in it["classifier"]] + [""]
         if it["commands"]:
             c = it["commands"]
             out += ["判断:", "", f"- 承認: `{c['approve']}`", f"- 差し戻し: `{c['send_back']}`"]
@@ -350,6 +363,7 @@ def review_page(data):
         for i, e in enumerate(it["evidence"], 1):
             h.append(ev_html(i, e, it["id"]))
         rows = [(n, f[n]) for n in ("理由", "解釈", "人の読み", "人の読みの記入", "引用でない句", "承認の理由", "指摘") if f.get(n)]
+        rows += [("分類器 " + c["type"], f'{c["item"].split(":", 1)[-1]}　{classifier_line(c)}') for c in it.get("classifier", [])]
         h.append('<dl class="cf-rows">' + "".join(f"<dt>{n}</dt><dd>{E(v)}</dd>" for n, v in rows) + "</dl>"
                  + f'<p class="mut sm" title="{E(f.get("記入", ""))}">記入：{E(short(f.get("記入", ""), 60))}</p></div>')
         h.append(f'<div class="decide" data-choice=""><span class="opts">'

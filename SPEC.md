@@ -18,6 +18,7 @@
 | 抽出テキスト `<text_dir>/<名>.txt`、Web の写し `<web_dir>/<key>.txt` | 道具 | 照合の対象（§8） |
 | 判断ファイル、作業票、下書き、候補 | 承認の HTML / 書き手 / 道具 | 人の判断と候補づくり（§5〜§7） |
 | `applied.json`、`excluded.json` | 道具 | 適用の記録、引用でないとした括弧（§7） |
+| `judgments.jsonl` | 道具 | 分類器の判定の台帳（§6.4） |
 | `checkpoints/<UTC>.json` | 道具 | マニフェスト（§8） |
 
 行頭が `@` の行は道具が書く。手で直さない。道具が書く行は二種類ある。導く欄は検査のたびに作り直され、記録の欄（§2.3、§3.3）は消されずに残る。
@@ -170,6 +171,47 @@ status は pending / accepted / rejected。decided は、受け入れたとき�
 受け入れる（accept）と、新しい抜き書きと引用を書き、承認と要約の確認を同時に記録し、原稿の文に印を置く。
 文の指紋が変わっていれば断る。却下（reject）は理由が要り、次の作業票ではその item に `rejected_before` が付く。
 
+## 6.4 分類器による検査
+
+ブリッジの閉じた語彙を、外部の分類器に独立に付けさせ、記録と突き合わせる。印を立てるだけで、承認の状態は変えない。
+確からしさ（score）は表示と台帳のためにあり、規則に使わない。
+
+### 型の定義（bridge.toml の `[[checks]]`、既定は judge.py の `DEFAULT_CHECKS`）
+
+| 欄 | 必須 | 内容 |
+|---|---|---|
+| type | 要 | 型の名前（`cite.diff` 等）。同じ名前の定義は、既定を上書きする |
+| version | 要 | 論理的な版 |
+| for | 要 | `citation`（引用ごと）か `excerpt`（抜き書きごと） |
+| question | 要 | 問いの文面。`{about}` に `about` の文が入る |
+| labels | 要 | 閉じた選択肢。「判定できない」を含む |
+| gloss | 任意 | ラベルごとの短い説明（分類器の選択肢の文面になる） |
+| materials | 要 | 材料の枠 → 欄の指し方。`citation.sentence`、`citation.<欄>`、`excerpt.<欄>` |
+| about | 任意 | 判定の対象になる文の欄（例: `excerpt.言っていないこと`） |
+| compare | どちらか | 突き合わせる記録の欄。分類器には渡さない |
+| flag_on | どちらか | 印にするラベル（記録と比べるものが無いとき） |
+| on_disagree | 任意 | `flag` のみ（既定）。承認の状態を下げる動作は、まだ無い |
+
+欄の指し方の `excerpt.<欄>` は、抜き書きの 逐語・前・含む文・後・強さ・要約・言っていないこと。`for = excerpt` の型は `citation.*` を使えない。
+
+### 判定の台帳（`bridge/judgments.jsonl`、追記だけ。同じ item と type の後の行が新しい）
+
+```json
+{"item": "cite:c007 | exc:key#e1", "type": "cite.diff", "version": 1, "spec": "<型の文面の指紋>", "mat": "<材料の指紋>",
+ "label": "外挿", "score": 0.91, "scores": {"一致": 0.02, "…": 0.0}, "record": ["言い換え"], "status": "食い違い",
+ "provider": "jev", "model": "jev-latest", "at": "2026-10-15T10:00:00"}
+```
+
+- 判定が新しい（fresh）のは、version・spec・mat が現在と一致するとき。材料か文面が変わると古くなり、`classify` が判定し直す。
+- status は、判定時の記録との比較。一致 / 食い違い / 判定できない / 記録なし（compare の欄が空） / 要確認（flag_on に当たる） / 問題なし。
+  印は 食い違い と 要確認。現在の記録との比較は `classify --list` と `review` が出す。
+
+### アダプタの契約（`cite_bridge/classifier.py`）
+
+`classify(state, asks) -> list[Verdict | None]`。state は共通の材料の文面、asks は同じ state に対する互いに独立な問い。
+Verdict は label（labels のどれか）、score（Optional）、scores（全ラベル）。答えられなかった問いは None、呼び出し全体の失敗は
+`ClassifierUnavailable`（判定を何も書かない）。鍵は環境変数だけで受け、設定ファイルには書かない。外へ送るのは `classify --send` のときだけ。
+
 ## 7. 適用の記録
 
 - `applied.json`: `{<原稿>: {last_saved, files:[{file, saved, sha256, by, applied, written, skipped, note?}]}}`。
@@ -192,7 +234,7 @@ status は pending / accepted / rejected。decided は、受け入れたとき�
  "classifier": null}
 ```
 
-`tool` は、どの版の検査で通ったかを残す。sha256 は、道具のソース（bridge.py と cite_bridge/ の下の .py・.html・.js）の相対パスと内容の sha256 を、パスの順に並べてもう一度 sha256 にかけたもの。別のリポジトリから道具を使っても、使う側から版が分かる。`classifier` は分類器の段（未実装）。
+`tool` は、どの版の検査で通ったかを残す。sha256 は、道具のソース（bridge.py と cite_bridge/ の下の .py・.html・.js）の相対パスと内容の sha256 を、パスの順に並べてもう一度 sha256 にかけたもの。別のリポジトリから道具を使っても、使う側から版が分かる。`classifier` は、分類器を設定せず台帳も無ければ null。あれば `{provider, model, types:[{type, version, spec}], judgments, flagged, note}`（§6.4）。
 
 ## 9. 設定（bridge.toml）
 
@@ -210,6 +252,8 @@ SKILL.md の「設定」の節にひな形がある。表は鍵の一覧であ�
 | approvers | <名前> = human / model | 承認できる者と種類。省くと名前を問わない |
 | coverage | pattern | 出典らしき括弧の正規表現 |
 | hook | watch | pre-commit が監視する、設定が指す以外のパス |
+| classifier | provider, model, endpoint, max_chars, types | 分類器の提供元と上限（§6.4）。鍵は環境変数 |
+| checks（配列） | type, version, for, question, labels, … | 問いの型の追加と上書き（§6.4） |
 
 ## 10. 英語の別名
 

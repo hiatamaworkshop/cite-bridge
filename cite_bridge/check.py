@@ -8,6 +8,7 @@ from .bib import grade_of, parse_bib
 from .blocks import parse_blocks
 from .config import DIFFS, EXC_REQUIRED, KINDS, STRENGTHS
 from .derive import derive_excerpts
+from .judge import summary as judge_summary
 from .manuscript import (
     approval_state,
     coverage_of,
@@ -245,6 +246,9 @@ def cmd_check(args):
         print("NOTE ", n)
     for n in infos:
         print("INFO ", n)
+    js = judge_summary()
+    if js:  # 台帳だけを読む。判定の古さの確認と一覧は classify --list
+        print("INFO ", f"分類器: 判定 {js['judgments']} 件のうち印 {js['flagged']} 件（判定時の記録との比較。一覧は classify --list）")
     print(f"--- 抜き書き {r['excerpts']} 件 " + " / ".join(f"{k} {v}" for k, v in sorted(summary.items()))
           + f" / 整合の崩れ {len(errors)} 件")
     if errors:

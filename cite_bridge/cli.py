@@ -10,6 +10,7 @@ from .check import cmd_check, cmd_coverage, cmd_grade
 from .checkpoint import cmd_checkpoint, cmd_precommit, cmd_strip
 from .config import CONFIG, load_config
 from .derive import cmd_derive
+from .judge import cmd_classify
 from .fetch import cmd_extract, cmd_snapshot
 from .propose import cmd_propose, cmd_sentences
 from .review import cmd_review
@@ -82,6 +83,13 @@ def main():
     cp = sub.add_parser("checkpoint")
     cp.add_argument("--label", default="")
     cp.set_defaults(func=cmd_checkpoint)
+    cl = sub.add_parser("classify")
+    cl.add_argument("--send", action="store_true", help="外部の分類器へ送る（既定は、送る内容の見積りだけ）")
+    cl.add_argument("--list", action="store_true", help="台帳の判定を、現在の記録と突き合わせて出す（何も送らない）")
+    cl.add_argument("--all", action="store_true", help="--list で、印の無いものも出す")
+    cl.add_argument("--cids", nargs="*", help="この引用だけ")
+    cl.add_argument("--limit", type=int, default=0, help="送る要求の回数の上限（既定は無制限）")
+    cl.set_defaults(func=cmd_classify)
     pc = sub.add_parser("precommit")
     pc.set_defaults(func=cmd_precommit)
     st = sub.add_parser("strip")

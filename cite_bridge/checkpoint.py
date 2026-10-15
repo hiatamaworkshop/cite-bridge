@@ -8,6 +8,7 @@ import sys
 from . import config as cfg
 from .check import run_check
 from .config import TOOL_NAME, TOOL_VERSION
+from .judge import manifest_record
 from .manuscript import unmark
 from .propose import _manuscript
 from .util import _git, _sha256
@@ -50,7 +51,7 @@ def cmd_checkpoint(args):
         "approver_kinds": r["approver_kinds"],
         "coverage": r["coverage"],
         "summary_checks": r["summary_checks"],
-        "classifier": None,  # 分類器の段（§10）は未実装
+        "classifier": manifest_record(),  # 分類器を使っていなければ None
     }
     cfg.CKPT_DIR.mkdir(parents=True, exist_ok=True)
     out = cfg.CKPT_DIR / (now.strftime("%Y%m%dT%H%M%SZ") + ".json")

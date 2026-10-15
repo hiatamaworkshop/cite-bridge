@@ -37,6 +37,68 @@
 
 git の pre-commit に検査を置くには、同梱の `hooks/pre-commit` を使う（SKILL.md の「hook」）。
 
+## 分類器（任意の検査）
+
+ブリッジが保存している欄の閉じた語彙（原文との差、強さ、など）を、外部の分類器（現在は Jev）に独立にもう一度付けさせ、記録と食い違えば印を立てる。
+印を立てるだけで、承認の状態は変えない。確からしさは規則に使わない。設定しなければ何も変わらない。
+
+| コマンド | 内容 |
+|---|---|
+| `classify` | 送る内容の見積り（要求の回数、問いの数、字数）だけを出す。何も送らない |
+| `classify --send` | 判定が無い、または古い問いを、分類器へ送る。判定は台帳（`bridge/judgments.jsonl`、追記だけ）に残る |
+| `classify --list [--all]` | 台帳の判定を、現在の記録と突き合わせて出す。何も送らない |
+
+設定（bridge.toml）。鍵は書かず、環境変数 `TYPESAFE_API_KEY`（または `JEV_API_KEY`）で渡す。
+
+```toml
+[classifier]
+provider = "jev"          # 提供元。省けば分類器を使わない
+model = "jev-latest"      # 省略可
+max_chars = 6000          # 一回に渡す材料の字数の上限。超える件は送らない
+# types = ["cite.diff"]   # 使う型を絞る（省くと、登録された型すべて）
+```
+
+外へ送るもの。原稿の文と、原典の逐語・前後の文（著作権のある PDF の抜粋を含む）が外部のサービスへ渡り、課金される。
+`--send` を付けたときだけ送る。
+
+### 既定の型（最小の四つ）
+
+| 型 | 見る視点 | 突き合わせる記録 |
+|---|---|---|
+| `cite.diff` | 本文の文は逐語に対して、一致・言い換え・限定つき一般化・外挿のどれか | 引用の `原文との差` |
+| `cite.strength` | 本文の文は、原典の内容をどの強さで述べているか | 抜き書きの `強さ` |
+| `cite.attribution` | 逐語は、著者の主張か、他者の紹介か、仮定か | 他者の紹介なら印 |
+| `cite.not_said` | 抜き書きの「言っていないこと」は、本当に書かれていないか | 書かれていれば印 |
+
+### 型を足す
+
+検査の視点は `bridge.toml` の `[[checks]]` に足せる（同じ `type` は上書き）。材料と突き合わせる欄は、SPEC.md の欄名で指す
+（`citation.<欄>`、`excerpt.<欄>`）。足すときの決まりは三つ。
+
+- 閉じた選択肢にする。`labels` に「判定できない」を必ず含める。分類器に文を作らせない。
+- 何と突き合わせるかを書く。記録の欄と比べるなら `compare`、無ければ印にするラベルを `flag_on` に書く。
+- 文面か選択肢を変えたら、以前の判定は古くなる（型の文面の指紋が変わるため）。論理的に別の型にするときは `version` を上げる。
+
+```toml
+[[checks]]
+type = "cite.tone"
+version = 1
+for = "excerpt"                      # citation（引用ごと）か excerpt（抜き書きごと）
+question = "逐語の語調はどれか。"
+labels = ["断定", "留保", "判定できない"]
+flag_on = ["断定"]
+[checks.materials]
+source = "excerpt.逐語"
+```
+
+登録された型の名前・版・文面の指紋は、`checkpoint` のマニフェストの `classifier` 欄に残る。
+新しい型は、まず印を立てるだけで使い、人の承認との一致率を測ってから、承認の状態を下げる動作（`on_disagree`）を検討する。それはまだ実装していない。
+
+### 提供元を足す
+
+アダプタは `classify(state, asks) -> verdicts` の一つだけである（`cite_bridge/classifier.py`）。
+`Classifier` を継いだクラスを書き、`PROVIDERS` に一行足す。
+
 ## 実装の構成
 
 入口は `bridge.py`（引数を受けて `cite_bridge/cli.py` へ渡すだけ）。実装は `cite_bridge/` に責務ごとに分けてある。
@@ -52,6 +114,7 @@ git の pre-commit に検査を置くには、同梱の `hooks/pre-commit` を�
 | check | 整合の検査（check）、網羅の一覧（coverage）、格の一覧（grade） |
 | approve / apply | 承認・差し戻し・要約の確認・指摘の書き込みと、判断ファイルの適用 |
 | propose | 印の無い出典の候補づくり |
+| judge / classifier | 分類器による検査（型の登録、台帳、記録との突き合わせ）と、提供元のアダプタ |
 | review（templates/） | 確認の材料（md・JSON）と承認の HTML。HTML と JavaScript は templates/ に置く |
 | fetch | PDF の抽出と Web 資料の写し |
 | checkpoint | マニフェスト、道具の版、pre-commit、印の除去 |

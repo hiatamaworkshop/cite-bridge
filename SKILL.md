@@ -172,6 +172,7 @@ python .claude/skills/cite-bridge/bridge.py snapshot <key> --rebuild     # 保�
 python .claude/skills/cite-bridge/bridge.py strip <原稿> <出力>            # 印を外した写しを作る
 python .claude/skills/cite-bridge/bridge.py checkpoint [--label 中間提出]   # check --strict を通った地点をマニフェストで残す（道具の版つき）
 python .claude/skills/cite-bridge/bridge.py precommit                       # git の pre-commit から呼ぶ（hook 節）
+python .claude/skills/cite-bridge/bridge.py classify [--send] [--list [--all]] [--cids c001 ...] [--limit N]   # 分類器による検査（README「分類器」。--send が無ければ送らない）
 ```
 
 - snapshot は生の HTML を `<web_dir>/<key>.html`（追跡しない）に、本文を `<key>.txt`（追跡する）に保存する。本文の頭書きに
@@ -245,7 +246,7 @@ python .claude/skills/cite-bridge/bridge.py precommit                       # gi
 strip、印の形の設定、URL の PDF の写し、LaTeX の \cite と印の key、checkpoint、OCR の印、承認の理由と根拠、差し戻し、
 要約の確認、欄の中の参照、review（md と JSON と HTML）、apply（書き込みと指紋の食い違いの拒否）、折りたたみの見出しと作り直し、
 網羅の数え方、作業票、候補の検査と受け入れと拒否、人の読み、precommit、引用に使われていない抜き書きの確認。承認の HTML の JavaScript のうち、
-画面に依らない部分（保存した入力の統合、古い判断の判定、判断ファイルの組み立て）は node で動かす（`tests/test_review_js.py`。node が無ければ飛ばす）。43件）。
+画面に依らない部分（保存した入力の統合、古い判断の判定、判断ファイルの組み立て）は node で動かす（`tests/test_review_js.py`。node が無ければ飛ばす）。分類器（偽のサーバで Jev の API の形に答えさせる。外へは送らない）の型の登録・台帳・古さ・見積り。56件）。
 hook は道具の側を直したときに試験も走らせる。
 
 ## AI が守ること

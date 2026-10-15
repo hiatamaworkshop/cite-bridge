@@ -19,6 +19,9 @@ CAND_DIR = None     # 候補の作業票・下書き・候補（bridge.candidate
 EXCLUDED = None     # 「引用でない」と判断した括弧の記録（bridge.excluded）。coverage が数えない
 MARK_FORMAT = "〔{id}〕"
 WATCH_EXTRA = []    # pre-commit が監視する、設定が指す以外のパス（hook.watch）
+JUDGMENTS = None     # 分類器の判定の台帳（bridge.judgments）。追記だけの jsonl
+CLASSIFIER = {}     # [classifier]。提供元・モデル・上限・文面の上書き。鍵は書かない（環境変数）
+CHECKS_USER = []    # [[checks]]。問いの型の追加と上書き（既定の型は judge.DEFAULT_CHECKS）
 APPROVERS = {}      # 承認者の一覧 {名前: human / model}。空なら名前を問わない（approvers）
 # 出典らしき括弧（著者と年など）。印の無い文にあるものを「印の無い出典」として数える（coverage.pattern で替える）
 COVER_RE = re.compile(r"[（(][^（）()\n]*?(?<!\d)(?:19|20)\d{2}[a-z]?(?![\d年月日-])[^（）()\n]*[）)]")
@@ -69,6 +72,10 @@ def load_config(path):
     OUTPUT_LANG = c.get("output", {}).get("language", OUTPUT_LANG)
     global WATCH_EXTRA
     WATCH_EXTRA = [Path(x) for x in c.get("hook", {}).get("watch", [])]
+    global JUDGMENTS, CLASSIFIER, CHECKS_USER
+    JUDGMENTS = Path(r.get("judgments", CIT.parent / "judgments.jsonl"))
+    CLASSIFIER = dict(c.get("classifier", {}))
+    CHECKS_USER = list(c.get("checks", []))
     # 節の種類の語と、抽出が読めるかを見る頻出語は、既定（英語と日本語）に足せる
     extra = c.get("section_kinds", {})
     KIND_WORDS = [(k, ws + [w.lower() for w in extra.get(k, [])]) for k, ws in KIND_WORDS]
