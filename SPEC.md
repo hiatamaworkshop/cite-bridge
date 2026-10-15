@@ -199,12 +199,31 @@ status は pending / accepted / rejected。decided は、受け入れたとき�
 ```json
 {"item": "cite:c007 | exc:key#e1", "type": "cite.diff", "version": 1, "spec": "<型の文面の指紋>", "mat": "<材料の指紋>",
  "label": "外挿", "score": 0.91, "scores": {"一致": 0.02, "…": 0.0}, "record": ["言い換え"], "status": "食い違い",
- "provider": "jev", "model": "jev-latest", "at": "2026-10-15T10:00:00"}
+ "lang": "ja/en", "provider": "jev", "model": "jev-latest", "at": "2026-10-15T10:00:00"}
 ```
 
+- lang は言語の組（引用は `本文/原典`、抜き書きは原典だけ。下の測定の組と同じ判別）。分岐には使わず、後で言語ごとに数えるために残す。
+  言語をまたぐ比較は提供元に任せ、道具は訳さない。
 - 判定が新しい（fresh）のは、version・spec・mat が現在と一致するとき。材料か文面が変わると古くなり、`classify` が判定し直す。
 - status は、判定時の記録との比較。一致 / 食い違い / 判定できない / 記録なし（compare の欄が空） / 要確認（flag_on に当たる） / 問題なし。
   印は 食い違い と 要確認。現在の記録との比較は `classify --list` と `review` が出す。
+
+### 測定の組（`cite-bridge-eval/1`）と結果（`cite-bridge-eval-result/1`）
+
+```json
+{"format": "cite-bridge-eval/1", "note": "…", "types": ["cite.diff", "cite.strength"],
+ "items": [{"id": "c001", "split": "tune"},
+           {"id": "m01", "base": "c001", "split": "tune", "flag": ["cite.diff"], "mutation": "何をどう壊したか", "claim": "壊した本文の文"}]}
+```
+
+- id だけの件は承認済みの引用で、types のどの型でも印が立たないのが正しい。
+- base と claim を持つ件は、base の引用の本文を claim に置き換えた試験の件で、flag に挙げた型で印が立つのが正しい（挙げない型は数えない）。
+  材料のほかの部分（逐語、前後の文、記録）は base のものを使う。claim は原稿にも引用のファイルにも入らない。
+- 結果は、行ごとに `{variant, rep, item, split, lang, type, label, status, record, margin, flagged, expected, ok, mutation}`。
+  margin は確からしさの一位と二位の差で、曖昧さの目安として残す（規則には使わない）。台帳には書かない。
+- lang は本文と原典の言語の組（`本文/原典`、例 `ja/en`。根拠の逐語が複数の言語にまたがれば `ja/en+ja`）。仮名か漢字を含む文は ja、
+  欧字だけの文は en（英語以外の欧文も en に数える）。測定の組には書かず、道具が判別する。
+- `citation.出典` は、根拠の文献の筆頭著者と年（書誌から導く）。問いの中で、文のどの部分を見るかを名指すのに使う。
 
 ### アダプタの契約（`cite_bridge/classifier.py`）
 

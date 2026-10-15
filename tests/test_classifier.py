@@ -148,6 +148,8 @@ class ClassifierTest(unittest.TestCase):
         self.assertEqual(led[("exc:doe2020#e1", "cite.not_said")]["status"], "問題なし")
         self.assertEqual(d["provider"], "jev")
         self.assertEqual(d["model"], "jev-test")
+        self.assertEqual(d["lang"], "ja/en")  # 本文と原典の言語の組。後で言語ごとに数えるために残す
+        self.assertEqual(led[("exc:doe2020#e1", "cite.attribution")]["lang"], "en")
         # 要求の形。鍵、選択肢の番号、問いの文面、材料
         first = next(r for r in FakeJev.log if "本文の文" in r["body"]["state"])
         self.assertEqual(first["auth"], "Bearer test-key")
@@ -227,6 +229,114 @@ class ClassifierTest(unittest.TestCase):
         self.assertEqual(self.run_bridge("checkpoint")[0], 0)
         m = json.loads(next((self.dir / "bridge/checkpoints").glob("*.json")).read_text(encoding="utf-8"))
         self.assertIsNone(m["classifier"])
+
+
+    # ---- 測定（classify --eval）
+
+    def _eval_set(self):
+        self.run_bridge("approve", "c001", "--by", "tester")
+        es = {"format": "cite-bridge-eval/1", "types": ["cite.diff", "cite.strength"], "items": [
+            {"id": "c001", "split": "tune"},
+            {"id": "m1", "base": "c001", "split": "holdout", "flag": ["cite.diff"], "mutation": "結論を足した",
+             "claim": "Doe らの実験では、参加者は常に12秒で課題を終え、格子が最良であると証明された（Doe, 2020）。"}]}
+        self.write("eval/set.json", json.dumps(es, ensure_ascii=False))
+        self.write("eval/v.toml", '[[checks]]\ntype = "cite.diff"\nversion = 3\nfor = "citation"\n'
+                                  'question = "{about} を引いている部分は、どれに当たるか。"\n'
+                                  'labels = ["一致", "言い換え", "外挿", "判定できない"]\ncompare = "citation.原文との差"\n'
+                                  'about = "citation.出典"\n[checks.materials]\nclaim = "citation.sentence"\nsource = "excerpt.逐語"\n')
+
+    def test_eval_estimates_without_sending(self):
+        (self.dir / "eval").mkdir()
+        self._eval_set()
+        code, out = self.run_bridge("classify", "--eval", "eval/set.json", "--variant", "eval/v.toml", "--reps", "2")
+        self.assertEqual(code, 0, out)
+        self.assertIn("組 2 件（承認済み 1、改変 1。言語（本文/原典） ja/en 2）", out)
+        self.assertIn("案 設定, v", out)
+        self.assertEqual(FakeJev.log, [])
+
+    def test_eval_scores_flags_and_does_not_touch_the_ledger(self):
+        (self.dir / "eval").mkdir()
+        self._eval_set()
+        code, out = self.run_bridge("classify", "--eval", "eval/set.json", "--variant", "eval/v.toml", "--send", "--verbose")
+        self.assertEqual(code, 0, out)
+        self.assertIn("承認済みの誤った印", out)
+        self.assertEqual(self.ledger(), [])  # 台帳には書かない
+        res = json.loads(next((self.dir / "eval/results").glob("set_*.json")).read_text(encoding="utf-8"))
+        self.assertEqual(res["format"], "cite-bridge-eval-result/1")
+        rows = {(r["variant"], r["item"], r["type"]): r for r in res["rows"]}
+        # 偽のサーバは diff に「外挿」と答える。承認済み（記録 一致）では誤った印、改変では検出になる
+        self.assertEqual((rows[("設定", "c001", "cite.diff")]["flagged"], rows[("設定", "c001", "cite.diff")]["ok"]), (True, False))
+        self.assertEqual((rows[("設定", "m1", "cite.diff")]["flagged"], rows[("設定", "m1", "cite.diff")]["ok"]), (True, True))
+        self.assertIsNone(rows[("設定", "m1", "cite.strength")]["ok"])  # flag に無い型は数えない
+        self.assertEqual(rows[("設定", "m1", "cite.diff")]["lang"], "ja/en")  # 日本語の本文が英語の原典を引く組
+        # 案の文面に出典の名前が入り、本文から出典の括弧が外れている
+        mark = "を引いている部分は、どれに当たるか"  # 案（v.toml）の問いだけが持つ句
+        sent = [r["body"] for r in FakeJev.log if any(mark in q["instructions"] for q in r["body"]["questions"].values())]
+        self.assertTrue(sent)
+        q = next(q for q in sent[0]["questions"].values() if mark in q["instructions"])
+        self.assertIn("Doe", q["instructions"])
+        self.assertNotIn("（Doe, 2020）", sent[0]["state"])
+        self.assertIn("外れ", out)  # --verbose
+
+
+class MaterialTest(unittest.TestCase):
+    """分類器へ渡す材料の整え。"""
+
+    def setUp(self):
+        from cite_bridge import judge
+        self.j = judge
+
+    def test_citation_parens_are_removed_but_content_parens_stay(self):
+        s = "小林は透過性の原則（状態理解容易性・手順連想容易性）を挙げた（小林哲則, 人工知能学会誌 17(3) pp.266-270, 2002）〔c001〕。"
+        self.assertEqual(self.j.clean_claim(s), "小林は透過性の原則（状態理解容易性・手順連想容易性）を挙げた。")
+        self.assertEqual(self.j.clean_claim("河原（2013）が指摘した難しさ（p.49）。"), "河原が指摘した難しさ（p.49）。")
+
+    def test_source_label(self):
+        bib = {"a": {"entry": "小林哲則. (2002). 音声対話. 人工知能学会誌."},
+               "b": {"entry": "Clark, L., Doyle, P., & Garaialde, D. (2019). The state of speech in HCI."},
+               "c": {"entry": "Smartbox. (n.d.). Getting started."}}
+        self.assertEqual(self.j.source_label(["a"], bib), "小林哲則（2002）")
+        self.assertEqual(self.j.source_label(["b"], bib), "Clark ら（2019）")
+        self.assertEqual(self.j.source_label(["c", "a"], bib), "Smartbox・小林哲則（2002）")
+
+    def test_context_is_capped_on_the_side_away_from_the_verbatim(self):
+        long = "あ" * 150 + "い" * 150
+        u = {"excerpts": [{"id": "k#e1", "before": long, "after": long}]}
+        before = self.j.text_at(u, "excerpt.前")
+        after = self.j.text_at(u, "excerpt.後")
+        self.assertTrue(before.startswith("…") and before.endswith("い"))  # 前の文は、逐語に近い末尾を残す
+        self.assertTrue(after.endswith("…") and after.startswith("あ"))   # 後の文は、逐語に近い先頭を残す
+        self.assertEqual(len(before), self.j.CONTEXT_CAP + 1)
+
+    def test_language_pair(self):
+        """本文と原典の言語の組。日本語の本文は英語のコマンド名を多く含んでも ja と数える。"""
+        self.assertEqual(self.j.lang_of('Word の場合、"delete that"・"bold that"・"go to end of sentence" が解釈される'), "ja")
+        self.assertEqual(self.j.lang_of("cells without labels cannot be activated."), "en")
+        self.assertEqual(self.j.lang_of("12.5 (3)"), "")
+        u = {"sentence": "ラベルの無いセルは選べない。",
+             "excerpts": [{"id": "a#e1", "verbatim": "cells without labels cannot be activated."},
+                          {"id": "b#e1", "verbatim": "ラベルが無ければ選べない。"}]}
+        self.assertEqual(self.j.lang_pair(u), "ja/en+ja")
+        self.assertEqual(self.j.lang_pair(dict(u, excerpts=u["excerpts"][:1])), "ja/en")
+        self.assertEqual(self.j.lang_pair({"scope": "excerpt", "excerpts": u["excerpts"][:1]}), "en")  # 抜き書きは原典の言語だけ
+
+    def test_eval_report_splits_by_language_pair_when_mixed(self):
+        import contextlib
+        import io
+        rows = [{"variant": "設定", "rep": 0, "item": i, "split": "tune", "lang": lang, "type": "cite.diff", "label": "外挿",
+                 "status": "食い違い", "margin": 0.5, "flagged": True, "expected": exp, "ok": exp}
+                for i, lang, exp in (("c1", "ja/ja", False), ("m1", "ja/en", True))]
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.j._eval_report(rows, [("設定",)])
+        out = buf.getvalue()
+        self.assertIn("言語の組（本文/原典）ごと", out)
+        self.assertIn("tune ja/en", out)
+        self.assertIn("tune ja/ja", out)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.j._eval_report(rows[:1], [("設定",)])
+        self.assertNotIn("言語の組", buf.getvalue())  # 一つの組だけなら、分けた表は出さない
 
 
 class AdapterTest(unittest.TestCase):

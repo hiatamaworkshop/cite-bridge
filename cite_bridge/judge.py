@@ -125,15 +125,56 @@ def spec_fp(c):
 
 # ---------------------------------------------------------------- 単位（引用と抜き書き）と材料
 
-def units_from_data(data):
+CONTEXT_CAP = 200  # 前後の文の上限の字数。抽出の残骸（図の文字、頁の頭書き）が一文に繋がって長くなるのを切る
+
+
+# 括弧（中に一段の半角括弧を含んでよい。「28(1)」のような巻号）
+PAREN_RE = re.compile(r"[（(](?:[^（）()\n]|\([^()\n]*\))*[）)]")
+YEAR_RE = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
+
+
+def clean_claim(sentence):
+    """本文の文から、引用の印と出典の括弧を外す。どの出典かは、問いの側で名指す（citation.出典）。
+
+    出典の括弧は、年を含む括弧と、設定の coverage.pattern に当たる括弧。頁だけの括弧（p.49）は残す。
+    """
+    def drop(m):
+        inner = m.group(0)
+        flat = re.sub(r"\(([^()]*)\)", r"\1", inner[1:-1])
+        return "" if YEAR_RE.search(flat) or cfg.COVER_RE.fullmatch(inner[0] + flat + inner[-1]) else inner
+    s = PAREN_RE.sub(drop, unmark(sentence))
+    return re.sub(r"[ 　]{2,}", " ", s).strip()
+
+
+def source_label(keys, bib):
+    """根拠の文献の短い名前（筆頭著者と年）。問いの中で、文のどの部分を見るかを名指すのに使う。"""
+    out = []
+    for k in keys:
+        entry = (bib.get(k) or {}).get("entry", "")
+        m = re.match(r"\s*(.+?)[.,]?\s*[（(](\d{4}|n\.d\.)[a-z]?[)）]", entry)
+        if not m:
+            out.append(k)
+            continue
+        authors, year = m.group(1).strip(), m.group(2)
+        many = authors.count(",") >= 2 or "&" in authors or " and " in authors or "、" in authors
+        first = authors.split(",")[0].split("、")[0].strip()
+        out.append(f"{first}{' ら' if many else ''}（{year}）" if year != "n.d." else first)
+    return "・".join(dict.fromkeys(out))
+
+
+def units_from_data(data, bib=None):
     """review_data の結果から、判定の単位を作る。引用（主張）ごとと、抜き書きごと。"""
+    if bib is None:
+        from .bib import parse_bib
+        bib = parse_bib()
     units, seen = [], set()
     for it in data["citations"]:
         if it["kind"] != "主張":
             continue
         ev = [e for e in it["evidence"] if not e.get("missing") and not e.get("new")]
-        units.append({"item": f"cite:{it['id']}", "scope": "citation", "id": it["id"], "sentence": unmark(it["sentence"]),
-                      "fields": it["fields"], "excerpts": ev})
+        keys = list(dict.fromkeys(e["id"].split("#")[0] for e in ev))
+        units.append({"item": f"cite:{it['id']}", "scope": "citation", "id": it["id"], "sentence": clean_claim(it["sentence"]),
+                      "source": source_label(keys, bib), "fields": it["fields"], "excerpts": ev})
         for e in ev:
             if e["id"] not in seen:
                 seen.add(e["id"])
@@ -152,6 +193,8 @@ def values_at(unit, path):
     if kind == "citation":
         if name in ("sentence", "本文", "含む文"):
             return [unit.get("sentence", "")]
+        if name == "出典":
+            return [unit.get("source", "")]
         return [unit.get("fields", {}).get(name, "")]
     key = EXCERPT_FIELDS.get(name)
     if key is None:
@@ -159,10 +202,18 @@ def values_at(unit, path):
     return [e.get(key, "") or "" for e in unit["excerpts"]]
 
 
+def _cap(text, keep_end):
+    if len(text) <= CONTEXT_CAP:
+        return text
+    return "…" + text[-CONTEXT_CAP:] if keep_end else text[:CONTEXT_CAP] + "…"
+
+
 def text_at(unit, path):
-    """材料の文面。根拠が複数なら、抜き書きの ID を付けて並べる。"""
-    kind = path.split(".")[0]
+    """材料の文面。根拠が複数なら、抜き書きの ID を付けて並べる。前後の文は CONTEXT_CAP で切る（逐語に近い側を残す）。"""
+    kind, name = PATH_RE.match(path).groups()
     vals = values_at(unit, path)
+    if kind == "excerpt" and name in ("前", "後", "before", "after"):
+        vals = [_cap(v, keep_end=name in ("前", "before")) for v in vals]
     if kind == "excerpt" and len(unit["excerpts"]) > 1:
         return "\n".join(f"[{e['id']}] {v}" for e, v in zip(unit["excerpts"], vals) if v)
     return "\n".join(v for v in vals if v)
@@ -264,18 +315,8 @@ def summary():
 
 # ---------------------------------------------------------------- コマンド
 
-def cmd_classify(args):
-    """分類器に問い、判定を台帳へ足す。--send が無ければ、送る内容の見積りだけを出す（何も送らない）。"""
-    from .review import review_data
-    checks = registry()
-    data = review_data(args.cids or None, None, include_done=True)
-    units = units_from_data(data)
-    ledger = load_ledger()
-
-    if args.list:
-        return _list(checks, units, ledger, show_all=args.all)
-
-    max_chars = int(cfg.CLASSIFIER.get("max_chars", 6000))
+def plan_requests(units, checks, ledger=None, max_chars=6000):
+    """(要求の並び, 材料が長すぎる件数, 判定済みの件数)。同じ単位で材料が同じ問いは、一つの要求にまとめる。"""
     requests, too_long, done = {}, 0, 0
     for u in units:
         for c in checks:
@@ -285,7 +326,7 @@ def cmd_classify(args):
             if b is None:
                 continue
             state, about, mat = b
-            if fresh(ledger.get((u["item"], c["type"])), c, mat):
+            if ledger is not None and fresh(ledger.get((u["item"], c["type"])), c, mat):
                 done += 1
                 continue
             if len(state) + len(about) > max_chars:
@@ -293,45 +334,84 @@ def cmd_classify(args):
                 continue
             req = requests.setdefault((u["item"], state), {"item": u["item"], "state": state, "asks": [], "unit": u})
             req["asks"].append((c, about, mat))
-    reqs = list(requests.values())
-    if args.limit:
-        reqs = reqs[:args.limit]
+    return list(requests.values()), too_long, done
+
+
+def estimate(reqs):
     n_asks = sum(len(r["asks"]) for r in reqs)
     chars = sum(len(r["state"]) + sum(len(a[1]) for a in r["asks"]) for r in reqs)
-    print(f"判定済み {done} 件。送る予定: 要求 {len(reqs)} 回、問い {n_asks} 件、約 {chars} 字"
-          + (f"。材料が長くて渡せないもの {too_long} 件（max_chars {max_chars}）" if too_long else ""))
-    if not reqs:
-        return
+    return f"送る予定: 要求 {len(reqs)} 回、問い {n_asks} 件、約 {chars} 字"
+
+
+def _classifier_or_stop(send):
+    """提供元を作る。設定が無い、または --send が無いときは、理由を出して None。"""
     clf = make_classifier(cfg.CLASSIFIER, env_dirs=[cfg.CONFIG_USED.parent, Path.cwd()])
     if clf is None:
         print("[classifier] provider が設定に無いので送れない（README「分類器」）")
-        return
-    if not args.send:
+        return None
+    if not send:
         print(f"送る相手: {clf.name}（{clf.model}）。原稿の文と原典の逐語・前後の文が外部のサービスへ渡り、課金される。"
               "送るには --send を付ける。")
-        return
+        return None
     print(f"送る相手: {clf.name}（{clf.model}）。原稿の文と原典の逐語・前後の文が外部のサービスへ渡る。")
-    now = datetime.datetime.now().isoformat(timespec="seconds")
-    written, failed = [], 0
+    return clf
+
+
+def send_requests(clf, reqs):
+    """要求ごとに (要求, [(問い, Verdict | None)] | None) を返す。None は要求全体の失敗（理由は出力する）。"""
     for r in reqs:
         asks = [Ask(type=c["type"], labels=tuple(c["labels"]), question=c["question"],
                     gloss=tuple(sorted(c.get("gloss", {}).items())), about=about) for c, about, _ in r["asks"]]
         try:
             verdicts = clf.classify(r["state"], asks)
         except ClassifierUnavailable as exc:
-            failed += 1
             print(f"SKIP {r['item']}: {exc}")
+            yield r, None
+            continue
+        yield r, list(zip(r["asks"], verdicts))
+
+
+def cmd_classify(args):
+    """分類器に問い、判定を台帳へ足す。--send が無ければ、送る内容の見積りだけを出す（何も送らない）。"""
+    from .review import review_data
+    if args.eval:
+        return cmd_eval(args)
+    checks = registry()
+    data = review_data(args.cids or None, None, include_done=True)
+    units = units_from_data(data)
+    ledger = load_ledger()
+
+    if args.list:
+        return _list(checks, units, ledger, show_all=args.all)
+
+    max_chars = int(cfg.CLASSIFIER.get("max_chars", 6000))
+    reqs, too_long, done = plan_requests(units, checks, ledger, max_chars)
+    if args.limit:
+        reqs = reqs[:args.limit]
+    print(f"判定済み {done} 件。" + estimate(reqs)
+          + (f"。材料が長くて渡せないもの {too_long} 件（max_chars {max_chars}）" if too_long else ""))
+    if not reqs:
+        return
+    clf = _classifier_or_stop(args.send)
+    if clf is None:
+        return
+    now = datetime.datetime.now().isoformat(timespec="seconds")
+    written, failed = [], 0
+    for r, results in send_requests(clf, reqs):
+        if results is None:
+            failed += 1
             if not written:  # 最初の要求から通らないなら、提供元が使えない。同じ失敗を繰り返さない
                 break
             continue
-        for (c, about, mat), v in zip(r["asks"], verdicts):
+        for (c, about, mat), v in results:
             if v is None:
                 failed += 1
                 continue
             record = [x for p in [c.get("compare")] if p for x in values_at(r["unit"], p) if x]
             written.append({"item": r["item"], "type": c["type"], "version": c["version"], "spec": spec_fp(c), "mat": mat,
                             "label": v.label, "score": v.score, "scores": v.scores, "record": record,
-                            "status": judge_status(c, v.label, record), "provider": clf.name, "model": clf.model, "at": now})
+                            "status": judge_status(c, v.label, record), "lang": lang_pair(r["unit"]),
+                            "provider": clf.name, "model": clf.model, "at": now})
     if written:
         append_ledger(written)
     flagged = [e for e in written if e["status"] in FLAGGED]
@@ -340,6 +420,170 @@ def cmd_classify(args):
         print(f"  {e['item']}  {e['type']}  {e['label']}" + (f"（記録 {'・'.join(e['record'])}）" if e["record"] else ""))
     if failed and not written:
         sys.exit(1)
+
+
+# ---------------------------------------------------------------- 測定（classify --eval）
+#
+# 型の文面を比べるための測定。台帳には書かない。測定の組（cite-bridge-eval/1）は二種類の件を持つ。
+# 承認済みの引用（id だけ）: 人が確かめた組なので、どの型でも印が立たないのが正しい。
+# 改変した組（base と claim）: 承認済みの引用の本文を、人工的に壊したもの（限定を外す、推測を断定にする、結論を足す）。
+#   flag に挙げた型で印が立つのが正しい。原稿にも引用のファイルにも入らない、試験だけの文である。
+# 調整に使った組だけで測ると当てはめすぎを見逃すので、split（tune / holdout）で分けて数える。
+# 本文と原典の言語が違う組（日本語の本文が英語の原典を引く）は、言語の組ごとにも数える。言語の差を吸収する手当ては、その結果を見て決める。
+
+def lang_of(text):
+    """文の言語の大まかな判別。仮名か漢字を含めば ja、欧字だけなら en（英語以外の欧文も en に数える）、どちらも無ければ空。
+
+    日本語の本文は英語のコマンド名や製品名を含むことが多いので、字数の多寡ではなく、仮名・漢字の有無で決める。
+    """
+    if re.search(r"[぀-ヿ一-鿿]", text):
+        return "ja"
+    return "en" if re.search(r"[A-Za-z]", text) else ""
+
+
+def lang_pair(unit):
+    """本文と原典の言語の組（本文/原典、例 ja/en）。根拠の逐語が複数の言語にまたがれば ja+en のように並べる。
+    抜き書きの単位は本文を持たないので、原典の言語だけ（例 en）。"""
+    src = "+".join(sorted({lang_of(v) for v in values_at(unit, "excerpt.逐語")} - {""})) or "?"
+    if unit.get("scope") == "excerpt":
+        return src
+    return f"{lang_of(unit.get('sentence', '')) or '?'}/{src}"
+
+
+def _variant(path):
+    """(名前, 型の辞書)。path が無ければ、設定どおりの型（既定と bridge.toml の [[checks]]）。"""
+    import tomllib
+    by = {c["type"]: dict(c) for c in registry()}
+    if path:
+        for c in tomllib.loads(Path(path).read_text(encoding="utf-8")).get("checks", []):
+            by[c["type"]] = dict(c)
+        for c in by.values():
+            _validate(c)
+    return (Path(path).stem if path else "設定"), by
+
+
+def expected_flag(item, t):
+    """True は印が立つのが正しい、False は立たないのが正しい、None は数えない。"""
+    if item.get("base"):
+        return True if t in item.get("flag", []) else None
+    return False
+
+
+def cmd_eval(args):
+    from .review import review_data
+    es = json.loads(Path(args.eval).read_text(encoding="utf-8"))
+    if es.get("format") != "cite-bridge-eval/1":
+        sys.exit("測定の組の形式が違う（format: cite-bridge-eval/1 を期待）")
+    types = args.types or es.get("types") or []
+    variants = [_variant(None)] + [_variant(p) for p in (args.variant or [])]
+    data = review_data(None, None, include_done=True)
+    by = {u["id"]: u for u in units_from_data(data) if u["scope"] == "citation"}
+    eunits = []
+    for it in es["items"]:
+        if args.split != "all" and it.get("split") != args.split:
+            continue
+        u = by.get(it.get("base", it["id"]))
+        if u is None:
+            print(f"SKIP {it['id']}: 引用 {it.get('base', it['id'])} が無い（主張の引用でない、または原稿に無い）")
+            continue
+        v = dict(u, item=f"eval:{it['id']}")
+        if it.get("claim"):
+            v["sentence"] = clean_claim(it["claim"])
+        eunits.append((it, v))
+    max_chars = int(cfg.CLASSIFIER.get("max_chars", 6000))
+    plans = []
+    for name, by_type in variants:
+        checks = [by_type[t] for t in types if t in by_type]
+        reqs, too_long, _ = plan_requests([v for _, v in eunits], checks, None, max_chars)
+        plans.append((name, by_type, checks, reqs))
+    total = [r for *_, reqs in plans for r in reqs] * args.reps
+    langs = {}
+    for _, v in eunits:
+        langs[lang_pair(v)] = langs.get(lang_pair(v), 0) + 1
+    print(f"測定: 組 {len(eunits)} 件（承認済み {sum(1 for i, _ in eunits if not i.get('base'))}、改変 "
+          f"{sum(1 for i, _ in eunits if i.get('base'))}。言語（本文/原典） "
+          f"{'、'.join(f'{k} {n}' for k, n in sorted(langs.items()))}）、型 {', '.join(types)}、"
+          f"案 {', '.join(n for n, *_ in plans)}、各 {args.reps} 回。" + estimate(total))
+    clf = _classifier_or_stop(args.send)
+    if clf is None:
+        return
+    items_by_unit = {v["item"]: it for it, v in eunits}
+    rows = []
+    for name, by_type, checks, reqs in plans:
+        for rep in range(args.reps):
+            for r, results in send_requests(clf, reqs):
+                if results is None:
+                    continue
+                it = items_by_unit[r["item"]]
+                lang = lang_pair(r["unit"])
+                for (c, about, mat), v in results:
+                    exp = expected_flag(it, c["type"])
+                    if v is None:
+                        rows.append({"variant": name, "rep": rep, "item": it["id"], "split": it.get("split", ""), "lang": lang,
+                                     "type": c["type"], "label": None, "expected": exp, "ok": False if exp is not None else None})
+                        continue
+                    record = [x for p in [c.get("compare")] if p for x in values_at(r["unit"], p) if x]
+                    status = judge_status(c, v.label, record)
+                    top = sorted(v.scores.values(), reverse=True) + [0.0, 0.0]
+                    flagged = status in FLAGGED
+                    rows.append({"variant": name, "rep": rep, "item": it["id"], "split": it.get("split", ""), "lang": lang,
+                                 "type": c["type"], "label": v.label, "status": status, "record": record,
+                                 "margin": round(top[0] - top[1], 3), "flagged": flagged, "expected": exp,
+                                 "ok": (flagged == exp) if exp is not None else None, "mutation": it.get("mutation", "")})
+    _eval_report(rows, plans, args.verbose)
+    out_dir = Path(args.eval).parent / "results"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    out = out_dir / f"{Path(args.eval).stem}_{stamp}.json"
+    out.write_text(json.dumps({
+        "format": "cite-bridge-eval-result/1", "set": Path(args.eval).as_posix(), "provider": clf.name, "model": clf.model,
+        "reps": args.reps, "types": types,
+        "variants": {n: [{"type": c["type"], "version": c["version"], "spec": spec_fp(c)} for c in checks]
+                     for n, _, checks, _ in plans},
+        "rows": rows}, ensure_ascii=False, indent=1) + "\n", encoding="utf-8", newline="\n")
+    print(f"--- 結果: {out.as_posix()}（台帳には書いていない）")
+
+
+def _eval_report(rows, plans, verbose=False):
+    splits = ("tune", "holdout")
+    _eval_table(rows, plans, "分け", lambda r: r["split"], splits)
+    langs = sorted({r.get("lang", "") for r in rows})
+    if len(langs) > 1:
+        print("言語の組（本文/原典）ごと")
+        _eval_table(rows, plans, "分けと言語", lambda r: f"{r['split']} {r.get('lang', '')}",
+                    [f"{s} {l}" for s in splits for l in langs])
+    if verbose:
+        for r in rows:
+            if r.get("ok") is False:
+                exp = "印が立つべき" if r["expected"] else "印が立たないべき"
+                print(f"  外れ {r['variant']} {r['type']} {r['item']}（{r.get('lang', '')}、{exp}）: {r.get('label')}"
+                      + (f"／記録 {'・'.join(r.get('record') or [])}" if r.get("record") else "")
+                      + (f"／{r['mutation']}" if r.get("mutation") else ""))
+
+
+def _eval_table(rows, plans, head, key, groups):
+    """案と型ごとに、key(row) が groups のそれぞれに当たる行を数えて一行ずつ出す。"""
+    def frac(sel):
+        return f"{sum(1 for r in sel if r.get('flagged'))}/{len(sel)}" if sel else "-"
+
+    print(f"{'案':<14}{'型':<16}{head:<14}{'承認済みの誤った印':<12}{'改変の検出':<10}{'判定できない':<8}{'確率の差':<8}{'反復の一致'}")
+    for name, *_ in plans:
+        for t in sorted({r["type"] for r in rows if r["variant"] == name}):
+            for g in groups:
+                sel = [r for r in rows if r["variant"] == name and r["type"] == t and key(r) == g]
+                if not sel:
+                    continue
+                real = [r for r in sel if r["expected"] is False]
+                mut = [r for r in sel if r["expected"] is True]
+                abst = sum(1 for r in sel if r.get("status") == "判定できない")
+                margins = [r["margin"] for r in sel if r.get("margin") is not None]
+                samples = {}
+                for r in sel:
+                    samples.setdefault(r["item"], []).append(r.get("label"))
+                same = sum(1 for s in samples.values() if len(set(s)) == 1)
+                agree = f"{same}/{len(samples)}" if max(map(len, samples.values())) > 1 else "-"  # 一回だけなら比べられない
+                print(f"{name:<14}{t:<16}{g:<16}{frac(real):<20}{frac(mut):<14}{abst:<12}"
+                      f"{(sum(margins) / len(margins)) if margins else 0:<12.2f}{agree}")
 
 
 def _list(checks, units, ledger, show_all=False):
