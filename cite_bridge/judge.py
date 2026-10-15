@@ -20,8 +20,8 @@ ABSTAIN = "判定できない"
 # 既定の型（最小の四つ）。足すときは bridge.toml の [[checks]] に同じ形で書く。同じ type 名は上書きになる。
 DEFAULT_CHECKS = [
     {
-        "type": "cite.diff", "version": 1, "for": "citation",
-        "question": "本文の文は、原典の逐語に対して、次のどれに当たるか。",
+        "type": "cite.diff", "version": 2, "for": "citation",
+        "question": "本文の文のうち、この逐語を引いている部分（前置きや他の出典の部分は除く）は、原典の逐語に対して、次のどれに当たるか。",
         "labels": ["一致", "言い換え", "限定つき一般化", "外挿", ABSTAIN],
         "gloss": {"一致": "逐語と同じ内容", "言い換え": "内容は同じで、言い方が違う",
                   "限定つき一般化": "逐語の条件や範囲を落として、一般化している",
@@ -30,8 +30,8 @@ DEFAULT_CHECKS = [
         "compare": "citation.原文との差",
     },
     {
-        "type": "cite.strength", "version": 1, "for": "citation",
-        "question": "本文の文は、原典の内容を、どの強さで述べているか。",
+        "type": "cite.strength", "version": 2, "for": "citation",
+        "question": "本文の文のうち、この逐語を引いている部分（前置きや他の出典の部分は除く）は、原典の内容を、どの強さで述べているか。",
         "labels": ["観察", "示唆", "主張", "一般化", "条件付き", ABSTAIN],
         "gloss": {"観察": "観察した事実を述べる", "示唆": "かもしれない、と示す", "主張": "著者の主張として述べる",
                   "一般化": "広い範囲に一般化して述べる", "条件付き": "条件や範囲を限って述べる", ABSTAIN: "材料から決められない"},
@@ -48,14 +48,15 @@ DEFAULT_CHECKS = [
         "flag_on": ["他者の紹介"],
     },
     {
-        "type": "cite.not_said", "version": 1, "for": "excerpt",
-        "question": "次の文は、原典の逐語と前後の文に書かれているか。 {about}",
-        "labels": ["書かれていない", "書かれている", ABSTAIN],
-        "gloss": {"書かれていない": "逐語にも前後の文にも無い", "書かれている": "逐語か前後の文に書かれている",
+        "type": "cite.not_said", "version": 2, "for": "excerpt",
+        # 「言っていないこと」は否定の文なので、書かれているかを訊くと逆転する（実機の試験 2026-10-15）。文そのものが正しいかを訊く
+        "question": "次の文は、原典の逐語と前後の文の内容に照らして、正しいか。 {about}",
+        "labels": ["正しい", "誤り", ABSTAIN],
+        "gloss": {"正しい": "逐語と前後の文の内容と矛盾しない", "誤り": "逐語か前後の文が、この文に反することを述べている",
                   ABSTAIN: "材料から決められない"},
         "materials": {"source": "excerpt.逐語", "before": "excerpt.前", "after": "excerpt.後"},
         "about": "excerpt.言っていないこと",
-        "flag_on": ["書かれている"],
+        "flag_on": ["誤り"],
     },
 ]
 

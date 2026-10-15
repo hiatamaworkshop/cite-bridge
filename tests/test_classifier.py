@@ -20,7 +20,7 @@ sys.path.insert(0, str(tb.BRIDGE.parent))
 from cite_bridge import classifier as cl  # noqa: E402
 
 # 問いの文面に含まれる語 -> 偽のサーバが選ぶラベル
-SCRIPT = {"どれに当たるか": "外挿", "どの強さ": "観察", "誰の主張": "他者の紹介", "書かれているか": "書かれていない"}
+SCRIPT = {"どれに当たるか": "外挿", "どの強さ": "観察", "誰の主張": "他者の紹介", "正しいか": "正しい"}
 
 
 class FakeJev(BaseHTTPRequestHandler):
