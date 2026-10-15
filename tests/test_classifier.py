@@ -107,6 +107,33 @@ class ClassifierTest(unittest.TestCase):
         self.assertEqual(FakeJev.log, [])
         self.assertEqual(self.ledger(), [])
 
+    def test_key_can_come_from_dotenv_next_to_the_config(self):
+        """鍵は環境変数が先。無ければ bridge.toml と同じ場所の .env から読む（.env は設定ではなく、コミットしない）。"""
+        self.write("bridge/.env", '# 鍵\nJEV_API_KEY="from-dotenv"\n')
+        code, out = self.run_bridge("classify", "--send", "--limit", "1", key="")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(FakeJev.log[0]["auth"], "Bearer from-dotenv")
+        self.assertNotIn("from-dotenv", out)  # 鍵を画面に出さない
+        FakeJev.log.clear()
+        self.run_bridge("classify", "--send", "--limit", "1", key="from-env")
+        self.assertEqual(FakeJev.log[0]["auth"], "Bearer from-env")  # 環境変数が先
+
+    def test_dotenv_that_git_would_commit_is_refused(self):
+        """git のリポジトリの中で、無視されていない .env からは鍵を読まない（コミットされる恐れがあるため）。"""
+        env = self.clean_env()
+        for a in (["init", "-q"], ["config", "user.email", "t@example.com"], ["config", "user.name", "t"]):
+            subprocess.run(["git", *a], cwd=self.dir, check=True, capture_output=True, env=env)
+        self.write("bridge/.env", "JEV_API_KEY=from-dotenv\n")
+        code, out = self.run_bridge("classify", "--send", "--limit", "1", key="")
+        self.assertEqual(code, 1)
+        self.assertIn("git に無視されていない", out)
+        self.assertEqual(FakeJev.log, [])
+        # 無視する指定を置けば読む
+        self.write("bridge/.gitignore", ".env\n")
+        code, out = self.run_bridge("classify", "--send", "--limit", "1", key="")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(FakeJev.log[0]["auth"], "Bearer from-dotenv")
+
     # ---- 送る
 
     def test_send_writes_ledger_and_flags_disagreements(self):

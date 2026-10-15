@@ -301,7 +301,7 @@ def cmd_classify(args):
           + (f"。材料が長くて渡せないもの {too_long} 件（max_chars {max_chars}）" if too_long else ""))
     if not reqs:
         return
-    clf = make_classifier(cfg.CLASSIFIER)
+    clf = make_classifier(cfg.CLASSIFIER, env_dirs=[cfg.CONFIG_USED.parent, Path.cwd()])
     if clf is None:
         print("[classifier] provider が設定に無いので送れない（README「分類器」）")
         return
@@ -320,7 +320,7 @@ def cmd_classify(args):
         except ClassifierUnavailable as exc:
             failed += 1
             print(f"SKIP {r['item']}: {exc}")
-            if "鍵" in str(exc):
+            if not written:  # 最初の要求から通らないなら、提供元が使えない。同じ失敗を繰り返さない
                 break
             continue
         for (c, about, mat), v in zip(r["asks"], verdicts):

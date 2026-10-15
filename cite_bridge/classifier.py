@@ -17,6 +17,7 @@ import json
 import os
 import urllib.request
 from dataclasses import dataclass, field
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -56,12 +57,51 @@ JEV_MODEL = "jev-latest"
 JEV_KEY_VARS = ("TYPESAFE_API_KEY", "JEV_API_KEY")  # 鍵は環境変数だけで受ける。設定ファイルには書かない
 
 
-def jev_key():
+def _dotenv_value(path, names):
+    """`.env`（KEY=VALUE の行）から、names のどれかの値を読む。コメントと空行は無視し、両端の引用符は外す。"""
+    try:
+        lines = Path(path).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return ""
+    found = {}
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        v = v.strip()
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+            v = v[1:-1]
+        found[k.strip()] = v.strip()
+    return next((found[n] for n in names if found.get(n)), "")
+
+
+def jev_key(env_dirs=()):
+    """鍵。環境変数を先に、無ければ env_dirs の `.env` を順に見る（`.env` はコミットしないこと）。"""
     for name in JEV_KEY_VARS:
         value = os.environ.get(name, "").strip()
         if value:
             return value
+    for d in env_dirs:
+        path = Path(d) / ".env"
+        if path.is_file() and _tracked_or_unignored(path):
+            raise ClassifierUnavailable(
+                f"{path.as_posix()} は git に無視されていない（コミットされる恐れがある）。.gitignore に .env を足してから使う")
+        value = _dotenv_value(path, JEV_KEY_VARS)
+        if value:
+            return value
     return ""
+
+
+def _tracked_or_unignored(path):
+    """git のリポジトリの中で、このファイルが無視されていなければ True。リポジトリの外、git が無いときは False（止めない）。"""
+    import subprocess
+    try:
+        r = subprocess.run(["git", "check-ignore", "-q", "--", path.name], cwd=str(path.parent),
+                           capture_output=True, text=True)
+    except OSError:
+        return False
+    return r.returncode == 1  # 0 は無視されている、128 はリポジトリの外
 
 
 def _http_post(url, payload, key, timeout_s):
@@ -127,20 +167,22 @@ def jev_parse(body, asks):
 class JevClassifier(Classifier):
     name = "jev"
 
-    def __init__(self, model="", endpoint="", *, key="", timeout_s=30.0, post=None):
+    def __init__(self, model="", endpoint="", *, key="", timeout_s=30.0, post=None, env_dirs=()):
         self.model = model or JEV_MODEL
         self.endpoint = endpoint or JEV_ENDPOINT
-        self._key = key or jev_key()
+        self._key = key
+        self._env_dirs = env_dirs
         self._timeout = timeout_s
         self._post = post or _http_post
 
     def classify(self, state, asks):
         if not asks:
             return []
-        if not self._key:
-            raise ClassifierUnavailable("鍵が無い（環境変数 " + " か ".join(JEV_KEY_VARS) + "）")
+        key = self._key or jev_key(self._env_dirs)
+        if not key:
+            raise ClassifierUnavailable("鍵が無い（環境変数 " + " か ".join(JEV_KEY_VARS) + "、または bridge.toml と同じ場所の .env）")
         try:
-            body = self._post(self.endpoint, jev_payload(self.model, state, asks), self._key, self._timeout)
+            body = self._post(self.endpoint, jev_payload(self.model, state, asks), key, self._timeout)
         except Exception as exc:
             raise ClassifierUnavailable(f"{type(exc).__name__}: {exc}") from exc
         return jev_parse(body, asks)
@@ -152,11 +194,11 @@ class JevClassifier(Classifier):
 PROVIDERS = {"jev": JevClassifier}
 
 
-def make_classifier(conf):
+def make_classifier(conf, env_dirs=()):
     """設定（[classifier]）から提供元を作る。provider が無ければ None（分類器を使わない）。知らない名前は例外。"""
     name = (conf or {}).get("provider", "")
     if not name:
         return None
     if name not in PROVIDERS:
         raise ValueError(f"分類器の提供元 '{name}' は無い（{sorted(PROVIDERS)}）")
-    return PROVIDERS[name](model=conf.get("model", ""), endpoint=conf.get("endpoint", ""))
+    return PROVIDERS[name](model=conf.get("model", ""), endpoint=conf.get("endpoint", ""), env_dirs=env_dirs)

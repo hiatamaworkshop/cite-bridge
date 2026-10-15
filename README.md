@@ -48,7 +48,7 @@ git の pre-commit に検査を置くには、同梱の `hooks/pre-commit` を�
 | `classify --send` | 判定が無い、または古い問いを、分類器へ送る。判定は台帳（`bridge/judgments.jsonl`、追記だけ）に残る |
 | `classify --list [--all]` | 台帳の判定を、現在の記録と突き合わせて出す。何も送らない |
 
-設定（bridge.toml）。鍵は書かず、環境変数 `TYPESAFE_API_KEY`（または `JEV_API_KEY`）で渡す。
+設定（bridge.toml）。鍵は書かず、環境変数 `JEV_API_KEY`（または `TYPESAFE_API_KEY`。同じ鍵の別名）で渡す。環境変数が無ければ、`bridge.toml` と同じ場所の `.env`（`JEV_API_KEY=...` の行）から読む。`.env` は、その場所の `.gitignore`（`bridge/.gitignore`）に入れ、コミットしない。git に無視されていない `.env` からは、鍵を読まない。
 
 ```toml
 [classifier]
