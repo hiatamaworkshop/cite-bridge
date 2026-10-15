@@ -56,7 +56,7 @@ def _page_image(key, bib, src, quote, outdir):
     return out
 
 
-def review_data(cids=None, images=None, include_done=False):
+def review_data(cids=None, images=None, include_done=False, all_orphans=False):
     """人の確認に要る材料を、引用ごとの辞書の並びで返す（review の md と JSON、外の表示が使う）。
 
     原稿の順に並べる。cids を渡せばそれだけ、渡さなければ確認待ちのもの（include_done なら承認済と指示も）。
@@ -183,7 +183,8 @@ def review_data(cids=None, images=None, include_done=False):
         used = {r.strip() for b in blocks for r in b["fields"].get("抜き書き", "").split(",") if r.strip()}
         for c in cands:
             used.update(e["id"] for e in c["evidence"])
-        only = [e for e in (ev_of(r) for r in sorted(exc) if r not in used) if not e.get("summary_checked")]
+        # all_orphans は、要約を確かめたものも含める（classify --eval が、引用の無い抜き書きを evidence に使うため）
+        only = [e for e in (ev_of(r) for r in sorted(exc) if r not in used) if all_orphans or not e.get("summary_checked")]
     res = {"manuscript": target.as_posix(), "date": datetime.date.today().isoformat(),
            "generated": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "citations": items, "candidates": cands,
            "excerpts_only": only}

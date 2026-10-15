@@ -22,14 +22,21 @@ ABSTAIN = "判定できない"
 # 言い過ぎは cite.diff の 限定つき一般化 と 外挿 で拾う。使うときは [[checks]] で足す（README に例）。
 DEFAULT_CHECKS = [
     {
-        "type": "cite.diff", "version": 2, "for": "citation",
-        "question": "本文の文のうち、この逐語を引いている部分（前置きや他の出典の部分は除く）は、原典の逐語に対して、次のどれに当たるか。",
+        # 版 4（2026-10-15）。実機の測定で、版 2 より承認済みの誤った印が少なく、検出はほぼ同じだった。
+        # 要約・一部だけの引用・別の言語への訳は言い換えに入れ、留保を外して強めることは限定つき一般化に入れる。
+        "type": "cite.diff", "version": 4, "for": "citation",
+        "question": "本文の文のうち、{about} を引いている部分（前置き、本文の著者自身の判断、他の出典を引いている部分は除く）は、"
+                    "原典の逐語に対して、次のどれに当たるか。",
         "labels": ["一致", "言い換え", "限定つき一般化", "外挿", ABSTAIN],
-        "gloss": {"一致": "逐語と同じ内容", "言い換え": "内容は同じで、言い方が違う",
-                  "限定つき一般化": "逐語の条件や範囲を落として、一般化している",
-                  "外挿": "逐語に書かれていないことまで述べている", ABSTAIN: "材料から決められない"},
+        "gloss": {"一致": "逐語と同じ内容を、ほぼ同じ言い方で述べている",
+                  "言い換え": "内容・範囲・確かさは逐語と同じで、言い方が違う（要約する、一部だけを引く、別の言語に訳すことを含む）",
+                  "限定つき一般化": "逐語の条件・範囲・留保を落として、逐語より広く、または強く述べている",
+                  "外挿": "逐語に書かれていない内容（理由・評価・結論・効果）を、原典が述べたこととして書いている",
+                  ABSTAIN: "材料から決められない"},
         "materials": {"claim": "citation.sentence", "source": "excerpt.逐語", "before": "excerpt.前", "after": "excerpt.後"},
+        "about": "citation.出典",
         "compare": "citation.原文との差",
+        "order": [["一致", "言い換え"], ["限定つき一般化"], ["外挿"]],
     },
     {
         "type": "cite.attribution", "version": 1, "for": "excerpt",
@@ -53,7 +60,8 @@ DEFAULT_CHECKS = [
     },
 ]
 
-SLOT_NAMES = {"claim": "本文の文", "source": "原典の逐語", "before": "逐語の前の文", "after": "逐語の後の文"}
+SLOT_NAMES = {"claim": "本文の文", "source": "原典の逐語", "before": "逐語の前の文", "after": "逐語の後の文",
+              "not_said": "原典が言っていないこと"}
 # 抜き書きの欄名 -> review_data の根拠（evidence）の鍵
 EXCERPT_FIELDS = {"逐語": "verbatim", "前": "before", "含む文": "sentence", "後": "after",
                   "強さ": "strength", "要約": "summary", "言っていないこと": "not_said"}
@@ -107,6 +115,13 @@ def _validate(c):
     for lab in c.get("flag_on", []):
         if lab not in c["labels"]:
             sys.exit(f"型 {t}: flag_on '{lab}' が labels に無い")
+    if c.get("order"):
+        if not c.get("compare"):
+            sys.exit(f"型 {t}: order は compare と一緒に使う（記録と重さを比べるため）")
+        for group in c["order"]:
+            for lab in group:
+                if lab not in c["labels"] or lab == ABSTAIN:
+                    sys.exit(f"型 {t}: order の '{lab}' が labels に無い（「{ABSTAIN}」は入れない）")
     if c.get("on_disagree", "flag") != "flag":
         sys.exit(f"型 {t}: on_disagree は flag だけ（要再確認へ下げる動作は、人の承認との一致率を測ってから）")
 
@@ -228,14 +243,29 @@ def build(check, unit):
     return "\n\n".join(parts), about, _fp("\n".join(mats) + "\nabout\t" + about)
 
 
+def _rank(order, label):
+    return next((i for i, group in enumerate(order) if label in group), None)
+
+
 def judge_status(check, label, record):
-    """分類器のラベルを、記録（compare の欄の値）と突き合わせた結果。確からしさは使わない。"""
+    """分類器のラベルを、記録（compare の欄の値）と突き合わせた結果。確からしさは使わない。
+
+    型が order（軽い順のラベルの組）を持てば、記録より重いと判定したときだけ食い違い（印）にし、軽いと判定したときは
+    記録より軽い（印にしない）とする。人が記録したずれより小さいと言われても、直す理由にならないため。
+    """
     if label == ABSTAIN:
         return "判定できない"
     if check.get("compare"):
         vals = [v for v in record if v]
         if not vals:
             return "記録なし"
+        order = check.get("order")
+        if order:
+            lr = _rank(order, label)
+            rr = [r for r in (_rank(order, v) for v in vals) if r is not None]
+            if lr is not None and rr:
+                top = max(rr)
+                return "一致" if lr == top else ("食い違い" if lr > top else "記録より軽い")
         return "一致" if label in vals else "食い違い"
     return "要確認" if label in check.get("flag_on", []) else "問題なし"
 
@@ -470,32 +500,57 @@ def resolve_twin(item, by_id):
     if src is None:
         sys.exit(f"測定の組: {item['id']} の twin '{item['twin']}' が無い")
     out = {k: v for k, v in src.items() if k not in ("id", "claim")}
-    out.setdefault("base", src["id"])
+    if "evidence" not in src:
+        out.setdefault("base", src["id"])
     out.update(item)
     return out
 
 
+def _eval_unit(it, by, pool, bib):
+    """測定の件の単位。base の引用の材料を使い、evidence（抜き書きの ID の並び）と record（記録の欄）があれば差し替える。
+    base が無く evidence だけを持つ件は、引用の無い文（実際に見つかった誤りの文など）を、その抜き書きと突き合わせる。理由を返せば SKIP。"""
+    if it.get("base") or "evidence" not in it:
+        u = by.get(it.get("base", it["id"]))
+        if u is None:
+            return f"引用 {it.get('base', it['id'])} が無い（主張の引用でない、または原稿に無い）"
+    else:
+        u = {"scope": "citation", "id": it["id"], "sentence": "", "fields": {}, "excerpts": []}
+    v = dict(u, item=f"eval:{it['id']}")
+    if "evidence" in it:
+        missing = [e for e in it["evidence"] if e not in pool]
+        if missing:
+            return f"抜き書き {', '.join(missing)} が無い"
+        v["excerpts"] = [pool[e] for e in it["evidence"]]
+        v["source"] = source_label(list(dict.fromkeys(e.split("#")[0] for e in it["evidence"])), bib)
+    if "record" in it:
+        v["fields"] = {**v.get("fields", {}), **it["record"]}
+    if it.get("claim"):
+        v["sentence"] = clean_claim(it["claim"])
+    return v
+
+
 def cmd_eval(args):
+    from .bib import parse_bib
     from .review import review_data
     es = json.loads(Path(args.eval).read_text(encoding="utf-8"))
     if es.get("format") != "cite-bridge-eval/1":
         sys.exit("測定の組の形式が違う（format: cite-bridge-eval/1 を期待）")
     types = args.types or es.get("types") or []
     variants = [_variant(None)] + [_variant(p) for p in (args.variant or [])]
-    data = review_data(None, None, include_done=True)
-    by = {u["id"]: u for u in units_from_data(data) if u["scope"] == "citation"}
+    data = review_data(None, None, include_done=True, all_orphans=True)
+    bib = parse_bib()
+    units = units_from_data(data, bib)
+    by = {u["id"]: u for u in units if u["scope"] == "citation"}
+    pool = {u["id"]: u["excerpts"][0] for u in units if u["scope"] == "excerpt"}
     eunits = []
     by_id = {it["id"]: it for it in es["items"]}
     for it in (resolve_twin(i, by_id) for i in es["items"]):
         if args.split != "all" and it.get("split") != args.split:
             continue
-        u = by.get(it.get("base", it["id"]))
-        if u is None:
-            print(f"SKIP {it['id']}: 引用 {it.get('base', it['id'])} が無い（主張の引用でない、または原稿に無い）")
+        v = _eval_unit(it, by, pool, bib)
+        if isinstance(v, str):
+            print(f"SKIP {it['id']}: {v}")
             continue
-        v = dict(u, item=f"eval:{it['id']}")
-        if it.get("claim"):
-            v["sentence"] = clean_claim(it["claim"])
         eunits.append((it, v))
     max_chars = int(cfg.CLASSIFIER.get("max_chars", 6000))
     plans = []
@@ -554,7 +609,7 @@ def cmd_eval(args):
 
 
 def _eval_report(rows, plans, verbose=False):
-    splits = ("tune", "holdout")
+    splits = ["tune", "holdout"] + sorted({r["split"] for r in rows} - {"tune", "holdout"})
     _eval_table(rows, plans, "分け", lambda r: r["split"], splits)
     langs = sorted({r.get("lang", "") for r in rows})
     if len(langs) > 1:

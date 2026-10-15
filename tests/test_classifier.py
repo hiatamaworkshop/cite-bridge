@@ -206,6 +206,12 @@ class ClassifierTest(unittest.TestCase):
         code, out = self.run_bridge("classify")
         self.assertNotEqual(code, 0)
         self.assertIn("on_disagree は flag だけ", out)
+        bad3 = base + '[[checks]]\ntype = "x.y"\nversion = 1\nfor = "excerpt"\nquestion = "?"\nlabels = ["a", "判定できない"]\n' \
+                      'flag_on = ["a"]\norder = [["a"]]\n[checks.materials]\nsource = "excerpt.逐語"\n'
+        self.write("bridge/bridge.toml", bad3)
+        code, out = self.run_bridge("classify")
+        self.assertNotEqual(code, 0)
+        self.assertIn("order は compare と一緒に使う", out)
 
     def test_added_type_runs_and_is_recorded_in_the_manifest(self):
         extra = ('[[checks]]\ntype = "cite.tone"\nversion = 1\nfor = "excerpt"\nquestion = "逐語の語調はどれか。"\n'
@@ -242,7 +248,10 @@ class ClassifierTest(unittest.TestCase):
             # 同じ内容を英語で書いた本文。base・split・flag・level は元の件から引き継ぐ
             {"id": "c001.en", "twin": "c001", "claim": "In Doe's experiment, participants finished the task in about 12 seconds (Doe, 2020)."},
             {"id": "m1.en", "twin": "m1",
-             "claim": "In Doe's experiment, participants always finished in 12 seconds, and the grid was proven best (Doe, 2020)."}]}
+             "claim": "In Doe's experiment, participants always finished in 12 seconds, and the grid was proven best (Doe, 2020)."},
+            # 引用の無い文（実際に見つかった誤り等）を、抜き書きと記録を指定して突き合わせる
+            {"id": "r1", "split": "real", "flag": ["cite.diff"], "evidence": ["doe2020#e1"], "record": {"原文との差": "言い換え"},
+             "claim": "Doe は、参加者が課題を必ず12秒で終えたと明言している（Doe, 2020）。"}]}
         self.write("eval/set.json", json.dumps(es, ensure_ascii=False))
         self.write("eval/v.toml", '[[checks]]\ntype = "cite.diff"\nversion = 3\nfor = "citation"\n'
                                   'question = "{about} を引いている部分は、どれに当たるか。"\n'
@@ -254,7 +263,7 @@ class ClassifierTest(unittest.TestCase):
         self._eval_set()
         code, out = self.run_bridge("classify", "--eval", "eval/set.json", "--variant", "eval/v.toml", "--reps", "2")
         self.assertEqual(code, 0, out)
-        self.assertIn("組 4 件（承認済み 2、改変 2。言語（本文/原典） en/en 2、ja/en 2。うち別の言語で書いた本文 2）", out)
+        self.assertIn("組 5 件（承認済み 2、改変 3。言語（本文/原典） en/en 2、ja/en 3。うち別の言語で書いた本文 2）", out)
         self.assertIn("案 設定, v", out)
         self.assertEqual(FakeJev.log, [])
 
@@ -276,6 +285,9 @@ class ClassifierTest(unittest.TestCase):
         tw = rows[("設定", "m1.en", "cite.diff")]
         self.assertEqual((tw["lang"], tw["split"], tw["level"], tw["twin"], tw["expected"]), ("en/en", "holdout", 1, "m1", True))
         self.assertIs(rows[("設定", "c001.en", "cite.diff")]["expected"], False)
+        r1 = rows[("設定", "r1", "cite.diff")]
+        self.assertEqual((r1["split"], r1["record"], r1["flagged"]), ("real", ["言い換え"], True))
+        self.assertIn("real", out)  # tune と holdout 以外の分けも表に出る
         self.assertIn("同じ内容の言語違い", out)
         self.assertIn("改変の難しさ", out)
         # 案の文面に出典の名前が入り、本文から出典の括弧が外れている
@@ -328,6 +340,17 @@ class MaterialTest(unittest.TestCase):
         self.assertEqual(self.j.lang_pair(u), "ja/en+ja")
         self.assertEqual(self.j.lang_pair(dict(u, excerpts=u["excerpts"][:1])), "ja/en")
         self.assertEqual(self.j.lang_pair({"scope": "excerpt", "excerpts": u["excerpts"][:1]}), "en")  # 抜き書きは原典の言語だけ
+
+    def test_order_flags_only_judgments_heavier_than_the_record(self):
+        """order を持つ型は、記録より重いと判定したときだけ印にする。軽い判定は印にしない。"""
+        c = {"compare": "citation.原文との差", "order": [["一致", "言い換え"], ["限定つき一般化"], ["外挿"]]}
+        st = self.j.judge_status
+        self.assertEqual(st(c, "言い換え", ["一致"]), "一致")            # 同じ重さ
+        self.assertEqual(st(c, "外挿", ["言い換え"]), "食い違い")         # 記録より重い
+        self.assertEqual(st(c, "言い換え", ["限定つき一般化"]), "記録より軽い")
+        self.assertEqual(st(c, "判定できない", ["一致"]), "判定できない")
+        self.assertEqual(st({"compare": "x"}, "言い換え", ["一致"]), "食い違い")  # order が無ければ、ラベルの一致だけを見る
+        self.assertNotIn("記録より軽い", self.j.FLAGGED)
 
     def test_expected_flag_and_twin(self):
         self.assertIs(self.j.expected_flag({"id": "c1"}, "cite.diff"), False)       # 承認済み: 印が立たないのが正しい

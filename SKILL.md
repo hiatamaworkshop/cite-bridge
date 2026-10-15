@@ -247,7 +247,7 @@ python .claude/skills/cite-bridge/bridge.py classify --eval <組.json> --variant
 strip、印の形の設定、URL の PDF の写し、LaTeX の \cite と印の key、checkpoint、OCR の印、承認の理由と根拠、差し戻し、
 要約の確認、欄の中の参照、review（md と JSON と HTML）、apply（書き込みと指紋の食い違いの拒否）、折りたたみの見出しと作り直し、
 網羅の数え方、作業票、候補の検査と受け入れと拒否、人の読み、precommit、引用に使われていない抜き書きの確認、文面の測定と材料の整え。承認の HTML の JavaScript のうち、
-画面に依らない部分（保存した入力の統合、古い判断の判定、判断ファイルの組み立て）は node で動かす（`tests/test_review_js.py`。node が無ければ飛ばす）。分類器（偽のサーバで Jev の API の形に答えさせる。外へは送らない）の型の登録・台帳・古さ・見積り。66件）。
+画面に依らない部分（保存した入力の統合、古い判断の判定、判断ファイルの組み立て）は node で動かす（`tests/test_review_js.py`。node が無ければ飛ばす）。分類器（偽のサーバで Jev の API の形に答えさせる。外へは送らない）の型の登録・台帳・古さ・見積り。67件）。
 hook は道具の側を直したときに試験も走らせる。
 
 ## AI が守ること
