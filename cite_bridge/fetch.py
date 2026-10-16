@@ -60,6 +60,10 @@ class _HTMLText:
                     # 折りたたみの見出し（details の summary、Google のヘルプの a.zippy）。階層は分からないので小見出しとする
                     outer.out.append("\n#### ")
                     outer.head = tag
+                elif tag == "img" and not outer.skip and not outer.head and (dict(attrs).get("alt") or "").strip():
+                    # 図の代替テキスト。図にしか無い内容（画面の部品の名前等）を、逐語と照合の範囲に入れる（2026-10-16、
+                    # Grid 3 の頁で undo と clear が図にだけあり、写しの全文に無いと誤って判断した）
+                    outer.out.append("\n[図: " + re.sub(r"\s+", " ", dict(attrs)["alt"]).strip() + "]\n")
                 elif tag in outer.BLOCK:
                     outer.out.append("\n")
 
