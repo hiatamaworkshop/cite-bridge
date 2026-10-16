@@ -416,13 +416,26 @@ class BridgeTest(unittest.TestCase):
         self.assertIn("（抽出テキストのまま）", out)
         self.assertIn("confirm doe2020#e1 --by 人", out)
         self.run_bridge("approve", "c001", "--by", "tester")
+        self.assertIn("## c001　承認済", self.run_bridge("review")[1])  # 承認済でも、根拠の要約が未確認なら確認待ちに出る
+        self.run_bridge("confirm", "doe2020#e1", "--by", "tester")
         self.assertIn("確認待ちの引用は無い", self.run_bridge("review")[1])
         self.assertIn("## c001　承認済", self.run_bridge("review", "c001")[1])
+
+    def test_approved_card_with_unconfirmed_summary_stays_visible(self):
+        """承認済でも根拠の要約が未確認なら、「確認待ちだけ」の表示でもカードを隠さない（要約の確認の欄はカードにしか無い）。"""
+        self.run_bridge("derive")
+        self.run_bridge("approve", "c001", "--by", "tester")
+        self.run_bridge("review", "--html", "-o", "r.html")
+        self.assertIn('id="c001" data-id="c001" data-done="0"', self.read("r.html"))
+        self.run_bridge("confirm", "doe2020#e1", "--by", "tester")
+        self.run_bridge("review", "--html", "--all", "-o", "r.html")
+        self.assertIn('id="c001" data-id="c001" data-done="1"', self.read("r.html"))
 
     def test_review_json(self):
         import json
         self.run_bridge("derive")
         self.run_bridge("approve", "c001", "--by", "tester")
+        self.run_bridge("confirm", "doe2020#e1", "--by", "tester")
         self.assertEqual(json.loads(self.run_bridge("review", "--json")[1])["citations"], [])  # 確認待ちだけ
         d = json.loads(self.run_bridge("review", "--json", "--all")[1])
         c = d["citations"][0]

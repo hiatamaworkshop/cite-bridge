@@ -118,6 +118,9 @@ def review_data(cids=None, images=None, include_done=False, all_orphans=False):
                 img = _page_image(key, bib, src, x["逐語"], images)
                 e["image"] = Path(img).as_posix() if img else None
         return e
+    def summaries_done(refs):
+        return all(e.get("missing") or e.get("summary_checked") for e in (ev_of(r) for r in refs))
+
     for b in sorted(blocks, key=lambda b: pos.get(b["id"], 10 ** 9)):
         cid, f = b["id"], b["fields"]
         if cid not in pos or (cids and cid not in cids):
@@ -129,8 +132,8 @@ def review_data(cids=None, images=None, include_done=False, all_orphans=False):
                                           evidence_hash(refs, excerpt_fields, f.get("人の読み", "")))
         else:
             state, extra = "指示", f.get("文献", "")
-        if not cids and not include_done and state in ("承認済", "指示"):
-            continue
+        if not cids and not include_done and state in ("承認済", "指示") and summaries_done(refs):
+            continue  # 承認済でも、根拠の要約が未確認なら確認待ちとして出す（要約の確認の欄はこのカードにしか無いため）
         tag = f" {cid}:"
         ln_a = text.rfind("\n", 0, pos[cid]) + 1
         ln_z = text.find("\n", pos[cid])
@@ -341,6 +344,9 @@ def review_page(data):
                  f'<p class="mut sm what">{E(what)}</p></article>')
         return "".join(h)
 
+    def summaries_done(it):  # 承認済でも、要約の確認が残る根拠があれば「確認待ちだけ」の表示に残す
+        return all(e.get("missing") or e.get("summary_checked") for e in it["evidence"])
+
     cards, meta = [], []
     for it in data["citations"]:
         if it["kind"] != "主張":
@@ -351,7 +357,7 @@ def review_page(data):
         para = E(it["paragraph"]).replace(sent, f"<mark>{sent}</mark>", 1)
         f = it["fields"]
         detail = f'（{E(it["state_detail"])}）' if it["state_detail"] and it["state"] != "承認済" else ""
-        h = [f'<article class="card s-{sev}" id="{cid}" data-id="{cid}" data-done="{int(it["state"] == "承認済")}" tabindex="-1">',
+        h = [f'<article class="card s-{sev}" id="{cid}" data-id="{cid}" data-done="{int(it["state"] == "承認済" and summaries_done(it))}" tabindex="-1">',
              f'<header><b>〔{cid}〕</b><span class="st s-{sev}">{E(it["state"])}{detail}</span>'
              + (f'<span class="tag">{E(f["原文との差"])}</span>' if f.get("原文との差") else "")
              + f'<span class="mut">{E(it["section"])}・{it["line"]} 行</span>'
