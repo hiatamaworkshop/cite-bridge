@@ -166,6 +166,7 @@ def jev_parse(body, asks):
 
 class JevClassifier(Classifier):
     name = "jev"
+    default_endpoint = JEV_ENDPOINT  # 設定の endpoint がこれと違えば、送る前に注意を出す（鍵がその宛先へ送られるため）
 
     def __init__(self, model="", endpoint="", *, key="", timeout_s=30.0, post=None, env_dirs=()):
         self.model = model or JEV_MODEL

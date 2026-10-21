@@ -352,6 +352,14 @@ class MaterialTest(unittest.TestCase):
         self.assertEqual(st({"compare": "x"}, "言い換え", ["一致"]), "食い違い")  # order が無ければ、ラベルの一致だけを見る
         self.assertNotIn("記録より軽い", self.j.FLAGGED)
 
+    def test_endpoint_warning(self):
+        """送る宛先が既定と違うか https でないとき、鍵がその宛先へ送られる注意を出す。"""
+        w = self.j.endpoint_warning
+        self.assertEqual(w(cl.JevClassifier()), "")
+        self.assertIn("既定", w(cl.JevClassifier(endpoint="https://example.com/v1")))
+        self.assertIn("https でない", w(cl.JevClassifier(endpoint="http://example.com/v1")))
+        self.assertNotIn("https でない", w(cl.JevClassifier(endpoint="http://127.0.0.1:9/v1")))  # 手元の試験用
+
     def test_expected_flag_and_twin(self):
         self.assertIs(self.j.expected_flag({"id": "c1"}, "cite.diff"), False)       # 承認済み: 印が立たないのが正しい
         self.assertIs(self.j.expected_flag({"id": "m1", "flag": ["cite.diff"]}, "cite.diff"), True)

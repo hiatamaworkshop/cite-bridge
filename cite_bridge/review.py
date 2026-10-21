@@ -56,10 +56,21 @@ def _page_image(key, bib, src, quote, outdir):
     return out
 
 
+def summaries_confirmed(evidence):
+    """根拠がすべてあり、どの要約も確かめてあるか。承認済の引用を確認待ちから外す条件で、md・JSON・HTML で共通に使う。"""
+    return all(not e.get("missing") and e.get("summary_checked") for e in evidence)
+
+
+def needs_review(it):
+    """確認待ちか。未承認・要再確認・差し戻しの主張と、承認済でも根拠が欠けるか要約が未確認の主張（要約の確認の欄は引用のカードにしか無い）。"""
+    return it["kind"] == "主張" and (it["state"] != "承認済" or not summaries_confirmed(it["evidence"]))
+
+
 def review_data(cids=None, images=None, include_done=False, all_orphans=False):
     """人の確認に要る材料を、引用ごとの辞書の並びで返す（review の md と JSON、外の表示が使う）。
 
-    原稿の順に並べる。cids を渡せばそれだけ、渡さなければ確認待ちのもの（include_done なら承認済と指示も）。
+    原稿の順に並べる。cids を渡せばそれだけ、渡さなければ確認待ちのもの（needs_review。承認済でも要約が未確認なら入る）。
+    include_done なら、承認済と指示もすべて含める。
     """
     bib = parse_bib()
     cache = {}
@@ -86,10 +97,6 @@ def review_data(cids=None, images=None, include_done=False, all_orphans=False):
         st = d.get("照合", "")
         weak = st.startswith(("近似一致", "照合不能")) or "OCR" in hd.get("格", "")
         img = None
-        if weak and images and hd.get("抽出"):
-            src = cache.get(Path(hd["抽出"]))
-            if src:
-                img = _page_image(r.split("#")[0], bib, src, ef.get("逐語", ""), images)
         ok = bool(ef.get("要約の確認")) and rec.get("要約の確認時の指紋") == summary_fingerprint(ef)
         return {"id": r, "verbatim": ef.get("逐語", ""), "location": d.get("所在", ""), "match": st,
                 "grade": hd.get("格", ""), "source_check": ef.get("原本での確認", ""), "weak": weak,
@@ -118,8 +125,16 @@ def review_data(cids=None, images=None, include_done=False, all_orphans=False):
                 img = _page_image(key, bib, src, x["逐語"], images)
                 e["image"] = Path(img).as_posix() if img else None
         return e
-    def summaries_done(refs):
-        return all(e.get("missing") or e.get("summary_checked") for e in (ev_of(r) for r in refs))
+
+    def add_image(e):
+        """弱い照合の根拠に、頁の画像を足す。表示すると決まった引用だけに行う（画像を作るのは重い）。"""
+        if not (images and e.get("weak")):
+            return
+        ef, _, hd, _ = exc[e["id"]]
+        src = cache.get(Path(hd["抽出"])) if hd.get("抽出") else None
+        if src:
+            img = _page_image(e["id"].split("#")[0], bib, src, ef.get("逐語", ""), images)
+            e["image"] = Path(img).as_posix() if img else None
 
     for b in sorted(blocks, key=lambda b: pos.get(b["id"], 10 ** 9)):
         cid, f = b["id"], b["fields"]
@@ -132,8 +147,11 @@ def review_data(cids=None, images=None, include_done=False, all_orphans=False):
                                           evidence_hash(refs, excerpt_fields, f.get("人の読み", "")))
         else:
             state, extra = "指示", f.get("文献", "")
-        if not cids and not include_done and state in ("承認済", "指示") and summaries_done(refs):
-            continue  # 承認済でも、根拠の要約が未確認なら確認待ちとして出す（要約の確認の欄はこのカードにしか無いため）
+        evidence = [ev_of(r) for r in refs]
+        if not cids and not include_done and not needs_review({"kind": f.get("種類", ""), "state": state, "evidence": evidence}):
+            continue
+        for e in evidence:
+            add_image(e)
         tag = f" {cid}:"
         ln_a = text.rfind("\n", 0, pos[cid]) + 1
         ln_z = text.find("\n", pos[cid])
@@ -145,9 +163,7 @@ def review_data(cids=None, images=None, include_done=False, all_orphans=False):
                                              "差し戻しの理由", "指摘") if f.get(n)},
                 "errors": [e for e in checked["errors"] if tag in e],
                 "notes": [n for n in checked["notes"] if tag in n],
-                "evidence": [], "commands": {}}
-        for r in refs:
-            item["evidence"].append(ev_of(r))
+                "evidence": evidence, "commands": {}}
         if item["kind"] == "主張":
             item["commands"] = {
                 "approve": f'python {tool} approve {cid} --by {who} --note "…"',
@@ -344,9 +360,6 @@ def review_page(data):
                  f'<p class="mut sm what">{E(what)}</p></article>')
         return "".join(h)
 
-    def summaries_done(it):  # 承認済でも、要約の確認が残る根拠があれば「確認待ちだけ」の表示に残す
-        return all(e.get("missing") or e.get("summary_checked") for e in it["evidence"])
-
     cards, meta = [], []
     for it in data["citations"]:
         if it["kind"] != "主張":
@@ -357,7 +370,7 @@ def review_page(data):
         para = E(it["paragraph"]).replace(sent, f"<mark>{sent}</mark>", 1)
         f = it["fields"]
         detail = f'（{E(it["state_detail"])}）' if it["state_detail"] and it["state"] != "承認済" else ""
-        h = [f'<article class="card s-{sev}" id="{cid}" data-id="{cid}" data-done="{int(it["state"] == "承認済" and summaries_done(it))}" tabindex="-1">',
+        h = [f'<article class="card s-{sev}" id="{cid}" data-id="{cid}" data-done="{int(not needs_review(it))}" tabindex="-1">',
              f'<header><b>〔{cid}〕</b><span class="st s-{sev}">{E(it["state"])}{detail}</span>'
              + (f'<span class="tag">{E(f["原文との差"])}</span>' if f.get("原文との差") else "")
              + f'<span class="mut">{E(it["section"])}・{it["line"]} 行</span>'
@@ -396,7 +409,7 @@ def review_page(data):
                      '引用に使うときは、その引用の承認で改めて見る。</p>'
                      + "".join(f'<div class="orphan">{ev_html(i, e, "", "抜き書き")}</div>' for i, e in enumerate(only, 1))
                      + "</section>")
-    pending = sum(1 for it in data["citations"] if it["kind"] == "主張" and it["state"] != "承認済")
+    pending = sum(1 for it in data["citations"] if needs_review(it))
     n_cand = len(data.get("candidates", []))
     payload = json.dumps({"manuscript": data["manuscript"], "generated": data["generated"], "citations": meta,
                           "orphans": {e["id"]: e["summary_fp"] for e in only}, "images": images},
@@ -422,7 +435,8 @@ def cmd_review(args):
     """人が引用を確かめるための材料を出す。md（既定）は逐語を先に、AI の候補（要約・解釈）を後に置く。
 
     前後の文は抽出テキストのまま出し、補わない。近似一致・照合不能・OCR の根拠には頁の画像を添える（--images）。
-    --json は外の表示（md2docx の review_html 等）へ渡す形で、--all なら承認済と指示の引用も含める。
+    既定は確認待ちの引用だけ（needs_review。承認済でも根拠が欠けるか要約が未確認なら入る）で、--all ならすべての引用を含める。
+    --json は外の表示（md2docx の review_html 等）へ渡す形で、各引用の state で承認済かを見分ける（並びに入っていても承認済はありうる）。
     表示の側は bridge を読むだけで、承認・差し戻し・確認の書き込みは approve と confirm を通す。
     """
     import json

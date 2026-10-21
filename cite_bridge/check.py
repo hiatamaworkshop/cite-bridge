@@ -248,7 +248,8 @@ def cmd_check(args):
         print("INFO ", n)
     js = judge_summary()
     if js:  # 台帳だけを読む。判定の古さの確認と一覧は classify --list
-        print("INFO ", f"分類器: 判定 {js['judgments']} 件のうち印 {js['flagged']} 件（判定時の記録との比較。一覧は classify --list）")
+        print("INFO ", f"分類器: 判定 {js['judgments']} 件のうち印 {js['flagged']} 件（判定時の記録との比較。一覧は classify --list）"
+                       + (f"。今の型と文面に合わない古い判定 {js['stale']} 件は数えていない" if js["stale"] else ""))
     print(f"--- 抜き書き {r['excerpts']} 件 " + " / ".join(f"{k} {v}" for k, v in sorted(summary.items()))
           + f" / 整合の崩れ {len(errors)} 件")
     if errors:

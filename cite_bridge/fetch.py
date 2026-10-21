@@ -41,12 +41,18 @@ class _HTMLText:
     """HTML から本文の文字と見出しを取り出す（標準ライブラリだけで動かす）。"""
 
     SKIP = {"script", "style", "noscript", "svg", "nav", "footer", "header", "form"}
-    BLOCK = {"p", "div", "li", "tr", "br", "section", "article", "table", "pre", "blockquote", "dd", "dt"}
+    BLOCK = {"p", "div", "li", "tr", "br", "section", "article", "table", "pre", "blockquote", "dd", "dt", "figure", "figcaption"}
 
     def __init__(self):
         from html.parser import HTMLParser
         outer = self
         self.out, self.skip, self.head = [], 0, None
+        self.text_in_block, self.figure = False, None  # 図の代替テキストは、同じ段落に文字が無い画像だけに出す
+
+        def flush():
+            if outer.figure:
+                outer.out.append("\n[図: " + outer.figure + "]\n")
+            outer.figure, outer.text_in_block = None, False
 
         class P(HTMLParser):
             def handle_starttag(self, tag, attrs):
@@ -54,17 +60,22 @@ class _HTMLText:
                 if tag in outer.SKIP:
                     outer.skip += 1
                 elif re.fullmatch(r"h[1-6]", tag):
+                    flush()
                     outer.out.append("\n" + "#" * int(tag[1]) + " ")
                     outer.head = tag
                 elif not outer.head and (tag == "summary" or (tag == "a" and "zippy" in cls.split())):
                     # 折りたたみの見出し（details の summary、Google のヘルプの a.zippy）。階層は分からないので小見出しとする
+                    flush()
                     outer.out.append("\n#### ")
                     outer.head = tag
                 elif tag == "img" and not outer.skip and not outer.head and (dict(attrs).get("alt") or "").strip():
                     # 図の代替テキスト。図にしか無い内容（画面の部品の名前等）を、逐語と照合の範囲に入れる（2026-10-16、
-                    # Grid 3 の頁で undo と clear が図にだけあり、写しの全文に無いと誤って判断した）
-                    outer.out.append("\n[図: " + re.sub(r"\s+", " ", dict(attrs)["alt"]).strip() + "]\n")
+                    # Grid 3 の頁で undo と clear が図にだけあり、写しの全文に無いと誤って判断した）。
+                    # 文の途中のアイコンやロゴ（"and then" の矢印、"Word Logo"）は図ではないので、同じ段落に文字があれば出さない
+                    if not outer.text_in_block:
+                        outer.figure = re.sub(r"\s+", " ", dict(attrs)["alt"]).strip()
                 elif tag in outer.BLOCK:
+                    flush()
                     outer.out.append("\n")
 
             def handle_endtag(self, tag):
@@ -74,16 +85,21 @@ class _HTMLText:
                     outer.out.append("\n")
                     outer.head = None
                 elif tag in outer.BLOCK:
+                    flush()
                     outer.out.append("\n")
 
             def handle_data(self, data):
                 if not outer.skip:
+                    if data.strip():
+                        outer.figure, outer.text_in_block = None, True  # 文字と同じ段落にある画像は図にしない
                     outer.out.append(re.sub(r"\s+", " ", data) if outer.head else data)
 
         self.parser = P(convert_charrefs=True)
 
     def text(self, html):
         self.parser.feed(html)
+        if self.figure:
+            self.out.append("\n[図: " + self.figure + "]\n")
         t = "".join(self.out)
         t = re.sub(r"[ \t]+\n", "\n", t)
         t = re.sub(r"\n{3,}", "\n\n", t)

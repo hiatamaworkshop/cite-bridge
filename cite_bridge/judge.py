@@ -326,14 +326,21 @@ def attach_checks(data):
 
 
 def summary():
-    """台帳の要約。check とマニフェスト用。台帳が無ければ None。"""
+    """台帳の要約。check とマニフェスト用。台帳が無ければ None。
+
+    数えるのは、今の型（登録と版と文面の指紋）に合う判定だけ。型を外したか文面を替えた後の判定は stale に数える。
+    材料（本文・逐語）が変わった古さまでは見ない（引用ごとの材料の組み立てが要るため。一覧は classify --list）。
+    """
     ledger = load_ledger()
     if not ledger:
         return None
-    flagged = sum(1 for e in ledger.values() if e.get("status") in FLAGGED)
-    return {"judgments": len(ledger), "flagged": flagged,
-            "providers": sorted({f"{e.get('provider')}/{e.get('model')}" for e in ledger.values()}),
-            "types": sorted({f"{e['type']}@{e['version']}" for e in ledger.values()})}
+    checks = {c["type"]: c for c in registry()}
+    cur = [e for e in ledger.values() if e["type"] in checks and e.get("version") == checks[e["type"]]["version"]
+           and e.get("spec") == spec_fp(checks[e["type"]])]
+    return {"judgments": len(cur), "stale": len(ledger) - len(cur),
+            "flagged": sum(1 for e in cur if e.get("status") in FLAGGED),
+            "providers": sorted({f"{e.get('provider')}/{e.get('model')}" for e in cur}),
+            "types": sorted({f"{e['type']}@{e['version']}" for e in cur})}
 
 
 # ---------------------------------------------------------------- コマンド
@@ -372,12 +379,28 @@ def _classifier_or_stop(send):
     if clf is None:
         print("[classifier] provider が設定に無いので送れない（README「分類器」）")
         return None
+    warn = endpoint_warning(clf)
+    if warn:
+        print(warn)
     if not send:
         print(f"送る相手: {clf.name}（{clf.model}）。原稿の文と原典の逐語・前後の文が外部のサービスへ渡り、課金される。"
               "送るには --send を付ける。")
         return None
     print(f"送る相手: {clf.name}（{clf.model}）。原稿の文と原典の逐語・前後の文が外部のサービスへ渡る。")
     return clf
+
+
+def endpoint_warning(clf):
+    """送る宛先が提供元の既定と違うか、https でないときの注意の文。鍵はその宛先へ送られる。問題が無ければ空。"""
+    url, default = getattr(clf, "endpoint", ""), getattr(clf, "default_endpoint", "")
+    if not url:
+        return ""
+    notes = []
+    if default and url != default:
+        notes.append(f"既定（{default}）と違う")
+    if not url.startswith("https://") and not url.startswith(("http://127.0.0.1", "http://localhost")):
+        notes.append("https でない")
+    return f"注意: 送る宛先 {url} は{'、'.join(notes)}。鍵と材料はこの宛先へ送られる。" if notes else ""
 
 
 def send_requests(clf, reqs):
@@ -716,7 +739,7 @@ def manifest_record():
     return {
         "provider": cfg.CLASSIFIER.get("provider", ""), "model": cfg.CLASSIFIER.get("model", ""),
         "types": [{"type": c["type"], "version": c["version"], "spec": spec_fp(c)} for c in registry()],
-        "judgments": s["judgments"] if s else 0, "flagged": s["flagged"] if s else 0,
+        "judgments": s["judgments"] if s else 0, "flagged": s["flagged"] if s else 0, "stale": s["stale"] if s else 0,
         "note": "型は bridge.toml の [[checks]] に足せる（同じ type は上書き）。文面か選択肢を変えると spec が変わり、以前の判定は古くなる。"
                 "確からしさは規則に使わない。印を立てるだけで、承認の状態は変えない（README「分類器」）。",
     }

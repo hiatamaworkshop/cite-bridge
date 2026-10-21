@@ -427,6 +427,7 @@ class BridgeTest(unittest.TestCase):
         self.run_bridge("approve", "c001", "--by", "tester")
         self.run_bridge("review", "--html", "-o", "r.html")
         self.assertIn('id="c001" data-id="c001" data-done="0"', self.read("r.html"))
+        self.assertIn("確認待ち 1 件", self.read("r.html"))  # 見出しの件数も、出ているカードと合う
         self.run_bridge("confirm", "doe2020#e1", "--by", "tester")
         self.run_bridge("review", "--html", "--all", "-o", "r.html")
         self.assertIn('id="c001" data-id="c001" data-done="1"', self.read("r.html"))
@@ -694,6 +695,7 @@ class BridgeTest(unittest.TestCase):
     def test_snapshot_rebuild_with_folded_headings(self):
         html = ('<html><body><h2>Commands</h2><p>Intro.</p><a class="zippy">Grid selection</a>'
                 '<p>Say "Show grid" to start.</p><img src="a.png" alt="The grid, with undo and clear commands."><img src="b.png" alt="">'
+                '<p>Go to Settings <img src="i.png" alt="and then"> Accessibility.</p><ul><li><img src="l.png" alt="Word Logo"> Dictate in Word</li></ul>'
                 '<details><summary>Labels</summary><p>Say "Show labels".</p></details></body></html>')
         import hashlib
         (self.dir / "refs/_web").mkdir(parents=True, exist_ok=True)
@@ -706,7 +708,8 @@ class BridgeTest(unittest.TestCase):
         self.assertIn("retrieved: 2026-01-01", txt)
         self.assertIn("#### Grid selection", txt)
         self.assertIn("[図: The grid, with undo and clear commands.]", txt)  # 図にしか無い内容も写しに残す
-        self.assertEqual(txt.count("[図:"), 1)  # 代替テキストの無い図は出さない
+        self.assertEqual(txt.count("[図:"), 1)  # 代替テキストの無い図と、文の途中のアイコン・ロゴは出さない
+        self.assertIn("Go to Settings  Accessibility.", txt)  # 文を切らない
         self.write("bridge/excerpts/acme_docs.md", "# acme_docs\n\n## e1\n逐語: Say \"Show labels\".\n強さ: 観察\n"
                    "要約: ラベルを出す。\n言っていないこと: なし。\n記入: test\n")
         self.run_bridge("derive")
