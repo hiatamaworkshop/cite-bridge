@@ -73,6 +73,8 @@ def main():
     pr.add_argument("--limit", type=int, default=15, help="作業票の件数の上限（既定 15。一回の承認が30分ほどに収まる数）")
     pr.add_argument("--top", type=int, default=6, help="key ごとに載せる原典の文と既存の抜き書きの数")
     pr.add_argument("--add-key", action="append", metavar="ITEM=KEY", help="key の候補に足す（推定が外れたとき）")
+    pr.add_argument("--key", action="append", help="key の候補（上位3件と --add-key）にこの key がある出典だけ（何度でも）")
+    pr.add_argument("--checkable", action="store_true", help="key の第一候補が機械で照合できる格（抽出あり・Web 写しあり）の出典だけ")
     pr.add_argument("--load", metavar="DRAFTS", help="書き手の下書き（JSON）を検査して候補にする")
     pr.set_defaults(func=cmd_propose)
     se = sub.add_parser("sentences")

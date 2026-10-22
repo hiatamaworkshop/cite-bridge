@@ -157,6 +157,9 @@ def _manuscript():
     return Path(head["fields"].get("対象", ""))
 
 
+CHECKABLE_GRADES = ("PDF所持（抽出あり）", "Web 写し（保存あり）")
+
+
 def cmd_propose(args):
     """印の無い出典ごとに作業票を作る（--load なら、書き手の下書きを検査して候補として置く）。"""
     if args.load:
@@ -179,14 +182,20 @@ def cmd_propose(args):
               and (not args.section or args.section in c["section"])
               and cands.get(c["item"], {}).get("status") not in ("accepted",)
               and (not args.items or c["item"] in args.items)]
-    picked = picked[:args.limit]
-    cache, work = {}, []
-    for c in picked:
+    resolved = []
+    for c in picked:  # key の候補は絞り込みに使うので、--limit で切る前に出す
         window = text[max(0, c["off"] - 30):c["end"]]
         keys = resolve_keys(window, bib)
         for k in extra.get(c["item"], []):
             if k not in [x["key"] for x in keys]:
                 keys.insert(0, {"key": k, "score": None, "entry": bib[k]["entry"]})
+        if args.key and not set(args.key) & {x["key"] for x in keys}:
+            continue
+        if args.checkable and not (keys and grade_of(keys[0]["key"], bib)[0] in CHECKABLE_GRADES):
+            continue
+        resolved.append((c, keys))
+    cache, work = {}, []
+    for c, keys in resolved[:args.limit]:
         clause = _clause(text, c, items)
         query = cfg.COVER_RE.sub(" ", clause)  # 出典の括弧の名前と年で、原典の中の別の引用が上位に来ないように外す
         w = {"item": c["item"], "line": c["line"], "section": c["section"], "paren": c["paren"], "nth": c["nth"],

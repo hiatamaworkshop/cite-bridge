@@ -549,6 +549,19 @@ class BridgeTest(unittest.TestCase):
         self.assertIn("§1 はじめに", top["location"])
         self.assertTrue((self.dir / "bridge/candidates/work.md").exists())
 
+    def test_propose_key_and_checkable_filters(self):
+        import json
+        self._propose()
+        def papers(*args):
+            code, out = self.run_bridge("propose", *args)
+            self.assertEqual(code, 0, out)
+            return [w["paren"] for w in json.loads(self.read("bridge/candidates/work.json"))["items"]]
+        self.assertEqual(papers("--key", "yamada2002"), ["（2002）"])  # key の候補に当たる出典だけ
+        self.assertEqual(papers("--key", "nokey"), [])
+        self.assertEqual(papers("--checkable"), ["（2002）"])  # 第一候補が抽出ありの出典だけ。key の無い括弧は外れる
+        self.write("bib.md", BIB.replace("（PDF: `yamada2002.pdf`）", ""))  # PDF を持たなければ照合できない格になる
+        self.assertEqual(papers("--checkable"), [])
+
     def test_candidate_load_review_and_accept(self):
         import json
         ya, sec = self._propose()
