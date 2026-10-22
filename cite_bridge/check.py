@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 import sys
 from . import config as cfg
-from .bib import grade_of, parse_bib
+from .bib import extraction_diagnosis, grade_of, parse_bib
 from .blocks import parse_blocks
 from .config import DIFFS, EXC_REQUIRED, KINDS, STRENGTHS
 from .derive import derive_excerpts
@@ -54,6 +54,9 @@ def run_check():
                 infos.append(f"{key}: 書誌に参照日が無い（写しの取得日 {got}）")
             elif got and acc != got:
                 infos.append(f"{key}: 書誌の参照日 {acc} と写しの取得日 {got} が違う。書誌の参照日を写しの取得日にそろえる")
+        if hd.get("抽出") and key in bib:
+            for n, text in extraction_diagnosis(key, bib, Path(hd["抽出"])):
+                (infos if n == 4 else notes).append(f"{where}: 抽出の診断: {text}")  # 4 は情報、1〜3 は確認待ち
         seen = set()
         for b in blocks:
             bid = f"{key}#{b['id']}"
@@ -285,12 +288,16 @@ def cmd_grade(args):
             elif col is not None and col < len(cells) and re.fullmatch(r"\w+", cells[col]):
                 if cells[col] not in keys:
                     keys.append(cells[col])
-    summary = {}
+    summary, diag = {}, []
     for k in keys:
-        g, _ = grade_of(k, bib)
+        g, txt = grade_of(k, bib)
         summary.setdefault(g, []).append(k)
+        if txt:
+            diag += [f"{k}: {text}" for _, text in extraction_diagnosis(k, bib, txt)]
     for g, ks in sorted(summary.items(), key=lambda x: -len(x[1])):
         print(f"{g}: {len(ks)}  {', '.join(ks)}")
+    for line in diag:
+        print(line)
     total = len(keys)
     ok = len(summary.get("PDF所持（抽出あり）", [])) + len(summary.get("Web 写し（保存あり）", []))
     print(f"--- {total} 件のうち、機械で照合できるもの {ok} 件（{round(100 * ok / max(1, total))}%）")

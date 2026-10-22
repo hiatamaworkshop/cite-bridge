@@ -67,24 +67,45 @@ class Source:
         self.path = path
         self.raw = path.read_text(encoding="utf-8", errors="replace")
         self.web = None
-        # 頭書き（Web の写しと OCR の <!-- … -->）は本文ではない。前後の文の切り出しから外す
-        self.body_start = self.raw.find("-->") + 3 if self.raw.startswith("<!--") and "-->" in self.raw else 0
-        if self.raw.startswith("<!-- snapshot"):  # Web の写しの頭書き
-            head = self.raw[:self.raw.find("-->")]
-            self.web = dict(re.findall(r"^(\w+): (.*)$", head, re.M))
+        # 頭書き（Web の写しと抽出の頭書き、OCR の <!-- … -->）は本文ではない。照合・見出し・前後の文の切り出しから外す
+        self.kind = None  # 頭書きの種類（extract・snapshot・ocr）。頭書きが無ければ None
+        self.head = {}
+        self.body_start = 0
+        m = re.match(r"<!-- (\w+)", self.raw)
+        if m and "-->" in self.raw:
+            self.kind = m.group(1)
+            self.body_start = self.raw.find("-->") + 3
+            self.head = dict(re.findall(r"^(\w+): (.*)$", self.raw[:self.body_start], re.M))
+            if self.kind == "snapshot":  # Web の写しの頭書き
+                self.web = self.head
+        # 頭書きは同じ長さの空白に置き換える（位置を保つ。改行は残す）
+        self._masked = re.sub(r"[^\n]", " ", self.raw[:self.body_start]) + self.raw[self.body_start:]
         self._norm = {}
-        self.headings = find_headings(self.raw)
+        self.headings = find_headings(self._masked)
 
     def norm(self, level):
         if level not in self._norm:
-            self._norm[level] = normalize(self.raw, level)
+            self._norm[level] = normalize(self._masked, level)
         return self._norm[level]
 
     def page_of(self, off):
         return self.raw.count("\f", 0, off) + 1
 
     def pages(self):
-        return self.raw.count("\f") + 1
+        """本文（頭書きの後）の頁の数。末尾の \\f の後が空白だけなら、その空の頁は数えない。"""
+        parts = self.raw[self.body_start:].split("\f")
+        if len(parts) > 1 and not parts[-1].strip():
+            parts.pop()
+        return len(parts)
+
+    def ocr_pages(self):
+        """頭書きの ocr_pages の頁の集合。抽出の頭書きでなければ空の集合。「1-7,2,5-6」の数字の組をすべて拾う。"""
+        if self.kind != "extract" or "ocr_pages" not in self.head:
+            return set()
+        pages = set()
+        for a, z in re.findall(r"(\d+)(?:-(\d+))?", self.head["ocr_pages"]):
+            pages.update(range(int(a), int(z or a) + 1))
+        return pages
 
 
 # ---------------------------------------------------------------- 照合

@@ -5,7 +5,8 @@ import re
 import sys
 from . import config as cfg
 from .config import COMMON_EN, KEY_LINE_RE
-from .source import is_cjk
+from .source import Source, is_cjk
+from .util import _sha256
 
 
 # ---------------------------------------------------------------- 書誌と格
@@ -144,6 +145,10 @@ def garbled(raw, entry):
     return "抽出が化けている" if common < 0.08 else None
 
 
+# 読めない字（設計 §4.4 の 4）。置換文字・私用領域・cid
+UNREADABLE_RE = re.compile(r"[�-]|\(cid:\d+\)")
+
+
 def grade_of(key, bib):
     """(格, 抽出テキストの Path か None)。"""
     b = bib.get(key)
@@ -153,12 +158,14 @@ def grade_of(key, bib):
         for pdf in b["pdfs"]:
             txt = cfg.TXT_DIR / (Path(pdf).stem + ".txt")
             if txt.exists():
-                raw = txt.read_text(encoding="utf-8", errors="replace")
-                if raw.startswith("<!-- ocr"):  # 道具の外で OCR したテキスト。誤読があるので近似一致が多くなる
+                src = Source(txt)
+                if src.raw.startswith("<!-- ocr"):  # 道具の外で OCR したテキスト。誤読があるので近似一致が多くなる
                     return "PDF所持（OCR の抽出）", txt
-                bad = garbled(raw, b["entry"])
+                bad = garbled(src.raw[src.body_start:], b["entry"])  # 頭書きは判定の対象にしない
                 if bad:
                     return f"PDF所持（{bad}）", None
+                if src.ocr_pages():
+                    return "PDF所持（OCR の文字の層）", txt
                 return "PDF所持（抽出あり）", txt
         return "PDF所持（抽出なし）", None
     web = cfg.WEB_DIR / f"{key}.txt"
@@ -167,3 +174,33 @@ def grade_of(key, bib):
     if cfg.WEB_RE and cfg.WEB_RE.search(b["entry"]):
         return "Web 資料（写しなし）", None
     return "未入手", None
+
+
+def extraction_diagnosis(key, bib, txt):
+    """抽出テキストの崩れの診断（設計 §4.4 の 1〜4）を [(番号, 文)] で返す。直し方の分かるものだけ。
+
+    Web の写しと OCR のテキストには診断しない。PDF が無いときは 1 と 3 を出さない（PDF を持たない機械で注意が出続けないように）。
+    """
+    src = Source(txt)
+    if src.kind == "snapshot" or src.raw.startswith("<!-- ocr"):
+        return []
+    pdf = next((p for p in bib[key]["pdfs"] if Path(p).stem == txt.stem), None)
+    pdf_path = cfg.PDF_DIR / pdf if pdf else None
+    have_pdf = pdf_path is not None and pdf_path.exists()
+    res = []
+    if src.kind is None:
+        if have_pdf:
+            res.append((1, "頭書きが無い（extract --header-only で足す）"))
+    else:
+        # 末尾の空の頁は PDF の頁の数には入るが Source.pages() では数えない。どちらの数とも合えば区切りは合っているとみる
+        if src.kind == "extract" and "pages" in src.head:
+            n = int(src.head["pages"])
+            if n not in (src.pages(), src.raw[src.body_start:].count("\f") + 1):
+                res.append((2, f"頁の区切りが PDF と合わない（PDF {n} 頁、テキスト {src.pages()} 頁。extract {key} --force で作り直す）"))
+        if have_pdf and src.head.get("sha256") != _sha256(pdf_path):
+            res.append((3, f"抽出の後に PDF が替わった（extract {key} --force で作り直す）"))
+    body = src.raw[src.body_start:]
+    chars, bad = len(re.sub(r"\s", "", body)), len(UNREADABLE_RE.findall(body))
+    if chars and bad * 1000 > chars:
+        res.append((4, f"読めない字 {bad}（置換文字・私用領域・cid）"))
+    return res

@@ -8,11 +8,15 @@ import sys
 from . import config as cfg
 from .bib import garbled, parse_bib
 from .source import Source
+from .util import _sha256
 
 
 def cmd_extract(args):
-    """書誌が原本の PDF を指す文献について、抽出テキストを作る。既にあれば --force のときだけ作り直す。"""
+    """書誌が原本の PDF を指す文献について、抽出テキストを作る（頭書きつき）。既にあれば --force のときだけ作り直す。
+    --header-only は、頭書きの無い抽出テキストに頭書きを足す（本文は変えない）。"""
     import pymupdf
+    if args.header_only and args.force:
+        sys.exit("--header-only と --force は一緒に使えない")
     bib = parse_bib()
     keys = args.keys or sorted(bib)
     cfg.TXT_DIR.mkdir(parents=True, exist_ok=True)
@@ -22,19 +26,80 @@ def cmd_extract(args):
             continue
         for pdf in bib[k]["pdfs"]:
             src, out = cfg.PDF_DIR / pdf, cfg.TXT_DIR / (Path(pdf).stem + ".txt")
+            if args.header_only:
+                _add_header(k, pdf, src, out)
+                continue
             if not src.exists():
                 print(f"skip {k}: {src} が無い")
                 continue
             if out.exists() and not args.force:
                 continue
             d = pymupdf.open(src)
-            text = "\f".join(pg.get_text() for pg in d)  # 頁の区切りは改ページ文字
-            bad = garbled(text, bib[k]["entry"])
+            body = "\f".join(pg.get_text() for pg in d)  # 頁の区切りは改ページ文字
+            bad = garbled(body, bib[k]["entry"])
             if bad:
                 print(f"skip {k}: {pdf}（{bad}。OCR か頁の画像で確かめる）")
                 continue
-            out.write_text(text, encoding="utf-8", newline="\n")
+            head = _header(pdf, src, d, f"pymupdf {pymupdf.__version__}", f"extracted: {datetime.date.today().isoformat()}")
+            out.write_text(head + body, encoding="utf-8", newline="\n")
             print(f"ok   {k}: {out.as_posix()}（{len(d)} 頁）")
+
+
+def _add_header(key, pdf, src, out):
+    """頭書きの無い抽出テキストに、PDF から作った頭書きを足す。本文の字は一字も変えない（バイトのまま残す）。"""
+    import pymupdf
+    if not out.exists():
+        return
+    raw = out.read_bytes().decode("utf-8")
+    if raw.startswith("<!--"):
+        print(f"skip {key}: {out.as_posix()} は既に頭書きがある")
+        return
+    if not src.exists():
+        print(f"skip {key}: {src} が無い")
+        return
+    d = pymupdf.open(src)
+    head = _header(pdf, src, d, "不明（頭書きは後から足した）", f"annotated: {datetime.date.today().isoformat()}")
+    out.write_bytes((head + raw).encode("utf-8"))
+    print(f"ok   {key}: {out.as_posix()} に頭書きを足した（本文は変えていない）")
+
+
+def _header(pdf, src, doc, extractor, stamp):
+    """抽出の頭書き（設計 §4.1）。頭書きの後に改行を一つ置く。"""
+    lines = ["<!-- extract", f"pdf: {pdf}", f"sha256: {_sha256(src)}", f"pages: {len(doc)}"]
+    ocr = _ocr_text_layer_pages(doc)
+    if ocr:
+        lines.append(f"ocr_pages: {_page_ranges(ocr)}")
+    lines += [f"extractor: {extractor}", stamp, "-->"]
+    return "\n".join(lines) + "\n"
+
+
+def _ocr_text_layer_pages(doc):
+    """OCR の文字の層の頁の集合（設計 §4.2）。見えない文字（描画の型 3）が半分以上で、頁の8割以上を画像が覆う頁。"""
+    import pymupdf
+    pages = set()
+    for pg in doc:
+        n = hidden = 0
+        for span in pg.get_texttrace():
+            n += len(span["chars"])
+            if span["type"] == 3:
+                hidden += len(span["chars"])
+        if not n or hidden * 2 < n:
+            continue
+        area = abs(pg.rect)
+        if any(abs(pymupdf.Rect(im["bbox"]) & pg.rect) / area >= 0.8 for im in pg.get_image_info()):
+            pages.add(pg.number + 1)
+    return pages
+
+
+def _page_ranges(pages):
+    """頁の集合を「1-7,2,5-6」の形にする（昇順。連続は a-b、単独は a、区切りは「,」）。"""
+    runs = []
+    for p in sorted(pages):
+        if runs and p == runs[-1][1] + 1:
+            runs[-1][1] = p
+        else:
+            runs.append([p, p])
+    return ",".join(str(a) if a == z else f"{a}-{z}" for a, z in runs)
 
 
 class _HTMLText:

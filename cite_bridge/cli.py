@@ -58,6 +58,7 @@ def main():
     x = sub.add_parser("extract")
     x.add_argument("keys", nargs="*")
     x.add_argument("--force", action="store_true")
+    x.add_argument("--header-only", action="store_true", help="頭書きの無い抽出テキストに頭書きを足す（本文は変えない）。--force と一緒には使えない")
     x.set_defaults(func=cmd_extract)
     w = sub.add_parser("snapshot")
     w.add_argument("key")

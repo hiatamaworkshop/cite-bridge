@@ -100,6 +100,7 @@ FIELD_ALIASES = {
     "approval_note": "承認の理由", "approved_evidence": "承認時の根拠",
     "returned_reason": "差し戻しの理由", "returned_fingerprint": "差し戻し時の指紋", "returned_evidence": "差し戻し時の根拠",
     "summary_check": "要約の確認", "summary_check_fingerprint": "要約の確認時の指紋", "remarks": "指摘",
+    "extraction_diagnosis": "抽出の診断",
 }
 # @ 行のうち、導く欄ではなく道具が書く記録（derive は消さず、導き直しの比較にも入れない）
 RECORD_FIELDS = {"承認時の指紋", "承認時の本文", "承認時の根拠", "差し戻し時の指紋", "差し戻し時の根拠", "要約の確認時の指紋"}

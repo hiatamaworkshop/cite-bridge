@@ -7,7 +7,7 @@ import re
 import sys
 from . import config as cfg
 from .approve import load_excerpt_fields, write_approval, write_confirm
-from .bib import grade_of, parse_bib
+from .bib import extraction_diagnosis, grade_of, parse_bib
 from .blocks import parse_blocks, rewrite_derived
 from .config import DIFFS, STRENGTHS, out_name
 from .derive import derive_excerpts, printed_page
@@ -205,7 +205,9 @@ def cmd_propose(args):
             w["rejected_before"] = prior.get("decided", {})
         for k in keys:
             grade, src = _sources_for(k["key"], bib, cache)
-            kk = {"key": k["key"], "score": k["score"], "entry": k["entry"], "grade": grade, "text": None, "existing": [], "passages": []}
+            diagnosis = [text for _, text in extraction_diagnosis(k["key"], bib, src.path)] if src else []
+            kk = {"key": k["key"], "score": k["score"], "entry": k["entry"], "grade": grade, "diagnosis": diagnosis,
+                  "text": None, "existing": [], "passages": []}
             own = {eid: f for eid, f in exc.items() if eid.split("#")[0] == k["key"]}
             if own:
                 ids = list(own)
@@ -271,6 +273,8 @@ def work_md(w):
             out += ["key の候補なし（書誌に無いか、括弧から名前を拾えない。--add-key で足せる）", ""]
         for k in it["keys"]:
             out += [f"### {k['key']}（点 {k['score']}、{k['grade']}）", "", f"- {k['entry']}"]
+            if k["diagnosis"]:
+                out.append(f"- 抽出の診断: {'；'.join(k['diagnosis'])}")
             for e in k["existing"]:
                 out.append(f"- 既存 {e['id']}: {e['verbatim'][:160]}")
             for p in k["passages"]:

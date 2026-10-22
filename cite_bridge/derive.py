@@ -2,7 +2,7 @@
 """抜き書きの導く欄（所在・照合・前後の文）を作る。"""
 import re
 from . import config as cfg
-from .bib import grade_of, parse_bib
+from .bib import extraction_diagnosis, grade_of, parse_bib
 from .blocks import parse_blocks, rewrite_derived
 from .source import Source, context, locate, normalize, section_at
 
@@ -29,6 +29,9 @@ def derive_excerpts(bib, sources_cache):
         hd = {"格": grade}
         if txt:
             hd["抽出"] = txt.as_posix()
+            diag = extraction_diagnosis(key, bib, txt)
+            if diag:
+                hd["抽出の診断"] = "；".join(text for _, text in diag)
         bd = {}
         src = None
         if txt:
