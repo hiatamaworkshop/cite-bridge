@@ -144,6 +144,59 @@ def summary_fingerprint(fields):
     return hashlib.sha1(s.encode("utf-8")).hexdigest()[:8]
 
 
+def verbatim_fingerprint(verbatim):
+    """逐語の指紋（§5.2）。逐語から空白をすべて除いた文字列の SHA-1 の先頭8桁。"""
+    return hashlib.sha1(re.sub(r"\s", "", verbatim).encode("utf-8")).hexdigest()[:8]
+
+
+def writer_of(value):
+    """「記入」の値の先頭の語（空白と全角・半角の括弧の手前まで）。書き手の名前。"""
+    m = re.match(r"[^\s（(]+", (value or "").strip())
+    return m.group(0) if m else ""
+
+
+def self_check_problem(by, writer):
+    """書き手と同じ者が、モデル（承認者の一覧で model）として確かめる・承認する・受け入れることを断る理由（§5.8）。無ければ None。"""
+    if writer and by == writer and cfg.APPROVERS.get(by) == "model":
+        return f"書き手と同じモデル '{by}' の確認は数えない"
+    return None
+
+
+SOURCE_CHECK_RE = re.compile(r"^(\S+) (\d{4}-\d{2}-\d{2}) (一致|違う)(.*)$")
+
+
+def parse_source_check(value):
+    """原本での確認の値（§5.2 の形）を (確認者, 結果, 頁と節, メモ) にする。形に当たらなければ None。"""
+    m = SOURCE_CHECK_RE.match(value or "")
+    if not m:
+        return None
+    rest = m.group(4)
+    memo = re.search(r"（([^（）]*)）$", rest)
+    page = rest[:memo.start()] if memo else rest
+    return m.group(1), m.group(3), page.strip(), memo.group(1) if memo else ""
+
+
+def source_check_state(f, rec, verbatim, writer):
+    """原本での確認が有効か（§5.2 の条件1〜5）。(確認者, 問題の文) を返す。問題の文が空なら有効。"""
+    value = f.get("原本での確認", "")
+    if not value:
+        return None, "原本での確認が無い"
+    parsed = parse_source_check(value)
+    if parsed is None:
+        return None, "原本での確認の記録が今の形でない"
+    checker, result = parsed[0], parsed[1]
+    if (cfg.APPROVERS and checker not in cfg.APPROVERS) or (not cfg.APPROVERS and checker == "確認者不明"):
+        return checker, f"確認者 '{checker}' が承認者の一覧に無い"
+    problem = self_check_problem(checker, writer)
+    if problem:
+        return checker, problem
+    if rec.get("原本での確認時の指紋") != verbatim_fingerprint(verbatim):
+        return checker, "確かめた後に逐語が変わった（または指紋が無い）"
+    if result == "違う":
+        return checker, "原本と違うと報告された"
+    return checker, ""
+
+
 REF_RE = re.compile(r"(?<![\w#])(?:([\w.-]+)#)?(e\d+)(?![\w])")
 
 

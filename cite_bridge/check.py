@@ -19,8 +19,11 @@ from .manuscript import (
     manuscript_marks,
     mask_comments,
     refs_in,
+    self_check_problem,
     sentence_at,
+    source_check_state,
     summary_fingerprint,
+    writer_of,
 )
 from .propose import load_candidates
 from .source import is_cjk, normalize
@@ -30,6 +33,7 @@ def run_check():
     """整合の検査。表示も終了もせず、結果を辞書で返す（check と checkpoint が使う）。"""
     bib = parse_bib()
     errors, notes, infos = [], [], []
+    marked, done, by_kind = 0, 0, {"human": 0, "model": 0}  # 要ヒューマンチェックの印と確認（§5.3 の 4・5）
     approvers, grades, used = {}, {}, set()
     cache = {}
     res = derive_excerpts(bib, cache)
@@ -74,21 +78,34 @@ def run_check():
                 errors.append(f"{w}: 導く欄が古い。derive を実行する")
             d = bd.get(b["id"], {})
             st = d.get("照合", "")
-            confirmed = bool(f.get("原本での確認")) and "確認者不明" not in f.get("原本での確認", "")
+            checker, problem = source_check_state(f, b.get("records", {}), f.get("逐語", ""), writer_of(f.get("記入")))
+            confirmed = not problem  # 有効な原本での確認（§5.2 の条件1〜5）
+            reason = d.get("要ヒューマンチェック", "")
             if st == "不一致" and not confirmed:
                 errors.append(f"{w}: 逐語が抽出テキストに無い" + (f"（他の文献で一致: {d['他の文献で一致']}）" if d.get("他の文献で一致") else ""))
-            if (st.startswith("近似一致") or st.startswith("照合不能")) and not confirmed:
-                notes.append(f"{w}: {st}。原本での確認が要る")
+            if reason:  # 要ヒューマンチェック（§5.3 の 1 と 4）
+                marked += 1
+                if confirmed:
+                    done += 1
+                    kind = cfg.APPROVERS.get(checker)
+                    if kind in by_kind:
+                        by_kind[kind] += 1
+                else:
+                    notes.append(f"{w}: 要ヒューマンチェック（{reason}）。{problem}（confirm --source か review --html で記録する）")
             if d.get("節の種類") in ("関連研究", "参考文献"):
                 infos.append(f"{w}: 原典の{d['節の種類']}の節にある文。原典の著者の主張でない可能性")
             excerpts[bid] = f
-            states[bid] = (st, confirmed)
+            states[bid] = (st, confirmed, reason)
             exc_where.append((w, key, f))
             if f.get("要約の確認"):
+                name = f["要約の確認"].split()[0]
                 if b.get("records", {}).get("要約の確認時の指紋") != summary_fingerprint(f):
                     notes.append(f"{w}: 要約の確認の後に欄が変わった。確認し直す")
+                elif self_check_problem(name, writer_of(f.get("記入"))):  # §5.8。書き手と同じモデルの確認は数えない
+                    notes.append(f"{w}: 要約の確認を数えない（{self_check_problem(name, writer_of(f.get('記入')))}）")
+                    summary_checked["未確認"] = summary_checked.get("未確認", 0) + 1
                 else:
-                    summary_checked[f["要約の確認"].split()[0]] = summary_checked.get(f["要約の確認"].split()[0], 0) + 1
+                    summary_checked[name] = summary_checked.get(name, 0) + 1
             else:
                 summary_checked["未確認"] = summary_checked.get("未確認", 0) + 1
 
@@ -100,6 +117,8 @@ def run_check():
                 if not any(c in excerpts for c in cands):
                     errors.append(f"{w}: {name}が指す抜き書き '{shown}' が無い")
     infos.append("抜き書きの要約の確認: " + " / ".join(f"{k} {v}" for k, v in sorted(summary_checked.items())))
+    infos.append(f"要ヒューマンチェック: 印のある抜き書き {marked} 件のうち、確認済 {done}"
+                 f"（人 {by_kind['human']}、モデル {by_kind['model']}）、残り {marked - done}（一覧は review --source-checks）")
 
     # 引用
     if cfg.CIT.exists():
@@ -188,6 +207,9 @@ def run_check():
                 if same and not any(normalize(q, "alnum")[0] in normalize(p, "alnum")[0] for p in same):
                     errors.append(f"{w}: 本文の引用「{q[:30]}…」が抜き書きの逐語に無い")
             state, extra = approval_state(f, b.get("records", {}), fp, evidence_hash(refs, excerpts, f.get("人の読み", "")))
+            if state == "承認済" and self_check_problem(extra, writer_of(f.get("記入"))):  # §5.8。書き手と同じモデルの承認は数えない
+                notes.append(f"{w}: 承認を数えない（{self_check_problem(extra, writer_of(f.get('記入')))}）")
+                state = "未承認"
             counts[state] = counts.get(state, 0) + 1
             if state == "未承認":
                 notes.append(f"{w}: 未承認（{heading_at(text, ids_in_text[cid][0])}）")
@@ -202,9 +224,9 @@ def run_check():
                 if cfg.APPROVERS and extra not in cfg.APPROVERS:
                     notes.append(f"{w}: 承認者 '{extra}' は承認者の一覧に無い")
             for r in refs:
-                st, ok = states.get(r, ("", False))
-                if (st.startswith("近似一致") or st.startswith("照合不能")) and not ok:
-                    notes.append(f"{w}: 根拠 {r} は {st} で、原本での確認が無い")
+                _, ok, reason = states.get(r, ("", False, ""))
+                if reason and not ok:
+                    notes.append(f"{w}: 根拠 {r} は要ヒューマンチェック（{reason}）で、原本での確認が無い")
             if f.get("原文との差") == "外挿":
                 notes.append(f"{w}: 外挿。本文に限定を付けるか、自分の主張として書き直す")
         for cid in ids_in_text:
@@ -228,9 +250,10 @@ def run_check():
         counts, target, coverage = {}, None, {}
 
     summary = {}
-    for st, _ in states.values():
+    for st, _, _ in states.values():
         summary[st] = summary.get(st, 0) + 1
     return {"errors": errors, "notes": notes, "infos": infos, "excerpt_states": summary, "excerpts": len(states),
+            "source_checks": {"marked": marked, "done": done, "by_kind": by_kind, "pending": marked - done},
             "citations": counts, "approvers": approvers, "coverage": coverage,
             "approver_kinds": {k: sum(v for n, v in approvers.items() if cfg.APPROVERS.get(n, "不明") == k)
                                for k in sorted({cfg.APPROVERS.get(n, "不明") for n in approvers})}, "summary_checks": summary_checked, "grades": grades, "texts": sorted(used),

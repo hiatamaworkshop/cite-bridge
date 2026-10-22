@@ -5,7 +5,7 @@ import datetime
 import hashlib
 import sys
 from . import config as cfg
-from .approve import approver_problem, write_approval, write_confirm, write_remark
+from .approve import approver_problem, write_approval, write_confirm, write_remark, write_source_check
 from .blocks import parse_blocks
 from .propose import apply_candidate
 
@@ -78,6 +78,10 @@ def cmd_apply(args):
             (done if ok else skipped).append(msg)
     for x in d.get("confirms", []):
         ok, msg = write_confirm(x["id"], by, seen=x["fingerprint"], dry=args.dry_run)
+        (done if ok else skipped).append(msg)
+    for x in d.get("source_checks", []):  # 原本での確認（§5.4 の 2）。指紋が今の逐語と合うものだけ書く
+        ok, msg = write_source_check(x["id"], by, x.get("result", "一致"), x.get("page") or None, x.get("note") or None,
+                                     seen=x["fingerprint"], dry=args.dry_run)
         (done if ok else skipped).append(msg)
     for m in done:
         print(("（試し）" if args.dry_run else "") + m)

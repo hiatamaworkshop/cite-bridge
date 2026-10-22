@@ -6,6 +6,7 @@ import hashlib
 import os
 import sys
 from . import config as cfg
+from .approve import approver_problem
 from .check import run_check
 from .config import TOOL_NAME, TOOL_VERSION
 from .judge import manifest_record
@@ -23,6 +24,14 @@ def cmd_checkpoint(args):
     マニフェストは、どの原稿・書誌・抜き書き・抽出テキストから、どの確認の状態で通ったかを、ハッシュと件数で持つ。
     """
     import json
+    by = args.by or None
+    if cfg.APPROVERS:  # 最終の提出は人が出す（§5.6）
+        if not by:
+            sys.exit("承認者の一覧があるので --by（提出する人）が要る")
+        if approver_problem(by):
+            sys.exit(approver_problem(by))
+        if cfg.APPROVERS[by] != "human":
+            sys.exit(f"--by '{by}' は人（human）でない。最終の提出は人が出す")
     r = run_check()
     if r["errors"] or r["notes"]:
         for e in r["errors"]:
@@ -51,6 +60,8 @@ def cmd_checkpoint(args):
         "approver_kinds": r["approver_kinds"],
         "coverage": r["coverage"],
         "summary_checks": r["summary_checks"],
+        "source_checks": r["source_checks"],
+        "by": by,
         "classifier": manifest_record(),  # 分類器を使っていなければ None
     }
     cfg.CKPT_DIR.mkdir(parents=True, exist_ok=True)

@@ -15,8 +15,11 @@ from .manuscript import (
     fingerprint,
     manuscript_marks,
     mask_comments,
+    self_check_problem,
     sentence_at,
     summary_fingerprint,
+    verbatim_fingerprint,
+    writer_of,
 )
 
 
@@ -95,6 +98,8 @@ def write_approval(cid, by, note=None, send_back=False, seen=None, dry=False):
         return False, f"{cid}: 判断した後に{'本文' if seen[0] != fp else '根拠'}が変わった。書かなかった（review を作り直して見直す）"
     if f.get("種類") != "主張":
         return False, f"{cid}: 主張の引用ではない"
+    if self_check_problem(by, writer_of(f.get("記入"))):
+        return False, f"{cid}: " + self_check_problem(by, writer_of(f.get("記入")))
     # 同じ者・同じ理由で、指紋も変わらず承認済みなら書き直さない（承認の HTML はブラウザに残った前の判断も判断ファイルに含める）
     rec = next((b.get("records", {}) for b in parse_blocks(cfg.CIT)[1] if b["id"] == cid), {})
     if (not send_back and approval_state(f, rec, fp, ev)[0] == "承認済" and (f.get("承認") or "").split()[:1] == [by]
@@ -134,6 +139,8 @@ def write_confirm(eid, by, note=None, seen=None, dry=False):
         b = next((x for x in blocks if x["id"] == bid), None)
         if b is None:
             break
+        if self_check_problem(by, writer_of(b["fields"].get("記入"))):
+            return False, f"{eid}: " + self_check_problem(by, writer_of(b["fields"].get("記入")))
         sfp = summary_fingerprint(b["fields"])
         if seen and seen != sfp:
             return False, f"{eid}: 確かめた後に要約か逐語が変わった。書かなかった"
@@ -146,6 +153,44 @@ def write_confirm(eid, by, note=None, seen=None, dry=False):
         hd, bd = derive_excerpts(parse_bib(), {})[path]  # 導く欄をブロックの末尾へ並べ直す
         rewrite_derived(path, hd, bd)
         return True, f"要約の確認を記録: {eid} {by} {today}"
+    return False, f"抜き書き '{eid}' が無い"
+
+
+def write_source_check(eid, by, result="一致", page=None, note=None, seen=None, dry=False):
+    """原本での確認を記録する（§5.2、§5.4）。結果は 一致 か 違う（違う はメモが要る）。seen（逐語の指紋）が今と合うときだけ書く。"""
+    if "#" not in eid:
+        return False, "抜き書きは key#eN で指す"
+    if approver_problem(by):
+        return False, f"{eid}: " + approver_problem(by)
+    if result not in ("一致", "違う"):
+        return False, f"{eid}: 結果は 一致 か 違う"
+    if result == "違う" and not note:
+        return False, f"{eid}: 違う のときはメモに原本の字を書く（--note）"
+    key, bid = eid.split("#", 1)
+    for path in sorted(cfg.EXC_DIR.glob("*.md")):
+        head, blocks = parse_blocks(path)
+        if head["title"] != key:
+            continue
+        b = next((x for x in blocks if x["id"] == bid), None)
+        if b is None:
+            break
+        if self_check_problem(by, writer_of(b["fields"].get("記入"))):
+            return False, f"{eid}: " + self_check_problem(by, writer_of(b["fields"].get("記入")))
+        vfp = verbatim_fingerprint(b["fields"].get("逐語", ""))
+        if seen and seen != vfp:
+            return False, f"{eid}: 確かめた後に逐語が変わった。書かなかった"
+        if dry:
+            return True, f"{eid}: 原本での確認"
+        today = datetime.date.today().isoformat()
+        old = b["fields"].get("原本での確認", "")
+        if not note and old:  # 0.2.0 までの古い記録は有効でないので、書き換えず文をメモに残す（§5.2）
+            note = f"前の記録: {old}"
+        value = f"{by} {today} {result}" + (f" {page}" if page else "") + (f"（{note}）" if note else "")
+        new = [f"{out_name('原本での確認')}: {value}", f"@{out_name('原本での確認時の指紋')}: {vfp}"]
+        _replace_block_lines(path, bid, r"^@?(原本での確認|source_check|原本での確認時の指紋|source_check_fingerprint):", new)
+        hd, bd = derive_excerpts(parse_bib(), {})[path]  # 導く欄をブロックの末尾へ並べ直す
+        rewrite_derived(path, hd, bd)
+        return True, f"原本での確認を記録: {eid} {by} {today} {result}"
     return False, f"抜き書き '{eid}' が無い"
 
 
@@ -177,8 +222,12 @@ def cmd_approve(args):
 
 
 def cmd_confirm(args):
-    """抜き書きの要約・言っていないこと・強さを、人（または書き手と別の者）が原文と照らして確かめたことを記録する。"""
-    ok, msg = write_confirm(args.eid, args.by, args.note)
+    """抜き書きの要約・言っていないこと・強さを、人（または書き手と別の者）が原文と照らして確かめたことを記録する。
+    --source は、要ヒューマンチェックの抜き書きを原本（頁の画像・原本の PDF・紙）で確かめた記録（§5.2）。"""
+    if args.source:
+        ok, msg = write_source_check(args.eid, args.by, args.result, args.page, args.note)
+    else:
+        ok, msg = write_confirm(args.eid, args.by, args.note)
     if not ok:
         sys.exit(msg)
     print(msg)

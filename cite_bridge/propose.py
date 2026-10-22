@@ -15,9 +15,11 @@ from .manuscript import (
     coverage_items,
     load_excluded,
     mask_comments,
+    self_check_problem,
     sentence_bounds,
     summary_fingerprint,
     unmark,
+    writer_of,
 )
 from .source import SENT_END, Source, locate, normalize, section_at
 from .util import _sha256
@@ -412,6 +414,8 @@ def apply_candidate(item, action, by, note, cfp, dry=False):
         return False, f"{item}: 判断を待つ候補が無い"
     if candidate_fp(c) != cfp:
         return False, f"{item}: 判断した後に候補が変わった。書かなかった（review を作り直して見直す）"
+    if action == "accept" and self_check_problem(by, writer_of(c.get("記入"))):  # §5.8。書き込みの前に断る
+        return False, f"{item}: " + self_check_problem(by, writer_of(c.get("記入")))
     target = _manuscript()
     raw = target.read_bytes().decode("utf-8")  # 改行を変えずに書き戻すため、改行の変換をせずに読む
     cur = next((x for x in coverage_items(mask_comments(raw)) if x["item"] == item), None)

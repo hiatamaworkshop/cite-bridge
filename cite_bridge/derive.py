@@ -2,7 +2,7 @@
 """抜き書きの導く欄（所在・照合・前後の文）を作る。"""
 import re
 from . import config as cfg
-from .bib import extraction_diagnosis, grade_of, parse_bib
+from .bib import UNREADABLE_RE, extraction_diagnosis, grade_of, parse_bib
 from .blocks import parse_blocks, rewrite_derived
 from .source import Source, context, locate, normalize, section_at
 
@@ -41,6 +41,7 @@ def derive_excerpts(bib, sources_cache):
         for b in blocks:
             d = {}
             quote = b["fields"].get("逐語", "")
+            a = z = None
             if not src:
                 d["照合"] = "照合不能（" + grade + "）"
             elif not quote:
@@ -61,9 +62,34 @@ def derive_excerpts(bib, sources_cache):
                     others = other_matches(quote, txt, sources_cache)
                     if others:
                         d["他の文献で一致"] = ", ".join(others)
+            if not src or quote:
+                reasons = human_check_reasons(grade, src, d["照合"], a, z)
+                if reasons:
+                    d["要ヒューマンチェック"] = "、".join(reasons)
             bd[b["id"]] = d
         result[path] = (hd, bd)
     return result
+
+
+def human_check_reasons(grade, src, label, a, z):
+    """要ヒューマンチェックの理由（設計 §5.1）。当たるものをすべて挙げる。a, z は逐語の位置（見つからなければ None）。"""
+    if src is None:
+        return [f"照合不能（{grade}）"]
+    reasons = []
+    if label.startswith("近似一致"):
+        reasons.append("照合が近似一致")
+    if label == "不一致":
+        reasons.append("照合で見つからない")
+    if grade == "PDF所持（OCR の抽出）":
+        reasons.append("OCR の抽出")
+    if grade == "PDF所持（OCR の文字の層）":
+        if a is None:
+            reasons.append("OCR の文字の層")
+        elif src.page_of(a) in src.ocr_pages():
+            reasons.append(f"OCR の文字の層（PDF {src.page_of(a)}頁目）")
+    if a is not None and UNREADABLE_RE.search(src.raw[a:z]):
+        reasons.append("逐語の範囲に読めない字")
+    return reasons
 
 
 def other_matches(quote, own, cache):

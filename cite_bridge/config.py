@@ -100,10 +100,12 @@ FIELD_ALIASES = {
     "approval_note": "承認の理由", "approved_evidence": "承認時の根拠",
     "returned_reason": "差し戻しの理由", "returned_fingerprint": "差し戻し時の指紋", "returned_evidence": "差し戻し時の根拠",
     "summary_check": "要約の確認", "summary_check_fingerprint": "要約の確認時の指紋", "remarks": "指摘",
-    "extraction_diagnosis": "抽出の診断",
+    "extraction_diagnosis": "抽出の診断", "human_check": "要ヒューマンチェック",
+    "source_check_fingerprint": "原本での確認時の指紋",
 }
 # @ 行のうち、導く欄ではなく道具が書く記録（derive は消さず、導き直しの比較にも入れない）
-RECORD_FIELDS = {"承認時の指紋", "承認時の本文", "承認時の根拠", "差し戻し時の指紋", "差し戻し時の根拠", "要約の確認時の指紋"}
+RECORD_FIELDS = {"承認時の指紋", "承認時の本文", "承認時の根拠", "差し戻し時の指紋", "差し戻し時の根拠", "要約の確認時の指紋",
+                 "原本での確認時の指紋"}
 FIELD_NAMES_EN = {v: k for k, v in FIELD_ALIASES.items()}
 VALUE_ALIASES = {
     "強さ": {"observation": "観察", "suggestion": "示唆", "claim": "主張", "generalization": "一般化", "conditional": "条件付き"},
