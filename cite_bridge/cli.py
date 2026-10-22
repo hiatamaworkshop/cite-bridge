@@ -50,6 +50,7 @@ def main():
     rv.add_argument("--json", action="store_true", help="外の表示へ渡す JSON で出す")
     rv.add_argument("--all", action="store_true", help="承認済と指示の引用も含める")
     rv.add_argument("--html", action="store_true", help="承認の HTML（単体で開ける一枚）を -o に書く")
+    rv.add_argument("--source-checks", action="store_true", help="要ヒューマンチェックで原本での確認が残る抜き書きの一覧（--json で外の AI への依頼）")
     ap_ = sub.add_parser("apply")
     ap_.add_argument("file", nargs="?", help="承認の HTML が保存した判断ファイル（JSON）")
     ap_.add_argument("--latest", action="store_true", help="判断ファイルを渡さず、フォルダの中でこの原稿の最新のものを使う")

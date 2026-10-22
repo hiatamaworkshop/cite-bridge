@@ -9,7 +9,7 @@ from .approve import default_approver
 from .bib import parse_bib
 from .blocks import parse_blocks
 from .check import run_check
-from .derive import derive_excerpts, printed_page
+from .derive import derive_excerpts, human_check_reasons, printed_page
 from .manuscript import (
     approval_state,
     coverage_items,
@@ -19,8 +19,11 @@ from .manuscript import (
     manuscript_marks,
     mask_comments,
     sentence_at,
+    source_check_state,
     summary_fingerprint,
     unmark,
+    verbatim_fingerprint,
+    writer_of,
 )
 from .judge import attach_checks
 from .propose import _sources_for, candidate_fp, load_candidates
@@ -61,9 +64,23 @@ def summaries_confirmed(evidence):
     return all(not e.get("missing") and e.get("summary_checked") for e in evidence)
 
 
+def unconfirmed_source(e):
+    """要ヒューマンチェックの印があり、原本での確認が有効でない根拠（抜き書き）か。"""
+    return bool(e.get("needs_check")) and not e.get("check_ok")
+
+
+def source_check_fields(ef, rec, d):
+    """要ヒューマンチェックの印と、原本での確認の有効（§5.5 の 1）。原本での確認の判定は C2 の source_check_state を使う。"""
+    _, problem = source_check_state(ef, rec, ef.get("逐語", ""), writer_of(ef.get("記入")))
+    return {"needs_check": d.get("要ヒューマンチェック", ""), "check_ok": not problem, "check_problem": problem,
+            "check_record": ef.get("原本での確認", ""), "verbatim_fp": verbatim_fingerprint(ef.get("逐語", ""))}
+
+
 def needs_review(it):
-    """確認待ちか。未承認・要再確認・差し戻しの主張と、承認済でも根拠が欠けるか要約が未確認の主張（要約の確認の欄は引用のカードにしか無い）。"""
-    return it["kind"] == "主張" and (it["state"] != "承認済" or not summaries_confirmed(it["evidence"]))
+    """確認待ちか。未承認・要再確認・差し戻しの主張と、承認済でも根拠が欠けるか要約が未確認、または要ヒューマンチェックで有効な確認が無い主張。"""
+    if it["kind"] != "主張":
+        return False
+    return it["state"] != "承認済" or not summaries_confirmed(it["evidence"]) or any(unconfirmed_source(e) for e in it["evidence"])
 
 
 def review_data(cids=None, images=None, include_done=False, all_orphans=False):
@@ -95,11 +112,11 @@ def review_data(cids=None, images=None, include_done=False, all_orphans=False):
             return {"id": r, "missing": True}
         ef, d, hd, rec = exc[r]
         st = d.get("照合", "")
-        weak = st.startswith(("近似一致", "照合不能")) or "OCR" in hd.get("格", "")
         img = None
         ok = bool(ef.get("要約の確認")) and rec.get("要約の確認時の指紋") == summary_fingerprint(ef)
         return {"id": r, "verbatim": ef.get("逐語", ""), "location": d.get("所在", ""), "match": st,
-                "grade": hd.get("格", ""), "source_check": ef.get("原本での確認", ""), "weak": weak,
+                "grade": hd.get("格", ""), "source_check": ef.get("原本での確認", ""),
+                **source_check_fields(ef, rec, d),
                 "image": Path(img).as_posix() if img else None,
                 "before": d.get("前", ""), "sentence": d.get("含む文", ""), "after": d.get("後", ""),
                 "strength": ef.get("強さ", ""), "summary": ef.get("要約", ""), "not_said": ef.get("言っていないこと", ""),
@@ -107,11 +124,12 @@ def review_data(cids=None, images=None, include_done=False, all_orphans=False):
                 "summary_fp": summary_fingerprint(ef)}
 
     def new_ev(key, x, n):
-        """候補の新しい抜き書き。所在と前後の文は、既存の抜き書きと同じく道具が導く。"""
+        """候補の新しい抜き書き。所在と前後の文は、既存の抜き書きと同じく道具が導く。要ヒューマンチェックの印も同じ規則で導く。"""
         grade, src = _sources_for(key, bib, cache)
         e = {"id": f"{key}（新 {n}）", "new": True, "verbatim": x["逐語"], "grade": grade, "source_check": "",
              "strength": x["強さ"], "summary": x["要約"], "not_said": x["言っていないこと"], "summary_checked": None,
-             "location": "", "match": "照合不能", "before": "", "sentence": "", "after": "", "weak": False, "image": None}
+             "location": "", "match": "照合不能", "before": "", "sentence": "", "after": "", "image": None}
+        a = z = None
         if src:
             label, a, z = locate(x["逐語"], src)
             e["match"] = label
@@ -120,15 +138,16 @@ def review_data(cids=None, images=None, include_done=False, all_orphans=False):
                 e["location"] = printed_page(bib[key]["entry"], src.page_of(a), src.pages(), src) + " / " + sec
                 e["before"], whole, e["after"] = context(src, a, z)
                 e["sentence"] = whole or ""
-            e["weak"] = label.startswith("近似") or "OCR" in grade
-            if e["weak"] and images:
-                img = _page_image(key, bib, src, x["逐語"], images)
-                e["image"] = Path(img).as_posix() if img else None
+        reasons = "、".join(human_check_reasons(grade, src, e["match"], a, z))
+        e.update(source_check_fields(x, {}, {"要ヒューマンチェック": reasons}))
+        if e["needs_check"] and images and src:
+            img = _page_image(key, bib, src, x["逐語"], images)
+            e["image"] = Path(img).as_posix() if img else None
         return e
 
     def add_image(e):
-        """弱い照合の根拠に、頁の画像を足す。表示すると決まった引用だけに行う（画像を作るのは重い）。"""
-        if not (images and e.get("weak")):
+        """要ヒューマンチェックの根拠に、頁の画像を足す。表示すると決まった引用だけに行う（画像を作るのは重い）。"""
+        if not (images and e.get("needs_check")):
             return
         ef, _, hd, _ = exc[e["id"]]
         src = cache.get(Path(hd["抽出"])) if hd.get("抽出") else None
@@ -169,7 +188,9 @@ def review_data(cids=None, images=None, include_done=False, all_orphans=False):
                 "approve": f'python {tool} approve {cid} --by {who} --note "…"',
                 "send_back": f'python {tool} approve {cid} --by {who} --send-back --note "…"',
                 "confirm": [f"python {tool} confirm {e['id']} --by {who}" for e in item["evidence"]
-                            if not e.get("missing") and not e.get("summary_checked")]}
+                            if not e.get("missing") and not e.get("summary_checked")],
+                "source": [f"python {tool} confirm {e['id']} --source --by {who} --page \"…\"" for e in evidence
+                           if unconfirmed_source(e)]}
         items.append(item)
     cands = []
     if not cids:
@@ -203,12 +224,74 @@ def review_data(cids=None, images=None, include_done=False, all_orphans=False):
         for c in cands:
             used.update(e["id"] for e in c["evidence"])
         # all_orphans は、要約を確かめたものも含める（classify --eval が、引用の無い抜き書きを evidence に使うため）
-        only = [e for e in (ev_of(r) for r in sorted(exc) if r not in used) if all_orphans or not e.get("summary_checked")]
+        only = [e for e in (ev_of(r) for r in sorted(exc) if r not in used)
+                if all_orphans or not e.get("summary_checked") or unconfirmed_source(e)]
     res = {"manuscript": target.as_posix(), "date": datetime.date.today().isoformat(),
            "generated": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "citations": items, "candidates": cands,
            "excerpts_only": only}
     attach_checks(res)  # 分類器の判定（台帳にあれば）。確認の材料に添えるだけで、承認の状態は変えない
     return res
+
+
+INSTRUCTIONS = ("各件の逐語が、原本（頁の画像、無ければ原本の PDF か紙）に、そのとおりあるかを確かめる。"
+                "字の違い（OCR の誤読、抜けた字、違う字）があれば結果を「違う」とし、メモに原本の字を書く。"
+                "逐語が見つからないときも「違う」とし、メモにそう書く。頁と節が分かれば書く。"
+                "答えは answer_example の形の判断ファイルに書き、by には承認者の一覧に model として載っている自分の名前を書く。"
+                "抜き書きの書き手（written_by）と同じ名前では書けない。")
+
+
+def source_check_items(images=None):
+    """要ヒューマンチェックで有効な確認が無い抜き書きを、引用に使われているかに依らず並べる（§5.5 の 6）。"""
+    bib = parse_bib()
+    cache = {}
+    items = []
+    for path, (hd, bd) in derive_excerpts(bib, cache).items():
+        head, blocks = parse_blocks(path)
+        for b in blocks:
+            f = source_check_fields(b["fields"], b.get("records", {}), bd.get(b["id"], {}))
+            if not unconfirmed_source(f):
+                continue
+            eid = f"{head['title']}#{b['id']}"
+            img = None
+            src = cache.get(Path(hd["抽出"])) if hd.get("抽出") else None
+            if images and src:
+                p = _page_image(head["title"], bib, src, b["fields"].get("逐語", ""), images)
+                img = Path(p).as_posix() if p else None
+            items.append({"id": eid, "reasons": f["needs_check"], "verbatim": b["fields"].get("逐語", ""),
+                          "location": bd.get(b["id"], {}).get("所在", ""), "fingerprint": f["verbatim_fp"],
+                          "grade": hd.get("格", ""), "page_image": img, "record": f["check_record"],
+                          "problem": f["check_problem"], "written_by": b["fields"].get("記入", "")})
+    return items
+
+
+def source_check_data(images=None):
+    """依頼の JSON（cite-bridge-source-checks/1、§5.5 の 6）。外の AI がこれを受け取り、判断ファイルで答える。"""
+    head, _ = parse_blocks(cfg.CIT)
+    target = Path(head["fields"].get("対象", "")).as_posix()
+    generated = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return {"format": "cite-bridge-source-checks/1", "manuscript": target, "generated": generated,
+            "instructions": INSTRUCTIONS,
+            "answer_example": {"format": "cite-bridge-decisions/1", "manuscript": target, "generated": generated,
+                               "by": "<名前>", "saved": "<ISO 時刻>", "decisions": [], "candidates": [], "confirms": [],
+                               "source_checks": [{"id": "<id>", "fingerprint": "<fingerprint>", "result": "一致",
+                                                  "page": "", "note": ""}]},
+            "items": source_check_items(images)}
+
+
+def source_checks_md(data):
+    """要ヒューマンチェックの原本での確認の一覧（人が読む形）。"""
+    tool = Path(sys.argv[0]).as_posix()
+    out = [f"# 要ヒューマンチェックの原本での確認（{data['generated']}、{data['manuscript']}）", "", data["instructions"], ""]
+    if not data["items"]:
+        out.append("原本での確認が残っている抜き書きは無い。")
+    for it in data["items"]:
+        out += [f"## {it['id']}", "", f"- 理由: {it['reasons']}", f"- 所在: {it['location'] or '（導けない）'}",
+                f"- 格: {it['grade']}", f"- 問題: {it['problem']}", f"- 記入: {it['written_by']}", "", "逐語:", "",
+                f"> {it['verbatim']}", ""]
+        if it["page_image"]:
+            out += [f"頁の画像: {it['page_image']}", ""]
+        out += [f"確かめた後: `python {tool} confirm {it['id']} --source --by <名前> --page \"…\"`", ""]
+    return "\n".join(out) + "\n"
 
 
 def classifier_line(c):
@@ -237,9 +320,12 @@ def review_md(data):
                     f"- 格: {e['grade']}"]
             if e["source_check"]:
                 out.append(f"- 原本での確認: {e['source_check']}")
+            if e["needs_check"]:
+                out.append(f"- 要ヒューマンチェック: {e['needs_check']}（確認済: {e['check_record'] if e['check_ok'] else 'なし'}"
+                           f" / 未: {e['check_problem'] or 'なし'}）")
             out += ["", "逐語:", "", f"> {e['verbatim']}", ""]
-            if e["weak"]:
-                out += ["抽出テキストに誤読がある。前後の文は頁の画像で読む" + (f": {e['image']}" if e["image"] else
+            if e["needs_check"]:
+                out += ["要ヒューマンチェック。前後の文は頁の画像で読む" + (f": {e['image']}" if e["image"] else
                         "（--images で頁の画像を出せる。PDF が無ければ原本を見る）"), ""]
             out += [f"- {n}（抽出テキストのまま）: {e[k]}" for n, k in (("前", "before"), ("含む文", "sentence"), ("後", "after"))
                     if e[k]] + [""]
@@ -255,7 +341,8 @@ def review_md(data):
         if it["commands"]:
             c = it["commands"]
             out += ["判断:", "", f"- 承認: `{c['approve']}`", f"- 差し戻し: `{c['send_back']}`"]
-            out += [f"- 要約を確かめた: `{x}`" for x in c["confirm"]] + [""]
+            out += [f"- 要約を確かめた: `{x}`" for x in c["confirm"]]
+            out += [f"- 原本で確かめた: `{x}`" for x in c["source"]] + [""]
     if not data["citations"]:
         out.append("確認待ちの引用は無い。")
     if data.get("candidates"):
@@ -303,16 +390,27 @@ def review_page(data):
                  + (f'・他に {E("・".join(others))} の根拠' if others else "") + "</span></p>")
         if e["source_check"]:
             h.append(f'<p class="mut sm">原本での確認：{E(e["source_check"])}</p>')
+        if e["needs_check"]:
+            h.append(f'<p class="hc sm">要ヒューマンチェック：{E(e["needs_check"])}・'
+                     + (f'確認済：{E(e["check_record"])}' if e["check_ok"] else f'未：{E(e["check_problem"])}') + "</p>")
         h.append(f'<blockquote>{E(e["verbatim"])}</blockquote><div class="tools">')
         ref = img_ref(e["image"]) if e.get("image") else None
-        if e["weak"]:
-            h.append(f'<details><summary>頁の画像（抽出に誤読あり）</summary><img data-img="{E(ref)}" alt="{eid} の頁"></details>'
-                     if ref else '<span class="mut sm">抽出に誤読あり。前後は原本で読む</span>')
+        if e["needs_check"]:
+            h.append(f'<details><summary>頁の画像（要ヒューマンチェック）</summary><img data-img="{E(ref)}" alt="{eid} の頁"></details>'
+                     if ref else '<span class="mut sm">要ヒューマンチェック。前後は原本で読む</span>')
         ctx = [(n, e[k]) for n, k in (("前", "before"), ("含む文", "sentence"), ("後", "after")) if e[k]]
         if ctx:
             h.append('<details><summary>前後の文（抽出のまま）</summary><dl>'
                      + "".join(f"<dt>{n}</dt><dd>{E(v)}</dd>" for n, v in ctx) + "</dl></details>")
         h.append("</div>")
+        if unconfirmed_source(e) and not e.get("new"):  # 原本での確認の入力。候補の新しい抜き書きには出さない（まだ抜き書きの ID が無い）
+            name = f"sc-{E(owner)}-{eid}"
+            h.append(f'<div class="scheck" data-scheck="{eid}"><span class="k">原本で確かめる</span>'
+                     f'<label><input type="radio" name="{name}" value="" checked>未</label>'
+                     f'<label><input type="radio" name="{name}" value="一致">原本どおり</label>'
+                     f'<label><input type="radio" name="{name}" value="違う">原本と違う</label>'
+                     f'<input type="text" data-scheck-page="{eid}" placeholder="頁と節（例 p.49 §4・3）">'
+                     f'<input type="text" data-scheck-note="{eid}" placeholder="メモ（違うでは原本の字を書く）"></div>')
         done = bool(e["summary_checked"])
         if e.get("new"):  # 候補の新しい抜き書き。受け入れると要約の確認も記録されるので、確認の印は置かない
             who = '<span class="mut sm">AI の候補（受け入れると要約の確認も記録する）</span>'
@@ -405,14 +503,19 @@ def review_page(data):
     only = [e for e in data.get("excerpts_only", []) if not e.get("missing")]
     if only:
         cards.append(f'<section class="orphans"><h2>引用に使われていない抜き書き（{len(only)} 件）</h2>'
-                     '<p class="note">原稿のどの引用も根拠にしていない。要約・言っていないこと・強さを原文と照らして確かめたものに印を付ける。'
+                     '<p class="note">原稿のどの引用も根拠にしていない。要約の確認か、要ヒューマンチェックの原本での確認が残るものを、ここで確かめる。'
                      '引用に使うときは、その引用の承認で改めて見る。</p>'
                      + "".join(f'<div class="orphan">{ev_html(i, e, "", "抜き書き")}</div>' for i, e in enumerate(only, 1))
                      + "</section>")
+    # 要ヒューマンチェックで有効な確認が無い抜き書き（原本での確認の入力の対象）。新しい抜き書き（候補）は ID が無いので入れない
+    vfp = {}
+    for e in [e for it in data["citations"] + data.get("candidates", []) for e in it["evidence"]] + only:
+        if unconfirmed_source(e) and not e.get("new") and not e.get("missing"):
+            vfp[e["id"]] = e["verbatim_fp"]
     pending = sum(1 for it in data["citations"] if needs_review(it))
     n_cand = len(data.get("candidates", []))
     payload = json.dumps({"manuscript": data["manuscript"], "generated": data["generated"], "citations": meta,
-                          "orphans": {e["id"]: e["summary_fp"] for e in only}, "images": images},
+                          "orphans": {e["id"]: e["summary_fp"] for e in only}, "vfp": vfp, "images": images},
                          ensure_ascii=False).replace("</", "<\\/")
     by_html = ('<select id="by">' + "".join(f'<option value="{E(k)}">{E(k)}（{"人" if v == "human" else "モデル"}）</option>'
                                              for k, v in cfg.APPROVERS.items()) + "</select>") if cfg.APPROVERS else \
@@ -422,7 +525,8 @@ def review_page(data):
         "TITLE": E(f"引用の承認：{data['manuscript']}"),
         "HEAD": E(f"{data['manuscript']}・{data['generated']} 作成・確認待ち {pending} 件"
                   + (f"・候補 {n_cand} 件" if n_cand else "")
-                  + (f"・引用に使われていない抜き書き {len(only)} 件" if only else "")),
+                  + (f"・引用に使われていない抜き書き {len(only)} 件" if only else "")
+                  + (f"・要ヒューマンチェック {len(vfp)} 件" if vfp else "")),
         "CARDS": "\n".join(cards) or '<p class="mut">主張の引用も候補も無い。</p>',
         "DATA": payload,
         "SCRIPT": template("review.js"),
@@ -440,6 +544,15 @@ def cmd_review(args):
     表示の側は bridge を読むだけで、承認・差し戻し・確認の書き込みは approve と confirm を通す。
     """
     import json
+    if args.source_checks:  # 要ヒューマンチェックで有効な確認が無い抜き書きの一覧（md、または外の AI への依頼の JSON）
+        data = source_check_data(args.images)
+        doc = json.dumps(data, ensure_ascii=False, indent=1) + "\n" if args.json else source_checks_md(data)
+        if args.out:
+            Path(args.out).write_text(doc, encoding="utf-8", newline="\n")
+            print(f"ok review --source-checks: {args.out}（{len(data['items'])} 件）")
+        else:
+            print(doc, end="")
+        return
     if args.html:  # 承認の HTML は承認済も含めて作る（画面で表示を切り替える）。頁の画像は一時フォルダに作って埋め込む
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:

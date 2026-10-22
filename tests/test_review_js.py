@@ -65,6 +65,25 @@ const s = {by: ' hiatama ', confirms: ['a#e2', 'z#e7', 'unknown#e9'], decisions:
 out.output = m.buildOutput(s, D, byId, '2026-10-15T01:00:00.000Z');
 out.empty = m.buildOutput({by: 'x', confirms: [], decisions: {}}, D, byId, 't');
 out.name = [m.downloadName('thesis_vcp_workingEdition.md'), m.downloadName('a b/c.md')];
+
+// 原本での確認（要ヒューマンチェック）。違うはメモが要る。保存した指紋が今の逐語と違えば戻さない
+out.srcMissing = m.missingSourceNotes({
+  'a#e1': {result: '違う', note: ''}, 'a#e2': {result: '違う', note: '原本は page two'}, 'a#e3': {result: '一致', note: ''},
+});
+out.srcStale = [
+  m.isStaleSource({fingerprint: 'x'}, 'x'),
+  m.isStaleSource({fingerprint: 'x'}, 'y'),
+  m.isStaleSource({}, undefined),
+];
+out.srcMerged = m.mergeStored([
+  JSON.stringify({sources: {'a#e1': {result: '一致', fingerprint: 'v1'}}}),
+  JSON.stringify({sources: {'a#e1': {result: '違う', note: 'n', fingerprint: 'v1'}}}),
+]).sources;
+out.srcOutput = m.buildOutput({by: 'hiatama', confirms: [], decisions: {}, sources: {
+  'a#e1': {result: '一致', page: 'p.2', note: '', fingerprint: 'vfp1'},
+  'a#e2': {result: '', page: '', note: '', fingerprint: 'vfp2'},  // 結果を選んでいないものは書かない
+}}, D, byId, '2026-10-15T01:00:00.000Z');
+out.srcOnly = m.buildOutput({by: 'x', confirms: [], decisions: {}, sources: {'a#e2': {result: '', fingerprint: 'vfp2'}}}, D, byId, 't');
 console.log(JSON.stringify(out));
 """
 
@@ -124,6 +143,23 @@ class ReviewJsTest(unittest.TestCase):
 
     def test_download_name(self):
         self.assertEqual(self.out["name"], ["decisions_thesis_vcp_workingEdition.json", "decisions_a_b_c.json"])
+
+    def test_source_check_in_output_is_written_with_its_fingerprint(self):  # §5.10 の 7
+        o = self.out["srcOutput"]
+        self.assertEqual(o["source_checks"], [{"id": "a#e1", "fingerprint": "vfp1", "result": "一致", "page": "p.2", "note": ""}])
+        self.assertEqual(o["decisions"], [])
+
+    def test_source_check_only_unchosen_gives_no_file(self):
+        self.assertIsNone(self.out["srcOnly"])
+
+    def test_mismatch_result_without_memo_is_refused(self):  # §5.10 の 7（違うでメモの無いものは断る）
+        self.assertEqual(self.out["srcMissing"], ["a#e1"])
+
+    def test_source_check_saved_with_other_fingerprint_is_not_restored(self):  # §5.10 の 7
+        self.assertEqual(self.out["srcStale"], [False, True, True])
+
+    def test_merge_stored_keeps_sources_later_wins(self):
+        self.assertEqual(self.out["srcMerged"]["a#e1"], {"result": "違う", "note": "n", "fingerprint": "v1"})
 
     def test_page_script_parses(self):
         """ひな形に差し込んだ後の HTML の script が、構文として読めること。"""

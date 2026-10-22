@@ -137,7 +137,7 @@ class HumanCheckTest(unittest.TestCase):
         self.assertEqual(self.run_bridge("confirm", "ocr2020#e1", "--source", "--by", "hiatama", "--result", "違う",
                                          "--note", "原本は page two")[0], 0)
         code, out = self.run_bridge("check")
-        self.assertIn("ocr2020#e1: 要ヒューマンチェック（OCR の文字の層（PDF 2頁目））。原本と違うと報告された", out)
+        self.assertIn("ocr2020#e1: 要ヒューマンチェック（OCR の文字の層（PDF 2頁目））。原本と違うと報告された。逐語を直して確かめ直す（confirm --source か review --html で記録する）", out)
 
     def test_unknown_checker_is_note(self):  # §5.10 の 3（確認者が一覧に無い）
         self.set_approvers()

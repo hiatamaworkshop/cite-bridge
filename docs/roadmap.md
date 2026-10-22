@@ -25,8 +25,13 @@
     - 試験: `python -m pytest -q tests` が 96 件すべて通る（既存の 84 件と、tests/test_human_check.py の 12 件。§5.10 の 1〜5・8・9、§5.8 の承認と候補の受け入れを含む）。
     - 実データ（読むだけ）: check は ERROR 11 件がすべて「導く欄（文献）が古い」（derive を走らせていないため）。要ヒューマンチェックの印は 4 件（kawahara2013 の近似一致、確認済 0）。NOTE 15 件は、抽出の診断の頭書き 7、kawahara2013 の 0.2.0 の自由文の記録 4（形でない）、根拠の NOTE 4。OCR の文字の層の印はまだ出ない（頭書きを足す移行の後に出る）。grade・coverage・classify --list・review -o は最後まで走り、数は前と同じ。
     - 未確認: confirm・apply・checkpoint を実データに当てること（確認のコマンドは読むだけの範囲で走らせない決まり）。
-    - 設計の解釈（報告で確認）: §5.3 の NOTE の問題の文は、欠けた条件の文だけを書き、「逐語を直して確かめ直す」は付けていない。INFO の「review --source-checks」は C3 で作るコマンドを指す。
-- [ ] C3 review で要ヒューマンチェックを確かめる材料と依頼の JSON
+    - 設計の解釈（報告で確認）: §5.3-1 の 違う の問題の文は、「原本と違うと報告された。逐語を直して確かめ直す」とする（設計どおり。利用者が 2026-10-22 に承認）。INFO の「review --source-checks」は C3 で作ったコマンドを指す。
+- [x] C3 review で要ヒューマンチェックを確かめる材料と依頼の JSON (設計 §5.5)
+  - 確かめた記録（2026-10-23）:
+    - 試験: `python -m pytest -q tests` が 110 件すべて通り、スキップは無い（前の 96 件、tests/test_source_review.py の 9 件、tests/test_review_js.py の JS の 5 件。node あり）。§5.10 の 6（依頼の JSON の形）と 7（JS の原本での確認）を含む。
+    - 実データ（読むだけ、出力は一時フォルダ）: check は ERROR 11 件がすべて「導く欄（文献）が古い」。要ヒューマンチェックの印は 4 件（kawahara2013 の近似一致、確認済 0）。`review --source-checks` の md と JSON、`review -o` の md、`review --html` が最後まで走る。md の要ヒューマンチェックの行と `confirm … --source` の命令は 4 件、HTML の入力は 4 件。grade・coverage・classify --list は前と同じ数。
+    - 未確認: 承認の HTML を画面で開いて操作すること。JS の画面の部分（クリックと同じ抜き書きの同期）は、構文の確認（node --check）だけで、動かしていない。
+    - 設計の解釈（報告で確認）: module.exports に missingSourceNotes と isStaleSource を足した（既存の名前は変えていない）。依頼の JSON の answer_example は、原稿と作った時刻だけ実値、by・saved・id・fingerprint は `<…>` のまま。候補の新しい抜き書きには原本での確認の入力を出さない（抜き書きの ID が無いため）。
 - [ ] C4 孫引きの欄
 - [ ] C5 check の分類器の数を classify --list とそろえる
 - [ ] C6 出典ごとの網羅
@@ -37,19 +42,6 @@
 各項目の完了条件に共通する確かめ方:
 - 全体の試験: 道具のフォルダで `python -m pytest -q tests` がすべて通る (`tests/test_review_js.py` は node が要る)。
 - 実データでの確認: 利用者の原稿のリポジトリ (場所は CLAUDE.local.md) で、データを変えずに `check`、`grade`、`coverage`、`classify --list`、`review --source-checks -o <一時フォルダの md>` (C3 より前は `review -o <一時フォルダの md>`) が最後まで走る。derive・extract・confirm・apply は走らせない。check の ERROR は「導く欄が古い」だけでよい (導く欄が増えるため)。それ以外の ERROR は実装の誤りとして直す。NOTE は増えてよい。
-
-### C3. review で要ヒューマンチェックを確かめる材料と依頼の JSON
-状態: ブロック(C2 の後)
-
-設計 §5.5。人が承認の HTML で、外部の AI が依頼の JSON で原本での確認を記録できるようにする。
-
-#### 完了条件
-- [ ] review_data の根拠と excerpts_only に §5.5 の 1 の鍵が入り、頁の画像・確認待ち・excerpts_only の条件が要ヒューマンチェックに基づく (§5.5 の 2〜4)
-- [ ] md の出力に要ヒューマンチェックの行と `confirm … --source` のコマンドが出る (§5.5 の 5)
-- [ ] `review --source-checks [--images DIR] [--json] [-o FILE]` が §5.5 の 6 の形で出す
-- [ ] 承認の HTML と templates/review.js が §5.5 の 7 のとおり原本での確認を集め、判断ファイルの `source_checks` に書き出す
-- [ ] 設計 §5.10 の試験 6・7 を足し、全体の試験が通る
-- [ ] 実データでの確認が `review --source-checks` を含めて通る
 
 ### C4. 孫引きの欄
 

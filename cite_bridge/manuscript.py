@@ -193,7 +193,7 @@ def source_check_state(f, rec, verbatim, writer):
     if rec.get("原本での確認時の指紋") != verbatim_fingerprint(verbatim):
         return checker, "確かめた後に逐語が変わった（または指紋が無い）"
     if result == "違う":
-        return checker, "原本と違うと報告された"
+        return checker, "原本と違うと報告された。逐語を直して確かめ直す"
     return checker, ""
 
 

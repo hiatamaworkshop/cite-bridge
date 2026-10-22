@@ -58,6 +58,8 @@ textarea { flex:1; min-width:0; font:inherit; font-size:13px; padding:2px 8px; b
   border:1px solid var(--line); border-radius:4px; resize:none; overflow:hidden; }
 .keys { font-size:11px; }
 .orphans h2 { font-size:14px; margin:18px 0 4px; } .orphan { background:var(--card); border:1px solid var(--line); border-radius:6px; margin:0 0 8px; padding:0 12px 6px; }
+.hc { color:var(--warn); margin:4px 0 0; } .scheck { display:flex; flex-wrap:wrap; gap:4px 12px; align-items:center; margin-top:4px; font-size:13px; }
+.scheck label { cursor:pointer; } .scheck input[type=text] { flex:1 1 12em; min-width:0; font:inherit; font-size:13px; padding:1px 6px; background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:4px; }
 @media (max-width:600px) { .decide { flex-wrap:wrap; } textarea { flex-basis:100%; } }
 </style></head>
 <body class="pending-only">
@@ -71,7 +73,8 @@ textarea { flex:1; min-width:0; font:inherit; font-size:13px; padding:2px 8px; b
 <main>
 <p class="note">本文と根拠の逐語を読んでから判断する。点線の枠は AI の候補である。この HTML は何も書き込まない。
 保存した判断ファイルを cite-bridge の apply に渡すと、この HTML を作った時点から本文・根拠・要約・候補が変わっていないものだけが書き込まれる。
-左の縁が破線のカードは、印の無い出典に対する AI の候補で、受け入れると原稿に印が置かれる。</p>
+左の縁が破線のカードは、印の無い出典に対する AI の候補で、受け入れると原稿に印が置かれる。
+要ヒューマンチェックは、機械の照合では原本の字を保証できない抜き書きである（OCR の文字の層、近似一致、照合不能、読めない字）。頁の画像か原本で逐語を確かめ、結果を選ぶ。外部の AI に委ねたときは、その AI が承認者の一覧の名前で判断ファイルを書く。</p>
 {{CARDS}}
 </main>
 <script type="application/json" id="data">{{DATA}}</script>

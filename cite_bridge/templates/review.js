@@ -2,13 +2,14 @@
 // 保存済みの入力（localStorage の文字列。古いものから順）を一つにまとめる。後のものが優先する。読めなければ空
 function mergeStored(raws) {
   try {
-    const merged = {decisions: {}, confirms: []};
+    const merged = {decisions: {}, confirms: [], sources: {}};
     for (const raw of raws) {
       const s = JSON.parse(raw || '{}');
       if (s.by) merged.by = s.by;
       if (s.foldDone !== undefined) merged.foldDone = s.foldDone;
       Object.assign(merged.decisions, s.decisions || {});
       merged.confirms.push(...(s.confirms || []));
+      Object.assign(merged.sources, s.sources || {});
     }
     return merged;
   } catch (e) { return {}; }
@@ -30,7 +31,17 @@ function missingReasons(decisions) {
     .filter(([id, d]) => (d.action === 'send_back' || d.action === 'reject') && !d.note)
     .map(([id]) => id);
 }
-// 判断ファイルの内容（cite-bridge-decisions/1）。判断も確認も無ければ null
+// 原本での確認の「違う」には、原本の字を書いたメモが要る。メモの無い id を返す（差し戻しの理由と同じ扱い）
+function missingSourceNotes(sources) {
+  return Object.entries(sources)
+    .filter(([id, v]) => v.result === '違う' && !v.note)
+    .map(([id]) => id);
+}
+// 保存した原本での確認が、今の逐語の指紋と違えば戻さない（逐語が変わったので見直してもらう）
+function isStaleSource(v, fp) {
+  return !v || !fp || v.fingerprint !== fp;
+}
+// 判断ファイルの内容（cite-bridge-decisions/1）。判断も確認も原本での確認も無ければ null
 function buildOutput(s, D, byId, nowIso) {
   const confirms = [];
   for (const e of s.confirms) {
@@ -38,6 +49,9 @@ function buildOutput(s, D, byId, nowIso) {
     if (c) confirms.push({id: e, fingerprint: c.excerpts[e]});
     else if (D.orphans && e in D.orphans) confirms.push({id: e, fingerprint: D.orphans[e]});  // どの引用にも使われていない抜き書き
   }
+  const sources = s.sources || {};
+  const source_checks = Object.entries(sources).filter(([id, v]) => v.result)
+    .map(([id, v]) => ({id, fingerprint: v.fingerprint, result: v.result, page: v.page || '', note: v.note || ''}));
   const ds = Object.entries(s.decisions);
   const out = {format: 'cite-bridge-decisions/1', manuscript: D.manuscript, generated: D.generated, by: s.by.trim(),
     saved: nowIso,
@@ -45,8 +59,8 @@ function buildOutput(s, D, byId, nowIso) {
       note: d.note, remark: d.remark || '',
       fingerprint: byId[id].fingerprint, evidence: byId[id].evidence})),
     candidates: ds.filter(([id, d]) => d.cand && d.action).map(([id, d]) => ({id, action: d.action, note: d.note, cfp: byId[id].cfp})),
-    confirms};
-  if (!out.decisions.length && !out.candidates.length && !out.confirms.length) return null;
+    confirms, source_checks};
+  if (!out.decisions.length && !out.candidates.length && !out.confirms.length && !out.source_checks.length) return null;
   return out;
 }
 function downloadName(manuscript) {
@@ -56,6 +70,7 @@ function downloadName(manuscript) {
 // ---- 画面（DOM に触れる）
 if (typeof document !== 'undefined') (function () {
   const D = JSON.parse(document.getElementById('data').textContent);
+  D.vfp = D.vfp || {};  // 要ヒューマンチェックで未確認の抜き書きの逐語の指紋（原本での確認の入力の対象）
   const KEY = 'cite-bridge:' + D.manuscript;
   const byId = Object.fromEntries(D.citations.map(c => [c.id, c]));
   const cards = () => [...document.querySelectorAll('article.card')].filter(a => a.offsetParent !== null);
@@ -69,10 +84,10 @@ if (typeof document !== 'undefined') (function () {
   function store(s) { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {} }
   function grow(t) { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }
   function collect() {
-    const s = {decisions: {}, confirms: [], by: document.getElementById('by').value,
+    const s = {decisions: {}, confirms: [], sources: {}, by: document.getElementById('by').value,
                foldDone: document.getElementById('foldDone').checked};
     document.querySelectorAll('article.card').forEach(a => {
-      const id = a.dataset.id, r = a.querySelector('input[type=radio]:checked');
+      const id = a.dataset.id, r = a.querySelector('.decide input[type=radio]:checked');
       const note = a.querySelector('textarea[data-note]').value.trim();
       const rm = a.querySelector('textarea[data-remark]'), remark = rm ? rm.value.trim() : '';
       if ((r && r.value) || note || remark) s.decisions[id] = makeDecision(byId[id], r ? r.value : '', note, remark);
@@ -80,12 +95,30 @@ if (typeof document !== 'undefined') (function () {
     });
     document.querySelectorAll('input[data-confirm]:checked').forEach(c => s.confirms.push(c.dataset.confirm));
     s.confirms = [...new Set(s.confirms)];
+    // 原本での確認は、結果を選んだものだけを集める。指紋は読み込んだ時の値（D.vfp）を持たせる
+    document.querySelectorAll('[data-scheck]').forEach(h => {
+      const eid = h.dataset.scheck, r = h.querySelector('input[type=radio]:checked');
+      if (!r || !r.value) return;
+      const p = h.querySelector('[data-scheck-page]'), n = h.querySelector('[data-scheck-note]');
+      s.sources[eid] = {result: r.value, page: p ? p.value.trim() : '', note: n ? n.value.trim() : '', fingerprint: D.vfp[eid]};
+    });
     return s;
   }
   function refresh() {
     const s = collect(); store(s);
     const n = Object.values(s.decisions).filter(d => d.action).length;
-    document.getElementById('count').textContent = '判断 ' + n + ' 件・要約の確認 ' + s.confirms.length + ' 件';
+    document.getElementById('count').textContent = '判断 ' + n + ' 件・要約の確認 ' + s.confirms.length + ' 件・原本での確認 ' + Object.keys(s.sources).length + ' 件';
+  }
+  // 同じ抜き書きの原本での確認は、カードが複数あってもそろえる（要約の確認の印と同じ扱い）
+  function syncScheck(el) {
+    const host = el.closest('[data-scheck]'); if (!host) return;
+    const eid = host.dataset.scheck;
+    const kind = el.type === 'radio' ? null : ['data-scheck-page', 'data-scheck-note'].find(k => el.hasAttribute(k));
+    document.querySelectorAll('[data-scheck="' + eid + '"]').forEach(h => {
+      if (h === host) return;
+      if (kind === null) { const r = h.querySelector('input[type=radio][value="' + el.value + '"]'); if (r) r.checked = true; }
+      else { const t = h.querySelector('[' + kind + ']'); if (t) t.value = el.value; }
+    });
   }
   function restore() {
     const s = load();
@@ -94,16 +127,24 @@ if (typeof document !== 'undefined') (function () {
     for (const [id, d] of Object.entries(s.decisions || {})) {
       const a = document.getElementById(id); if (!a || !byId[id]) continue;
       if (isStale(d, byId[id])) continue;
-      const r = a.querySelector('input[type=radio][value="' + (d.action || '') + '"]'); if (r) r.checked = true;
+      const r = a.querySelector('.decide input[type=radio][value="' + (d.action || '') + '"]'); if (r) r.checked = true;
       a.querySelector('textarea[data-note]').value = d.note || '';
       const rm = a.querySelector('textarea[data-remark]'); if (rm) rm.value = d.remark || '';
     }
     (s.confirms || []).forEach(e => document.querySelectorAll('input[data-confirm="' + e + '"]').forEach(c => c.checked = true));
+    for (const [eid, v] of Object.entries(s.sources || {})) {
+      if (isStaleSource(v, D.vfp[eid])) continue;  // 逐語が変わったものは戻さない
+      document.querySelectorAll('[data-scheck="' + eid + '"]').forEach(h => {
+        const r = h.querySelector('input[type=radio][value="' + v.result + '"]'); if (r) r.checked = true;
+        const p = h.querySelector('[data-scheck-page]'); if (p) p.value = v.page || '';
+        const n = h.querySelector('[data-scheck-note]'); if (n) n.value = v.note || '';
+      });
+    }
   }
   function foldDecided() {
     const on = document.getElementById('foldDone').checked;
     document.querySelectorAll('article.card').forEach(a => {
-      const r = a.querySelector('input[type=radio]:checked');
+      const r = a.querySelector('.decide input[type=radio]:checked');
       if (on && r && r.value) a.classList.add('folded');
     });
   }
@@ -111,9 +152,13 @@ if (typeof document !== 'undefined') (function () {
     if (e.target.matches('textarea')) grow(e.target);
     if (e.target.matches('input[data-confirm]'))  // 同じ根拠が他のカードにもあれば、確認の印をそろえる
       document.querySelectorAll('input[data-confirm="' + e.target.dataset.confirm + '"]').forEach(c => c.checked = e.target.checked);
+    if (e.target.matches('[data-scheck-page], [data-scheck-note]')) syncScheck(e.target);
     refresh();
   });
-  document.addEventListener('change', e => { if (e.target.matches('input[type=radio]')) foldDecided(); });
+  document.addEventListener('change', e => {
+    if (e.target.matches('input[type=radio]') && e.target.closest('[data-scheck]')) { syncScheck(e.target); refresh(); return; }
+    if (e.target.matches('input[type=radio]')) foldDecided();
+  });
   document.addEventListener('click', e => {
     const b = e.target.closest('.fold'); if (b) b.closest('article').classList.toggle('folded');
   });
@@ -140,7 +185,7 @@ if (typeof document !== 'undefined') (function () {
     if (!cur) return;
     const v = {'1': 0, '2': 1, '3': 2}[e.key];  // 保留・承認（受け入れ）・差し戻し（却下）の順に並ぶ
     if (v !== undefined) {
-      cur.querySelectorAll('input[type=radio]')[v].checked = true; refresh(); foldDecided();
+      cur.querySelectorAll('.decide input[type=radio]')[v].checked = true; refresh(); foldDecided();
       if (v === 2) cur.querySelector('textarea[data-note]').focus();
       e.preventDefault(); return;
     }
@@ -153,6 +198,8 @@ if (typeof document !== 'undefined') (function () {
     if (!s.by.trim()) { alert('判断する者を書く'); return; }
     const missing = missingReasons(s.decisions);
     if (missing.length) { alert('差し戻しと却下には理由が要る: ' + missing.join(', ')); return; }
+    const noNote = missingSourceNotes(s.sources);
+    if (noNote.length) { alert('原本と違うには、原本の字をメモに書く: ' + noNote.join(', ')); return; }
     const out = buildOutput(s, D, byId, new Date().toISOString());
     if (!out) { alert('判断がまだ無い'); return; }
     const a = document.createElement('a');
@@ -164,4 +211,5 @@ if (typeof document !== 'undefined') (function () {
   document.querySelectorAll('textarea').forEach(grow);
 })();
 
-if (typeof module !== 'undefined') module.exports = {mergeStored, isStale, makeDecision, missingReasons, buildOutput, downloadName};
+if (typeof module !== 'undefined') module.exports = {mergeStored, isStale, makeDecision, missingReasons, buildOutput, downloadName,
+  missingSourceNotes, isStaleSource};
