@@ -115,7 +115,7 @@ def review_data(cids=None, images=None, include_done=False, all_orphans=False):
         img = None
         ok = bool(ef.get("要約の確認")) and rec.get("要約の確認時の指紋") == summary_fingerprint(ef)
         return {"id": r, "verbatim": ef.get("逐語", ""), "location": d.get("所在", ""), "match": st,
-                "grade": hd.get("格", ""), "source_check": ef.get("原本での確認", ""),
+                "grade": hd.get("格", ""), "source_check": ef.get("原本での確認", ""), "secondary": ef.get("孫引き", ""),
                 **source_check_fields(ef, rec, d),
                 "image": Path(img).as_posix() if img else None,
                 "before": d.get("前", ""), "sentence": d.get("含む文", ""), "after": d.get("後", ""),
@@ -126,7 +126,7 @@ def review_data(cids=None, images=None, include_done=False, all_orphans=False):
     def new_ev(key, x, n):
         """候補の新しい抜き書き。所在と前後の文は、既存の抜き書きと同じく道具が導く。要ヒューマンチェックの印も同じ規則で導く。"""
         grade, src = _sources_for(key, bib, cache)
-        e = {"id": f"{key}（新 {n}）", "new": True, "verbatim": x["逐語"], "grade": grade, "source_check": "",
+        e = {"id": f"{key}（新 {n}）", "new": True, "verbatim": x["逐語"], "grade": grade, "source_check": "", "secondary": "",
              "strength": x["強さ"], "summary": x["要約"], "not_said": x["言っていないこと"], "summary_checked": None,
              "location": "", "match": "照合不能", "before": "", "sentence": "", "after": "", "image": None}
         a = z = None
@@ -318,6 +318,8 @@ def review_md(data):
                 continue
             out += [f"### 根拠 {i}: {e['id']}", "", f"- 所在: {e['location'] or '（導けない）'}", f"- 照合: {e['match']}",
                     f"- 格: {e['grade']}"]
+            if e["secondary"]:
+                out.append(f"- 孫引き: {e['secondary']}")
             if e["source_check"]:
                 out.append(f"- 原本での確認: {e['source_check']}")
             if e["needs_check"]:
@@ -388,6 +390,8 @@ def review_page(data):
         h.append(f'<div class="ev"><p class="evh">{label} {i} <b>{eid}</b> <span class="mut">'
                  f'{E(e["location"] or "所在を導けない")}・{E(e["match"])}・{E(e["grade"])}'
                  + (f'・他に {E("・".join(others))} の根拠' if others else "") + "</span></p>")
+        if e["secondary"]:
+            h.append(f'<p class="mut sm">孫引き：{E(e["secondary"])}</p>')
         if e["source_check"]:
             h.append(f'<p class="mut sm">原本での確認：{E(e["source_check"])}</p>')
         if e["needs_check"]:

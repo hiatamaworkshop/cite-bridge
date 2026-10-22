@@ -3,8 +3,8 @@
 import datetime
 import sys
 from . import config as cfg
-from .judge import (FLAGGED, _classifier_or_stop, append_ledger, build, estimate, fresh, judge_status, lang_pair,
-                    load_ledger, plan_requests, registry, send_requests, spec_fp, units_from_data, values_at)
+from .judge import (FLAGGED, _classifier_or_stop, append_ledger, build, cleared, estimate, fresh, judge_status,
+                    lang_pair, load_ledger, plan_requests, registry, send_requests, spec_fp, units_from_data, values_at)
 from .review import review_data
 
 
@@ -72,7 +72,7 @@ def _list(checks, units, ledger, show_all=False):
             stale += 1
             continue
         record = [v for p in [c.get("compare")] if p for v in values_at(u, p) if v]
-        rows.append((item, t, e["label"], e.get("score"), record, judge_status(c, e["label"], record)))
+        rows.append((item, t, e["label"], e.get("score"), record, judge_status(c, e["label"], record, cleared(c, u))))
     shown = [r for r in rows if show_all or r[5] in FLAGGED or r[5] == "判定できない"]
     for item, t, label, score, record, status in sorted(shown, key=lambda r: (r[5] not in FLAGGED, r[0], r[1])):
         sc = f"（{score:.2f}）" if isinstance(score, float) else ""

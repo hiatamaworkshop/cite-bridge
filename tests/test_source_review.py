@@ -189,7 +189,7 @@ class SourceReviewTest(unittest.TestCase):
             "id": "q1", "candidate": True, "kind": "主張", "key": "doe2020", "entry": "", "cfp": "x", "state": "候補",
             "line": 1, "section": "", "sentence": "", "paren": "", "paragraph": "", "fields": {},
             "evidence": [{"id": "doe2020（新 1）", "new": True, "verbatim": "x", "grade": "PDF所持（OCR の抽出）",
-                          "source_check": "", "needs_check": "OCR の抽出", "check_ok": False, "check_problem": "原本での確認が無い",
+                          "source_check": "", "secondary": "", "needs_check": "OCR の抽出", "check_ok": False, "check_problem": "原本での確認が無い",
                           "check_record": "", "verbatim_fp": "abcd1234", "strength": "観察", "summary": "", "not_said": "",
                           "summary_checked": None, "summary_fp": "", "location": "", "match": "一致", "before": "",
                           "sentence": "", "after": "", "image": None, "weak": False, "written_by": ""}]}],

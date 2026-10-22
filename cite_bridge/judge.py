@@ -47,6 +47,7 @@ DEFAULT_CHECKS = [
                   "仮定": "仮定や問題設定", ABSTAIN: "材料から決められない"},
         "materials": {"source": "excerpt.逐語", "before": "excerpt.前", "after": "excerpt.後"},
         "flag_on": ["他者の紹介"],
+        "cleared_by": "excerpt.孫引き",
     },
     {
         "type": "cite.not_said", "version": 2, "for": "excerpt",
@@ -65,7 +66,7 @@ SLOT_NAMES = {"claim": "本文の文", "source": "原典の逐語", "before": "�
               "not_said": "原典が言っていないこと"}
 # 抜き書きの欄名 -> review_data の根拠（evidence）の鍵
 EXCERPT_FIELDS = {"逐語": "verbatim", "前": "before", "含む文": "sentence", "後": "after",
-                  "強さ": "strength", "要約": "summary", "言っていないこと": "not_said"}
+                  "強さ": "strength", "要約": "summary", "言っていないこと": "not_said", "孫引き": "secondary"}
 PATH_RE = re.compile(r"^(citation|excerpt)\.(\S+)$")
 
 
@@ -104,7 +105,9 @@ def _validate(c):
         sys.exit(f"型 {t}: labels に「{ABSTAIN}」と、もう一つ以上の選択肢が要る")
     if not c["materials"]:
         sys.exit(f"型 {t}: materials が空")
-    paths = list(c["materials"].values()) + [c[k] for k in ("compare", "about") if c.get(k)]
+    if c.get("cleared_by") and c.get("compare"):
+        sys.exit(f"型 {t}: cleared_by と compare は一緒に使えない（記録で消す型と、記録と比べる型は別）")
+    paths = list(c["materials"].values()) + [c[k] for k in ("compare", "about", "cleared_by") if c.get(k)]
     for p in paths:
         m = PATH_RE.match(p)
         if not m:
@@ -248,8 +251,16 @@ def _rank(order, label):
     return next((i for i, group in enumerate(order) if label in group), None)
 
 
-def judge_status(check, label, record):
+def cleared(check, unit):
+    """型の cleared_by の欄に値があるか（記録で印が消えるか）。cleared_by の無い型は False。"""
+    if not check.get("cleared_by"):
+        return False
+    return any(v for v in values_at(unit, check["cleared_by"]))
+
+
+def judge_status(check, label, record, is_cleared=False):
     """分類器のラベルを、記録（compare の欄の値）と突き合わせた結果。確からしさは使わない。
+    is_cleared は cleared_by の欄に値があるか（§6.4）。flag_on のラベルでも記録があれば 一致 とする。
 
     型が order（軽い順のラベルの組）を持てば、記録より重いと判定したときだけ食い違い（印）にし、軽いと判定したときは
     記録より軽い（印にしない）とする。人が記録したずれより小さいと言われても、直す理由にならないため。
@@ -268,7 +279,9 @@ def judge_status(check, label, record):
                 top = max(rr)
                 return "一致" if lr == top else ("食い違い" if lr > top else "記録より軽い")
         return "一致" if label in vals else "食い違い"
-    return "要確認" if label in check.get("flag_on", []) else "問題なし"
+    if label in check.get("flag_on", []):
+        return "一致" if is_cleared else "要確認"
+    return "問題なし"
 
 
 FLAGGED = ("食い違い", "要確認")
@@ -321,7 +334,7 @@ def attach_checks(data):
                 record = [v for p in [c.get("compare")] if p for v in values_at(u, p)]
                 rows.append({"item": item, "type": t, "label": e["label"], "score": e.get("score"),
                              "record": [v for v in record if v], "fresh": is_fresh,
-                             "status": judge_status(c, e["label"], record) if is_fresh else "古い"})
+                             "status": judge_status(c, e["label"], record, cleared(c, u)) if is_fresh else "古い"})
         if rows:
             it["classifier"] = rows
 

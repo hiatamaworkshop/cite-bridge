@@ -32,7 +32,12 @@
     - 実データ（読むだけ、出力は一時フォルダ）: check は ERROR 11 件がすべて「導く欄（文献）が古い」。要ヒューマンチェックの印は 4 件（kawahara2013 の近似一致、確認済 0）。`review --source-checks` の md と JSON、`review -o` の md、`review --html` が最後まで走る。md の要ヒューマンチェックの行と `confirm … --source` の命令は 4 件、HTML の入力は 4 件。grade・coverage・classify --list は前と同じ数。
     - 未確認: 承認の HTML を画面で開いて操作すること。JS の画面の部分（クリックと同じ抜き書きの同期）は、構文の確認（node --check）だけで、動かしていない。
     - 設計の解釈（報告で確認）: module.exports に missingSourceNotes と isStaleSource を足した（既存の名前は変えていない）。依頼の JSON の answer_example は、原稿と作った時刻だけ実値、by・saved・id・fingerprint は `<…>` のまま。候補の新しい抜き書きには原本での確認の入力を出さない（抜き書きの ID が無いため）。
-- [ ] C4 孫引きの欄
+- [x] C4 孫引きの欄 (設計 §6)
+  - 確かめた記録（2026-10-23）:
+    - 試験: `python -m pytest -q tests` が 123 件すべて通る（前の 110 件、tests/test_secondary_source.py の 13 件。§6.6 の 1〜6 を含む）。
+    - 実データ（読むだけ、出力は一時フォルダ）: check は ERROR 0 件で exit 0、NOTE 33 件、関連研究の INFO は 2 件（harada2006#e2、hua2026_typing_dissolution#e7。どちらも孫引きは無い）。grade・coverage・classify --list（--all を含む）・`review --source-checks -o` の md が最後まで走る。原稿の抜き書きには孫引きが無いので、孫引きの INFO と cite.attribution の一致は実データでは出ない（試験で確かめた）。
+    - 未確認: 承認の HTML を画面で開き、「孫引き」の行を見ること（HTML は文字列の試験だけ）。原稿に孫引きを書いて実データで確かめること（原稿のデータは変えない決まり）。check の ERROR が 0 件になった理由（C3 の記録の「導く欄が古い」11 件は今は出ない）は確かめていない。derive は走らせていない。
+    - 設計の解釈（報告で確認）: 台帳に書く status は、孫引きを使わない今までの式のまま。一覧と review は今の記録から決める。値の中の語は「、」で分け、書誌の key と完全に一致するものだけを拾う（複数なら「元の文献は書誌にある（a、b）」）。cleared_by と compare は同じ型に置けない（_validate で断る）。候補の新しい抜き書きの 孫引き は空。tests/test_source_review.py の根拠の形に secondary を足した（既存の試験の形を review_data に合わせた）。
 - [ ] C5 check の分類器の数を classify --list とそろえる
 - [ ] C6 出典ごとの網羅
 - [ ] C7 0.3.0 の文書と版
@@ -43,20 +48,7 @@
 - 全体の試験: 道具のフォルダで `python -m pytest -q tests` がすべて通る (`tests/test_review_js.py` は node が要る)。
 - 実データでの確認: 利用者の原稿のリポジトリ (場所は CLAUDE.local.md) で、データを変えずに `check`、`grade`、`coverage`、`classify --list`、`review --source-checks -o <一時フォルダの md>` (C3 より前は `review -o <一時フォルダの md>`) が最後まで走る。derive・extract・confirm・apply は走らせない。check の ERROR は「導く欄が古い」だけでよい (導く欄が増えるため)。それ以外の ERROR は実装の誤りとして直す。NOTE は増えてよい。
 
-### C4. 孫引きの欄
-
-設計 §6。原典の中の孫引きを決まった欄で記録し、cite.attribution の印と関連研究の INFO を記録で消せるようにする。
-
-#### 完了条件
-- [ ] 抜き書きの書く欄 `孫引き` (英語の別名 secondary_source) を読み、要約の指紋に §6 の 2 のとおり含める
-- [ ] check の関連研究の INFO が孫引きで消え、孫引きの根拠を持つ引用に §6 の 3 の INFO が出る
-- [ ] judge.py の型に `cleared_by` が加わり、既定の cite.attribution が `excerpt.孫引き` で一致になる (§6 の 4)
-- [ ] review の md と HTML に `孫引き: <値>` が出る
-- [ ] 設計 §6 の 6 の試験を足し、全体の試験が通る
-- [ ] 実データでの確認が通る
-
 ### C5. check の分類器の数を classify --list とそろえる
-状態: ブロック(C4 の後)
 
 設計 §7。check・classify --list・マニフェストが同じ数え方 (今の判定だけ、cleared_by を含む今の状態) を使う。
 

@@ -93,7 +93,7 @@ FIELD_ALIASES = {
     "written_by": "記入", "source_check": "原本での確認", "kind": "種類", "excerpts": "抜き書き",
     "source": "文献", "reason": "理由", "interpretation": "解釈", "diff": "原文との差", "approval": "承認",
     "human_reading": "人の読み", "human_reading_by": "人の読みの記入",
-    "not_quotes": "引用でない句", "target": "対象",
+    "not_quotes": "引用でない句", "target": "対象", "secondary_source": "孫引き",
     "grade": "格", "text": "抽出", "match": "照合", "location": "所在", "section_kind": "節の種類",
     "before": "前", "sentence": "含む文", "after": "後", "also_found_in": "他の文献で一致",
     "approved_fingerprint": "承認時の指紋", "approved_text": "承認時の本文",

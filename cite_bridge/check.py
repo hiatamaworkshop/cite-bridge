@@ -92,7 +92,8 @@ def run_check():
                         by_kind[kind] += 1
                 else:
                     notes.append(f"{w}: 要ヒューマンチェック（{reason}）。{problem}（confirm --source か review --html で記録する）")
-            if d.get("節の種類") in ("関連研究", "参考文献"):
+            # 孫引きの記録があれば、原典の主張でないと記録済み（§6.3）
+            if d.get("節の種類") in ("関連研究", "参考文献") and not f.get("孫引き"):
                 infos.append(f"{w}: 原典の{d['節の種類']}の節にある文。原典の著者の主張でない可能性")
             excerpts[bid] = f
             states[bid] = (st, confirmed, reason)
@@ -166,6 +167,12 @@ def run_check():
             for r in refs:
                 if r not in excerpts:
                     errors.append(f"{w}: 抜き書き '{r}' が無い")
+                    continue
+                sec = excerpts[r].get("孫引き", "")
+                if sec:  # 原典が他の文献の主張を紹介している逐語を、主張として引いている（§6.3）
+                    keyed = [t.strip() for t in sec.split("、") if t.strip() in bib]
+                    tail = f"。元の文献は書誌にある（{'、'.join(keyed)}）。直接引けるか確かめる" if keyed else ""
+                    infos.append(f"{w}: 根拠 {r} は孫引き（{sec}）。本文で元の文献に帰属させているか確かめる{tail}")
             ref_keys = list(dict.fromkeys(r.split("#")[0] for r in refs))
             for name in ("理由", "解釈"):
                 for shown, cands in refs_in(f.get(name, ""), ref_keys):

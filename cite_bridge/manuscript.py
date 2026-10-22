@@ -139,8 +139,10 @@ def evidence_hash(refs, excerpts, reading=""):
 
 
 def summary_fingerprint(fields):
-    """抜き書きの、人が確かめる欄（逐語・要約・言っていないこと・強さ）の指紋。"""
+    """抜き書きの、人が確かめる欄（逐語・要約・言っていないこと・強さ）の指紋。孫引きがあるときだけ、それも含める（§6.2）。"""
     s = "\n".join(re.sub(r"\s", "", fields.get(n, "")) for n in ("逐語", "強さ", "要約", "言っていないこと"))
+    if fields.get("孫引き"):
+        s += "\n孫引き\t" + re.sub(r"\s", "", fields["孫引き"])
     return hashlib.sha1(s.encode("utf-8")).hexdigest()[:8]
 
 
