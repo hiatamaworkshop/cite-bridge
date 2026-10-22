@@ -339,22 +339,31 @@ def attach_checks(data):
             it["classifier"] = rows
 
 
-def summary():
-    """台帳の要約。check とマニフェスト用。台帳が無ければ None。
+def count_judgments(units, checks=None, ledger=None):
+    """今の判定を数える。classify --list・check・マニフェストは、この一つの数え方を使う。
 
-    数えるのは、今の型（登録と版と文面の指紋）に合う判定だけ。型を外したか文面を替えた後の判定は stale に数える。
-    材料（本文・逐語）が変わった古さまでは見ない（引用ごとの材料の組み立てが要るため。一覧は classify --list）。
+    数えるのは、台帳の最新の判定のうち、今の型（登録と版と文面）に合い、今の材料（本文・逐語）と突き合わせて新しいもの
+    （fresh）。記録との比較は今の記録で行い、cleared_by を含む。古い判定は数えず、件数（stale）だけ返す。
+    単位（引用・抜き書き）が無くなった判定と、型が無くなった判定も古いに数える。
+    返り値は {"rows": [(item, 型, 判定, score, 記録, 状態)], "stale": K, "flagged": M}。判定の件数は len(rows)。
     """
-    ledger = load_ledger()
+    if ledger is None:
+        ledger = load_ledger()
     if not ledger:
-        return None
-    checks = {c["type"]: c for c in registry()}
-    cur = [e for e in ledger.values() if e["type"] in checks and e.get("version") == checks[e["type"]]["version"]
-           and e.get("spec") == spec_fp(checks[e["type"]])]
-    return {"judgments": len(cur), "stale": len(ledger) - len(cur),
-            "flagged": sum(1 for e in cur if e.get("status") in FLAGGED),
-            "providers": sorted({f"{e.get('provider')}/{e.get('model')}" for e in cur}),
-            "types": sorted({f"{e['type']}@{e['version']}" for e in cur})}
+        return {"rows": [], "stale": 0, "flagged": 0}
+    checks = registry() if checks is None else checks
+    by_type = {c["type"]: c for c in checks}
+    unit_by = {u["item"]: u for u in units}
+    rows, stale = [], 0
+    for (item, t), e in sorted(ledger.items()):
+        c, u = by_type.get(t), unit_by.get(item)
+        b = build(c, u) if c and u else None
+        if not b or not fresh(e, c, b[2]):
+            stale += 1
+            continue
+        record = [v for p in [c.get("compare")] if p for v in values_at(u, p) if v]
+        rows.append((item, t, e["label"], e.get("score"), record, judge_status(c, e["label"], record, cleared(c, u))))
+    return {"rows": rows, "stale": stale, "flagged": sum(1 for r in rows if r[5] in FLAGGED)}
 
 
 # ---------------------------------------------------------------- 要求と送信
@@ -453,18 +462,19 @@ def lang_pair(unit):
 
 
 
-def manifest_record():
-    """マニフェストの classifier 欄。分類器を設定せず、台帳も無ければ None。
+def manifest_record(units):
+    """マニフェストの classifier 欄。分類器を設定せず、台帳も無ければ None。units は呼ぶ側が review_data から作って渡す。
 
     型は、設定の [[checks]] で足せる。足したら、ここに型の名前・版・文面の指紋が載る（何に対して判定したかが残る）。
     """
-    s = summary()
-    if not cfg.CLASSIFIER and s is None:
+    ledger = load_ledger()
+    if not cfg.CLASSIFIER and not ledger:
         return None
+    s = count_judgments(units, ledger=ledger)
     return {
         "provider": cfg.CLASSIFIER.get("provider", ""), "model": cfg.CLASSIFIER.get("model", ""),
         "types": [{"type": c["type"], "version": c["version"], "spec": spec_fp(c)} for c in registry()],
-        "judgments": s["judgments"] if s else 0, "flagged": s["flagged"] if s else 0, "stale": s["stale"] if s else 0,
+        "judgments": len(s["rows"]), "flagged": s["flagged"], "stale": s["stale"],
         "note": "型は bridge.toml の [[checks]] に足せる（同じ type は上書き）。文面か選択肢を変えると spec が変わり、以前の判定は古くなる。"
                 "確からしさは規則に使わない。印を立てるだけで、承認の状態は変えない（README「分類器」）。",
     }

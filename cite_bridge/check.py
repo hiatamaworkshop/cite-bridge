@@ -8,7 +8,7 @@ from .bib import extraction_diagnosis, grade_of, parse_bib
 from .blocks import parse_blocks
 from .config import DIFFS, EXC_REQUIRED, KINDS, STRENGTHS
 from .derive import derive_excerpts
-from .judge import summary as judge_summary
+from .judge import count_judgments, load_ledger, units_from_data
 from .manuscript import (
     approval_state,
     coverage_of,
@@ -278,6 +278,7 @@ def cmd_coverage(args):
 
 
 def cmd_check(args):
+    from .review import review_data  # review が check を import するので、循環を避けてここで import する（設計 §7.3）
     r = run_check()
     errors, notes, infos, summary = r["errors"], r["notes"], r["infos"], r["excerpt_states"]
     for e in errors:
@@ -286,10 +287,11 @@ def cmd_check(args):
         print("NOTE ", n)
     for n in infos:
         print("INFO ", n)
-    js = judge_summary()
-    if js:  # 台帳だけを読む。判定の古さの確認と一覧は classify --list
-        print("INFO ", f"分類器: 判定 {js['judgments']} 件のうち印 {js['flagged']} 件（判定時の記録との比較。一覧は classify --list）"
-                       + (f"。今の型と文面に合わない古い判定 {js['stale']} 件は数えていない" if js["stale"] else ""))
+    if load_ledger():  # 台帳が空なら何も出さない。数えるのは classify --list と同じ（judge.count_judgments）
+        data = review_data(None, None, include_done=True, checked=r)  # classify --list と同じ単位。run_check は走らせ直さない
+        js = count_judgments(units_from_data(data))
+        print("INFO ", f"分類器: 判定 {len(js['rows'])} 件のうち印 {js['flagged']} 件（今の記録との比較。一覧は classify --list）。"
+                       f"古い判定 {js['stale']} 件は数えていない")
     print(f"--- 抜き書き {r['excerpts']} 件 " + " / ".join(f"{k} {v}" for k, v in sorted(summary.items()))
           + f" / 整合の崩れ {len(errors)} 件")
     if errors:

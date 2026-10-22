@@ -5,6 +5,7 @@
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -228,6 +229,8 @@ class ClassifierTest(unittest.TestCase):
         self.assertEqual((c["provider"], c["model"]), ("jev", "jev-test"))
         self.assertIn("cite.tone", {t["type"] for t in c["types"]})
         self.assertIn("[[checks]]", c["note"])
+        chk = re.search(r"分類器: 判定 (\d+) 件のうち印 (\d+) 件", self.run_bridge("check")[1])
+        self.assertEqual((c["judgments"], c["flagged"]), (int(chk.group(1)), int(chk.group(2))))  # マニフェストと check は同じ数え方
 
     def test_manifest_has_no_classifier_when_unused(self):
         self.write("bridge/bridge.toml", tb.CONFIG)
@@ -236,6 +239,38 @@ class ClassifierTest(unittest.TestCase):
         m = json.loads(next((self.dir / "bridge/checkpoints").glob("*.json")).read_text(encoding="utf-8"))
         self.assertIsNone(m["classifier"])
 
+
+    def check_and_list_counts(self):
+        """check の分類器の数（判定、印、古い）を返す。classify --list の数と一致しなければ試験を落とす（設計 §7.5）。"""
+        out = self.run_bridge("check")[1]
+        m = re.search(r"分類器: 判定 (\d+) 件のうち印 (\d+) 件.*古い判定 (\d+) 件は数えていない", out)
+        self.assertIsNotNone(m, out)
+        chk = tuple(int(x) for x in m.groups())
+        m = re.search(r"--- 判定 (\d+) 件（古い (\d+) 件を除く）のうち、印 (\d+) 件", self.run_bridge("classify", "--list")[1])
+        self.assertIsNotNone(m)
+        self.assertEqual(chk, (int(m.group(1)), int(m.group(3)), int(m.group(2))), out)  # 判定、印、古い（check の順）
+        return chk
+
+    def test_check_and_list_count_stale_after_a_verbatim_change(self):
+        """材料（逐語）を変えると、その抜き書きを使う判定は古くなり、数えない。check と classify --list は同じ数を出す（§7.5）。"""
+        self.run_bridge("classify", "--send")
+        self.assertEqual(self.check_and_list_counts(), (7, 4, 0))
+        exc = self.read("bridge/excerpts/doe2020.md")
+        verbatim = "逐語: Participants completed the task in 12 seconds on average."
+        self.assertEqual(exc.count(verbatim), 1)
+        self.write("bridge/excerpts/doe2020.md", exc.replace(verbatim, verbatim.rstrip(".")))
+        n, flagged, stale = self.check_and_list_counts()
+        self.assertEqual(stale, 3)  # c001 の diff と、doe2020#e1 の attribution・not_said
+        self.assertEqual(n, 4)
+        self.assertEqual(flagged, 2)  # 元の印 4 件のうち、古くなった cite.diff（食い違い）と attribution（要確認）を除く
+
+    def test_check_and_list_count_a_citation_that_is_gone_as_stale(self):
+        """引用の印を消すと、その引用の判定（単位が無くなった判定）は古いに数える（§7.1）。"""
+        self.run_bridge("classify", "--send")
+        self.assertEqual(self.check_and_list_counts(), (7, 4, 0))
+        self.write("manuscript.md", self.read("manuscript.md").replace("〔c001〕", ""))
+        n, flagged, stale = self.check_and_list_counts()
+        self.assertEqual((n, stale), (4, 3))  # c001 の diff と、c001 だけが使っていた e1 の attribution・not_said が単位ごと無くなる
 
     # ---- 測定（classify --eval）
 
@@ -313,6 +348,11 @@ class MaterialTest(unittest.TestCase):
         pkg = Path(__file__).resolve().parents[1] / "cite_bridge"
         deps = {f.stem: set(re.findall(r"^\s*from \.(\w+) import", f.read_text(encoding="utf-8"), re.M))
                 for f in pkg.glob("*.py")}
+        # 例外は一本だけ。check は review を cmd_check の中で import する（設計 §7.3。review が check を import するため、頭では import できない）
+        check_src = (pkg / "check.py").read_text(encoding="utf-8")
+        self.assertFalse(re.search(r"^from \.review import", check_src, re.M), "check.py の review の import は関数の中に置く（§7.3）")
+        self.assertTrue(re.search(r"^\s+from \.review import", check_src, re.M), "check.py に review の import が無い")
+        deps["check"].discard("review")
 
         def walk(n, path):
             for m in deps.get(n, ()):

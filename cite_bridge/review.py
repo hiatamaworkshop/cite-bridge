@@ -83,11 +83,12 @@ def needs_review(it):
     return it["state"] != "承認済" or not summaries_confirmed(it["evidence"]) or any(unconfirmed_source(e) for e in it["evidence"])
 
 
-def review_data(cids=None, images=None, include_done=False, all_orphans=False):
+def review_data(cids=None, images=None, include_done=False, all_orphans=False, checked=None):
     """人の確認に要る材料を、引用ごとの辞書の並びで返す（review の md と JSON、外の表示が使う）。
 
     原稿の順に並べる。cids を渡せばそれだけ、渡さなければ確認待ちのもの（needs_review。承認済でも要約が未確認なら入る）。
     include_done なら、承認済と指示もすべて含める。
+    checked は run_check() の結果。渡されればそれを使い（check と checkpoint は走らせた結果を渡す）、無ければ走らせる。
     """
     bib = parse_bib()
     cache = {}
@@ -102,7 +103,7 @@ def review_data(cids=None, images=None, include_done=False, all_orphans=False):
     target = Path(head["fields"].get("対象", ""))
     text = mask_comments(target.read_text(encoding="utf-8"))
     pos = {cid: off for cid, off, _ in manuscript_marks(text)}
-    checked = run_check()
+    checked = run_check() if checked is None else checked
     tool = Path(sys.argv[0]).as_posix()
     who = default_approver()
     items = []

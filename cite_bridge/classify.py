@@ -3,8 +3,8 @@
 import datetime
 import sys
 from . import config as cfg
-from .judge import (FLAGGED, _classifier_or_stop, append_ledger, build, cleared, estimate, fresh, judge_status,
-                    lang_pair, load_ledger, plan_requests, registry, send_requests, spec_fp, units_from_data, values_at)
+from .judge import (FLAGGED, _classifier_or_stop, append_ledger, count_judgments, estimate, judge_status, lang_pair,
+                    load_ledger, plan_requests, registry, send_requests, spec_fp, units_from_data, values_at)
 from .review import review_data
 
 
@@ -19,7 +19,7 @@ def cmd_classify(args):
     ledger = load_ledger()
 
     if args.list:
-        return _list(checks, units, ledger, show_all=args.all)
+        return _list(units, ledger, show_all=args.all)
 
     max_chars = int(cfg.CLASSIFIER.get("max_chars", 6000))
     reqs, too_long, done = plan_requests(units, checks, ledger, max_chars)
@@ -59,25 +59,12 @@ def cmd_classify(args):
         sys.exit(1)
 
 
-def _list(checks, units, ledger, show_all=False):
-    by_type = {c["type"]: c for c in checks}
-    unit_by = {u["item"]: u for u in units}
-    rows, stale = [], 0
-    for (item, t), e in sorted(ledger.items()):
-        c, u = by_type.get(t), unit_by.get(item)
-        if c is None or u is None:
-            continue
-        b = build(c, u)
-        if not b or not fresh(e, c, b[2]):
-            stale += 1
-            continue
-        record = [v for p in [c.get("compare")] if p for v in values_at(u, p) if v]
-        rows.append((item, t, e["label"], e.get("score"), record, judge_status(c, e["label"], record, cleared(c, u))))
-    shown = [r for r in rows if show_all or r[5] in FLAGGED or r[5] == "判定できない"]
+def _list(units, ledger, show_all=False):
+    j = count_judgments(units, ledger=ledger)
+    shown = [r for r in j["rows"] if show_all or r[5] in FLAGGED or r[5] == "判定できない"]
     for item, t, label, score, record, status in sorted(shown, key=lambda r: (r[5] not in FLAGGED, r[0], r[1])):
         sc = f"（{score:.2f}）" if isinstance(score, float) else ""
         rec = f"  記録: {'・'.join(record)}" if record else ""
         print(f"{status:<6} {item}  {t}  {label}{sc}{rec}")
-    n_flag = sum(1 for r in rows if r[5] in FLAGGED)
-    print(f"--- 判定 {len(rows)} 件（古い {stale} 件を除く）のうち、印 {n_flag} 件"
+    print(f"--- 判定 {len(j['rows'])} 件（古い {j['stale']} 件を除く）のうち、印 {j['flagged']} 件"
           + ("" if show_all else "（全件は --all）"))

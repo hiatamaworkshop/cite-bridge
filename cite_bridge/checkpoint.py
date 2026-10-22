@@ -9,9 +9,10 @@ from . import config as cfg
 from .approve import approver_problem
 from .check import run_check
 from .config import TOOL_NAME, TOOL_VERSION
-from .judge import manifest_record
+from .judge import load_ledger, manifest_record, units_from_data
 from .manuscript import unmark
 from .propose import _manuscript
+from .review import review_data
 from .util import _git, _sha256
 
 
@@ -46,6 +47,7 @@ def cmd_checkpoint(args):
     files["excerpts"] = {p.as_posix(): _sha256(p) for p in sorted(cfg.EXC_DIR.glob("*.md"))}
     files["texts"] = {t: _sha256(t) for t in r["texts"]}
     tracked = [v for v in inputs.values() if v] + [cfg.EXC_DIR.as_posix()]
+    units = units_from_data(review_data(None, None, include_done=True, checked=r)) if load_ledger() else []  # check と同じ単位
     manifest = {
         "format": "cite-bridge-manifest/1",
         "tool": tool_version(),
@@ -62,7 +64,7 @@ def cmd_checkpoint(args):
         "summary_checks": r["summary_checks"],
         "source_checks": r["source_checks"],
         "by": by,
-        "classifier": manifest_record(),  # 分類器を使っていなければ None
+        "classifier": manifest_record(units),  # 分類器を使っていなければ None
     }
     cfg.CKPT_DIR.mkdir(parents=True, exist_ok=True)
     out = cfg.CKPT_DIR / (now.strftime("%Y%m%dT%H%M%SZ") + ".json")
