@@ -10,7 +10,7 @@ from .check import cmd_check, cmd_coverage, cmd_grade
 from .checkpoint import cmd_checkpoint, cmd_precommit, cmd_strip
 from .config import CONFIG, load_config
 from .derive import cmd_derive
-from .judge import cmd_classify
+from .classify import cmd_classify
 from .fetch import cmd_extract, cmd_snapshot
 from .propose import cmd_propose, cmd_sentences
 from .review import cmd_review

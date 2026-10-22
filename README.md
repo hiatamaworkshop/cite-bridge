@@ -151,7 +151,8 @@ bridge.py classify --eval <測定の組.json> --variant <文面の案.toml> [--v
 | check | 整合の検査（check）、網羅の一覧（coverage）、格の一覧（grade） |
 | approve / apply | 承認・差し戻し・要約の確認・指摘の書き込みと、判断ファイルの適用 |
 | propose | 印の無い出典の候補づくり |
-| judge / classifier | 分類器による検査（型の登録、台帳、記録との突き合わせ）と、提供元のアダプタ |
+| judge / classifier | 分類器による検査の核（型の登録、材料、台帳、記録との突き合わせ、要求と送信）と、提供元のアダプタ。judge は review を import しない |
+| classify / evaluate | 分類器のコマンド（classify と --list）と、文面の測定（classify --eval） |
 | review（templates/） | 確認の材料（md・JSON）と承認の HTML。HTML と JavaScript は templates/ に置く |
 | fetch | PDF の抽出と Web 資料の写し |
 | checkpoint | マニフェスト、道具の版、pre-commit、印の除去 |

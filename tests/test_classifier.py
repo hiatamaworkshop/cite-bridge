@@ -304,8 +304,23 @@ class MaterialTest(unittest.TestCase):
     """分類器へ渡す材料の整え。"""
 
     def setUp(self):
-        from cite_bridge import judge
-        self.j = judge
+        from cite_bridge import evaluate, judge
+        self.j, self.ev = judge, evaluate
+
+    def test_modules_do_not_import_each_other(self):
+        """モジュールの import に循環が無い（関数の中の import も数える）。judge は核で、review を import しない。"""
+        import re
+        pkg = Path(__file__).resolve().parents[1] / "cite_bridge"
+        deps = {f.stem: set(re.findall(r"^\s*from \.(\w+) import", f.read_text(encoding="utf-8"), re.M))
+                for f in pkg.glob("*.py")}
+
+        def walk(n, path):
+            for m in deps.get(n, ()):
+                self.assertNotIn(m, path, f"import の循環: {' -> '.join(path + [m])}")
+                walk(m, path + [m])
+        for n in deps:
+            walk(n, [n])
+        self.assertNotIn("review", deps["judge"])
 
     def test_citation_parens_are_removed_but_content_parens_stay(self):
         s = "小林は透過性の原則（状態理解容易性・手順連想容易性）を挙げた（小林哲則, 人工知能学会誌 17(3) pp.266-270, 2002）〔c001〕。"
@@ -361,13 +376,13 @@ class MaterialTest(unittest.TestCase):
         self.assertNotIn("https でない", w(cl.JevClassifier(endpoint="http://127.0.0.1:9/v1")))  # 手元の試験用
 
     def test_expected_flag_and_twin(self):
-        self.assertIs(self.j.expected_flag({"id": "c1"}, "cite.diff"), False)       # 承認済み: 印が立たないのが正しい
-        self.assertIs(self.j.expected_flag({"id": "m1", "flag": ["cite.diff"]}, "cite.diff"), True)
-        self.assertIsNone(self.j.expected_flag({"id": "m1", "flag": ["cite.diff"]}, "cite.x"))  # flag に無い型は数えない
+        self.assertIs(self.ev.expected_flag({"id": "c1"}, "cite.diff"), False)       # 承認済み: 印が立たないのが正しい
+        self.assertIs(self.ev.expected_flag({"id": "m1", "flag": ["cite.diff"]}, "cite.diff"), True)
+        self.assertIsNone(self.ev.expected_flag({"id": "m1", "flag": ["cite.diff"]}, "cite.x"))  # flag に無い型は数えない
         by = {"m1": {"id": "m1", "base": "c1", "split": "tune", "flag": ["cite.diff"], "claim": "ja"}, "c1": {"id": "c1"}}
-        t = self.j.resolve_twin({"id": "m1.en", "twin": "m1", "claim": "en"}, by)
+        t = self.ev.resolve_twin({"id": "m1.en", "twin": "m1", "claim": "en"}, by)
         self.assertEqual((t["base"], t["split"], t["flag"], t["claim"]), ("c1", "tune", ["cite.diff"], "en"))
-        self.assertEqual(self.j.resolve_twin({"id": "c1.en", "twin": "c1", "claim": "en"}, by)["base"], "c1")
+        self.assertEqual(self.ev.resolve_twin({"id": "c1.en", "twin": "c1", "claim": "en"}, by)["base"], "c1")
 
     def test_eval_report_splits_by_language_pair_when_mixed(self):
         import contextlib
@@ -377,14 +392,14 @@ class MaterialTest(unittest.TestCase):
                 for i, lang, exp in (("c1", "ja/ja", False), ("m1", "ja/en", True))]
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            self.j._eval_report(rows, [("設定",)])
+            self.ev._eval_report(rows, [("設定",)])
         out = buf.getvalue()
         self.assertIn("言語の組（本文/原典）ごと", out)
         self.assertIn("tune ja/en", out)
         self.assertIn("tune ja/ja", out)
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            self.j._eval_report(rows[:1], [("設定",)])
+            self.ev._eval_report(rows[:1], [("設定",)])
         self.assertNotIn("言語の組", buf.getvalue())  # 一つの組だけなら、分けた表は出さない
 
 
