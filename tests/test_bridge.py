@@ -719,6 +719,21 @@ class BridgeTest(unittest.TestCase):
         self.write("refs/_web/acme_docs.html", html + " ")
         self.assertEqual(self.run_bridge("snapshot", "acme_docs", "--rebuild")[0], 1)  # ハッシュが合わない
 
+    def test_accessed_date_info(self):
+        (self.dir / "refs/_web").mkdir(parents=True, exist_ok=True)
+        self.write("refs/_web/acme_docs.txt", "<!-- snapshot\nurl: https://acme.example/docs\nretrieved: 2026-01-01\ntype: html\n-->\nSay \"Show labels\".\n")
+        self.write("bridge/excerpts/acme_docs.md", "# acme_docs\n\n## e1\n逐語: Say \"Show labels\".\n強さ: 観察\n"
+                   "要約: ラベルを出す。\n言っていないこと: なし。\n記入: test\n")
+        self.run_bridge("derive")
+        out = self.run_bridge("check")[1]
+        self.assertIn("acme_docs: 書誌に参照日が無い（写しの取得日 2026-01-01）", out)
+        self.write("bib.md", BIB.replace("https://acme.example/docs\n", "https://acme.example/docs（参照 2026-02-02）\n"))
+        out = self.run_bridge("check")[1]
+        self.assertIn("書誌の参照日 2026-02-02 と写しの取得日 2026-01-01 が違う", out)
+        self.write("bib.md", BIB.replace("https://acme.example/docs\n", "https://acme.example/docs（参照 2026-01-01）\n"))
+        out = self.run_bridge("check")[1]
+        self.assertNotIn("参照日", out)
+
     def test_custom_mark_pattern(self):
         self.write("bridge/bridge.toml", CONFIG + '[manuscript]\nmark_pattern = \'\\[\\^(c\\d+)\\]\'\n')
         self.write("manuscript.md", MANUSCRIPT.replace("〔c001〕", "[^c001]"))

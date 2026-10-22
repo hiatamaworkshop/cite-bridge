@@ -47,6 +47,13 @@ def run_check():
         grades[hd.get("格", "")] = grades.get(hd.get("格", ""), 0) + 1
         if hd.get("抽出"):
             used.add(hd["抽出"])
+        if hd.get("格") == "Web 写し（保存あり）" and key in bib:
+            wm = re.search(r"^retrieved: (\S+)", Path(hd["抽出"]).read_text(encoding="utf-8", errors="replace")[:2000], re.M)                 if hd.get("抽出") else None
+            got, acc = (wm.group(1) if wm else None), bib[key].get("accessed")
+            if got and not acc:
+                infos.append(f"{key}: 書誌に参照日が無い（写しの取得日 {got}）")
+            elif got and acc != got:
+                infos.append(f"{key}: 書誌の参照日 {acc} と写しの取得日 {got} が違う。書誌の参照日を写しの取得日にそろえる")
         seen = set()
         for b in blocks:
             bid = f"{key}#{b['id']}"

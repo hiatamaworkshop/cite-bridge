@@ -27,7 +27,8 @@ def bib_keyline(text):
             continue
         note = lines[i + 1] if i + 1 < len(lines) and lines[i + 1].startswith("（") else ""
         pdfs = cfg.PDF_RE.findall(note) if cfg.PDF_RE else []
-        bib[m.group(1)] = {"entry": lines[i - 1], "pdfs": pdfs}
+        am = re.search(r"参照\s*(\d{4}-\d{2}-\d{2})", lines[i - 1])
+        bib[m.group(1)] = {"entry": lines[i - 1], "pdfs": pdfs, "accessed": am.group(1) if am else None}
     return bib
 
 
@@ -50,6 +51,19 @@ def _pdf_paths(value):
     return [x.strip() for x in re.findall(r"[^:;{}]+?\.pdf", value or "", re.I)]
 
 
+def _csl_date(d):
+    """CSL-JSON の date-parts を YYYY-MM-DD にする。年・月・日がそろうときだけ。"""
+    parts = ((d or {}).get("date-parts") or [[]])[0]
+    if len(parts) == 3 and all(parts):
+        return f"{int(parts[0]):04d}-{int(parts[1]):02d}-{int(parts[2]):02d}"
+    return None
+
+
+def _bibtex_date(v):
+    m = re.fullmatch(r"\s*(\d{4})-(\d{2})-(\d{2})\s*", v or "")
+    return m.group(0).strip() if m else None
+
+
 def bib_csljson(text):
     """CSL-JSON（Zotero 等の書き出し）。id が key。PDF は設定の files_field（既定 file）の欄から取る。"""
     import json
@@ -62,6 +76,7 @@ def bib_csljson(text):
         bib[it["id"]] = {
             "entry": _entry_text(authors, year, it.get("title"), it.get("container-title"), it.get("DOI"), it.get("URL")),
             "pdfs": _pdf_paths(it.get(cfg.FILES_FIELD)),
+            "accessed": _csl_date(it.get("accessed")),
         }
     return bib
 
@@ -108,6 +123,7 @@ def bib_bibtex(text):
             "entry": _entry_text(authors, f.get("year"), f.get("title"), f.get("journal") or f.get("booktitle"),
                                  f.get("doi"), f.get("url")),
             "pdfs": _pdf_paths(f.get(cfg.FILES_FIELD.lower(), "")),
+            "accessed": _bibtex_date(f.get("urldate")),
         }
     return bib
 
