@@ -16,6 +16,7 @@ from .manuscript import (
     fingerprint,
     heading_at,
     load_excluded,
+    mark_keys,
     manuscript_marks,
     mask_comments,
     refs_in,
@@ -239,12 +240,12 @@ def run_check():
         for cid in ids_in_text:
             if cid not in block_ids:
                 errors.append(f"{target}: 〔{cid}〕に対応するブロックが無い")
-        cov_marked, cov_unmarked = coverage_of(text)
-        coverage = {"spans": cov_marked + len(cov_unmarked), "in_marked_sentences": cov_marked, "unmarked": len(cov_unmarked)}
+        cov_marked, cov_unmarked, parens = coverage_of(text, bib, mark_keys(blocks))
+        coverage = {"spans": cov_marked + len(cov_unmarked), "in_marked_sentences": cov_marked, "unmarked": len(cov_unmarked), "parens": parens}
         n_ex = len(load_excluded())
         coverage["excluded"] = n_ex
         if coverage["spans"]:
-            infos.append(f"網羅: 原稿の出典らしき括弧 {coverage['spans'] + n_ex} のうち、印のあるもの {cov_marked}、"
+            infos.append(f"網羅: 原稿の出典らしきもの {coverage['spans'] + n_ex}（括弧 {parens}）のうち、印のあるもの {cov_marked}、"
                          f"印の無いもの {len(cov_unmarked)}" + (f"、引用でないと判断したもの {n_ex}" if n_ex else "")
                          + "（印の無いものはこのツールが確かめていない。一覧は coverage、候補づくりは propose）")
         pend = sum(1 for c in load_candidates()["items"].values() if c.get("status") == "pending")
@@ -269,12 +270,13 @@ def run_check():
 
 def cmd_coverage(args):
     """印の無い文にある出典らしき括弧を、行の順に並べる（このツールが確かめていない引用の一覧）。"""
-    head, _ = parse_blocks(cfg.CIT)
+    head, blocks = parse_blocks(cfg.CIT)
     target = Path(head["fields"].get("対象", ""))
-    marked, unmarked = coverage_of(mask_comments(target.read_text(encoding="utf-8")))
-    for ln, span, sec in unmarked:
-        print(f"{target.as_posix()}:{ln}  {span}  （{sec}）")
-    print(f"--- 出典らしき括弧 {marked + len(unmarked)}、印のある文 {marked}、印の無い文 {len(unmarked)}")
+    marked, unmarked, parens = coverage_of(mask_comments(target.read_text(encoding="utf-8")), parse_bib(), mark_keys(blocks))
+    for c in unmarked:
+        span = c["paren"] if c["part"] is None else f"{c['source']}（括弧 {c['paren']} の出典 {c['part'] + 1}/{c['nparts']}）"
+        print(f"{target.as_posix()}:{c['line']}  {span}  （{c['section']}）")
+    print(f"--- 出典らしきもの {marked + len(unmarked)}（括弧 {parens}）、印のある文 {marked}、印の無い文 {len(unmarked)}")
 
 
 def cmd_check(args):

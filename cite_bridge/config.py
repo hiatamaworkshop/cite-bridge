@@ -25,6 +25,8 @@ CHECKS_USER = []    # [[checks]]。問いの型の追加と上書き（既定の
 APPROVERS = {}      # 承認者の一覧 {名前: human / model}。空なら名前を問わない（approvers）
 # 出典らしき括弧（著者と年など）。印の無い文にあるものを「印の無い出典」として数える（coverage.pattern で替える）
 COVER_RE = re.compile(r"[（(][^（）()\n]*?(?<!\d)(?:19|20)\d{2}[a-z]?(?![\d年月日-])[^（）()\n]*[）)]")
+# 頁だけ・同書の括弧（coverage.repeat_pattern で替える）。出典ではなく前の出典の繰り返しとして一件に数える
+REPEAT_RE = re.compile(r"[（(](?:同書[^（）()\n]*|同上|同|ibid\.?[^（）()\n]*|pp?\.\s?\d[^（）()\n]*)[）)]")
 
 
 def load_config(path):
@@ -57,7 +59,7 @@ def load_config(path):
         SENT_END_RE = re.compile(m["sentence_end"])
     PARAGRAPH = m.get("paragraph", PARAGRAPH)
     CKPT_DIR = Path(r.get("checkpoints", "bridge/checkpoints"))
-    global APPLIED, APPROVERS, COVER_RE, CAND_DIR, EXCLUDED, MARK_FORMAT
+    global APPLIED, APPROVERS, COVER_RE, REPEAT_RE, CAND_DIR, EXCLUDED, MARK_FORMAT
     APPLIED = Path(r.get("applied", CIT.parent / "applied.json"))
     CAND_DIR = Path(r.get("candidates", CIT.parent / "candidates"))
     EXCLUDED = Path(r.get("excluded", CIT.parent / "excluded.json"))
@@ -69,6 +71,8 @@ def load_config(path):
         sys.exit(f"approvers の種類は human か model（{bad}）")
     if c.get("coverage", {}).get("pattern"):
         COVER_RE = re.compile(c["coverage"]["pattern"])
+    if c.get("coverage", {}).get("repeat_pattern"):
+        REPEAT_RE = re.compile(c["coverage"]["repeat_pattern"])
     OUTPUT_LANG = c.get("output", {}).get("language", OUTPUT_LANG)
     global WATCH_EXTRA
     WATCH_EXTRA = [Path(x) for x in c.get("hook", {}).get("watch", [])]

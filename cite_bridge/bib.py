@@ -132,6 +132,39 @@ def bib_bibtex(text):
 BIB_ADAPTERS = {"keyline": bib_keyline, "csl-json": bib_csljson, "bibtex": bib_bibtex}
 
 
+def resolve_keys(window, bib, limit=3):
+    """出典の括弧（と直前の語）から、書誌の key の候補を点数の順に返す。年が合うこと、著者の部分に名前があることを重く見る。"""
+    years = set(re.findall(r"(?<!\d)((?:19|20)\d{2})(?!\d)", window))
+    latin = {w.lower() for w in re.findall(r"[A-Z][A-Za-z\x27-]{2,}", window)} - {"proceedings", "the", "and"}
+    kanji = set(re.findall(r"[㐀-鿿]{2,4}", window))
+    res = []
+    for key, b in bib.items():
+        entry = b["entry"]
+        m = re.search(r"[（(]\s*(?:(?:19|20)\d{2}|n\.d\.)", entry)
+        authors = entry[:m.start()] if m else entry[:80]
+        al, el = authors.lower(), entry.lower()
+        score, why = 0, []
+        for w in latin:
+            if re.search(r"(?<![a-z])" + re.escape(w) + r"(?![a-z])", al):
+                score += 3
+                why.append(w)
+            elif re.search(r"(?<![a-z])" + re.escape(w) + r"(?![a-z])", el):
+                score += 1
+        for w in kanji:
+            if w in authors:
+                score += 3
+                why.append(w)
+        ey = set(re.findall(r"(?<!\d)((?:19|20)\d{2})(?!\d)", entry))
+        if years and years & ey:
+            score += 2
+        elif years and ey:
+            score -= 2
+        if score >= 3 and why:
+            res.append({"key": key, "score": score, "entry": entry})
+    res.sort(key=lambda x: (-x["score"], x["key"]))
+    return res[:limit]
+
+
 def garbled(raw, entry):
     s = re.sub(r"\s", "", raw)
     if len(s) < 50:  # 画像だけの PDF 等。要旨だけの短い抽出は通す

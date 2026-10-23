@@ -44,7 +44,12 @@
     - 実データ（読むだけ、出力は一時フォルダ）: check は ERROR 0 件。分類器は 判定 8 件のうち印 2 件、古い判定 8 件（classify --list も同じ 8・2・8）。check で run_check は一度だけ走る（呼び出しを数えて確かめた）。grade・coverage は HEAD と同じ出力。`review --source-checks -o` の md が最後まで走る。
     - 未確認: checkpoint で run_check が二度走らないことは、コードを読んだことと試験（checkpoint の試験で件数が一致する）で確かめた。実データの checkpoint は、マニフェストを書くので走らせていない。
     - 設計の解釈（報告で確認）: 単位が無くなった判定に加えて、型が登録から外れた判定（cite.strength の 3 件）も古いに数える。以前は黙って飛ばしていた。試験の import の規則は、check から review への関数の中の import だけを例外にした（§7.3 の形を固定するため）。classify --list --cids で絞ると、絞り外の判定が古いに数えられる。
-- [ ] C6 出典ごとの網羅
+- [x] C6 出典ごとの網羅 (設計 §8.1、§8.2 の 2)
+  - 確かめた記録（2026-10-23）:
+    - 試験: `python -m pytest -q tests` が 138 件すべて通る（前の 125 件、tests/test_coverage.py の 13 件。§8.1 の 9 の 1〜8 と、--checkable で repeat の件が外れる試験、除外の part の試験を含む）。
+    - 実データ（読むだけ、出力は一時フォルダ）: check は ERROR 0 件で exit 0。網羅の INFO は「出典らしきもの 92（括弧 85）のうち、印のあるもの 24、印の無いもの 68」（前は括弧 79 のうち 18・61）。増えた分は、出典ごとに分けた 7 件（DSCR、StepWrite、W3C、Smartbox、緒方・後藤、WISS、Zhu の「（…; …）」）と、頁だけ・同書の括弧 6 件（いずれも直後に印があり、印ありになる）。Smartbox の括弧は、印の key が二つ目の出典なので、一つ目が印の無いものになる。grade・classify --list は前と同じ出力。`review --source-checks -o` の md が最後まで走る。
+    - 未確認: propose --checkable を実データに当てること（作業票を原稿のリポジトリに書くため、走らせていない）。checkpoint の manifest の parens は試験で確かめた（実データの manifest は書いていない）。
+    - 設計の解釈（報告で確認）: 出典の番号 part は 0 から。表示は k/n（k = part + 1）。一件の括弧の source は括弧の中身。書誌を渡さないときも、括弧の分けと repeat は働く（印の判定だけが今と同じ）。実データでは、一件の括弧の印の有無と除外が HEAD と一致する（分けた括弧を除く）。propose は --checkable 以外では repeat の件も作業票に出す（§8.2 の 2 のとおり）。作業票の見出しは、同じ括弧の出典どうしで括弧が同じ文字列になる（item の ID で区別する。作業票の形は変えていない）。
 - [ ] C7 0.3.0 の文書と版
 
 ## 項目
@@ -53,23 +58,7 @@
 - 全体の試験: 道具のフォルダで `python -m pytest -q tests` がすべて通る (`tests/test_review_js.py` は node が要る)。
 - 実データでの確認: 利用者の原稿のリポジトリ (場所は CLAUDE.local.md) で、データを変えずに `check`、`grade`、`coverage`、`classify --list`、`review --source-checks -o <一時フォルダの md>` (C3 より前は `review -o <一時フォルダの md>`) が最後まで走る。derive・extract・confirm・apply は走らせない。check の ERROR は「導く欄が古い」だけでよい (導く欄が増えるため)。それ以外の ERROR は実装の誤りとして直す。NOTE は増えてよい。
 
-### C6. 出典ごとの網羅
-
-設計 §8.1。一つの括弧に並ぶ出典を一つずつ数え、頁だけ・同書の括弧も数える。
-
-#### 完了条件
-- [ ] 括弧を出典に分け、`[coverage] repeat_pattern` の括弧を repeat として数え、件に `source`・`part`・`kind` が入る (§8.1 の 1〜3)
-- [ ] 一件の括弧の item の ID が変わらず、出典ごとの件は §8.1 の 4 の式になる
-- [ ] 印の判定が §8.1 の 5 のとおり key で結ぶ。書誌を渡さないときは今と同じ結果になる
-- [ ] resolve_keys を bib.py へ移し、呼び出し元すべてで書誌と印の key を渡す (§8.1 の 6)
-- [ ] 除外の記録が `part` を持ち、(文の指紋、括弧、n、part) で照合する (§8.1 の 7)
-- [ ] coverage・check の網羅の INFO・マニフェストの `parens` が §8.1 の 8 の形になる
-- [ ] `propose --checkable` が repeat の件を含めない (§8.2 の 2)
-- [ ] 設計 §8.1 の 9 の試験と、`--checkable` で repeat の件が外れる試験を足し、全体の試験が通る
-- [ ] 実データでの確認が通る
-
 ### C7. 0.3.0 の文書と版
-状態: ブロック(C1〜C6 の後)
 
 設計 §9 と §5.7。
 

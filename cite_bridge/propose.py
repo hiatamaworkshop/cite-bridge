@@ -7,13 +7,14 @@ import re
 import sys
 from . import config as cfg
 from .approve import load_excerpt_fields, write_approval, write_confirm
-from .bib import extraction_diagnosis, grade_of, parse_bib
+from .bib import extraction_diagnosis, grade_of, parse_bib, resolve_keys
 from .blocks import parse_blocks, rewrite_derived
 from .config import DIFFS, STRENGTHS, out_name
 from .derive import derive_excerpts, printed_page
 from .manuscript import (
     coverage_items,
     load_excluded,
+    mark_keys,
     mask_comments,
     self_check_problem,
     sentence_bounds,
@@ -82,39 +83,6 @@ def rank_texts(query, texts):
     return [i for s, i in sorted(scores, key=lambda x: -x[0])]
 
 
-def resolve_keys(window, bib, limit=3):
-    """出典の括弧（と直前の語）から、書誌の key の候補を点数の順に返す。年が合うこと、著者の部分に名前があることを重く見る。"""
-    years = set(re.findall(r"(?<!\d)((?:19|20)\d{2})(?!\d)", window))
-    latin = {w.lower() for w in re.findall(r"[A-Z][A-Za-z\x27-]{2,}", window)} - {"proceedings", "the", "and"}
-    kanji = set(re.findall(r"[㐀-鿿]{2,4}", window))
-    res = []
-    for key, b in bib.items():
-        entry = b["entry"]
-        m = re.search(r"[（(]\s*(?:(?:19|20)\d{2}|n\.d\.)", entry)
-        authors = entry[:m.start()] if m else entry[:80]
-        al, el = authors.lower(), entry.lower()
-        score, why = 0, []
-        for w in latin:
-            if re.search(r"(?<![a-z])" + re.escape(w) + r"(?![a-z])", al):
-                score += 3
-                why.append(w)
-            elif re.search(r"(?<![a-z])" + re.escape(w) + r"(?![a-z])", el):
-                score += 1
-        for w in kanji:
-            if w in authors:
-                score += 3
-                why.append(w)
-        ey = set(re.findall(r"(?<!\d)((?:19|20)\d{2})(?!\d)", entry))
-        if years and years & ey:
-            score += 2
-        elif years and ey:
-            score -= 2
-        if score >= 3 and why:
-            res.append({"key": key, "score": score, "entry": entry})
-    res.sort(key=lambda x: (-x["score"], x["key"]))
-    return res[:limit]
-
-
 def _clause(text, c, items):
     """括弧が受け持つ句。同じ文の前の出典の括弧から、次の出典の括弧まで（日本語は「小林（2002）は…」と後ろに述べる形が多い）。"""
     a, z = sentence_bounds(text, c["off"])
@@ -170,7 +138,7 @@ def cmd_propose(args):
     bib = parse_bib()
     target = _manuscript()
     text = mask_comments(target.read_text(encoding="utf-8"))
-    items = coverage_items(text)
+    items = coverage_items(text, bib, mark_keys(parse_blocks(cfg.CIT)[1]))
     cands = load_candidates()["items"]
     extra = {}
     for s in args.add_key or []:
@@ -186,14 +154,13 @@ def cmd_propose(args):
               and (not args.items or c["item"] in args.items)]
     resolved = []
     for c in picked:  # key の候補は絞り込みに使うので、--limit で切る前に出す
-        window = text[max(0, c["off"] - 30):c["end"]]
-        keys = resolve_keys(window, bib)
+        keys = resolve_keys(c["window"], bib)
         for k in extra.get(c["item"], []):
             if k not in [x["key"] for x in keys]:
                 keys.insert(0, {"key": k, "score": None, "entry": bib[k]["entry"]})
         if args.key and not set(args.key) & {x["key"] for x in keys}:
             continue
-        if args.checkable and not (keys and grade_of(keys[0]["key"], bib)[0] in CHECKABLE_GRADES):
+        if args.checkable and (c["kind"] == "repeat" or not (keys and grade_of(keys[0]["key"], bib)[0] in CHECKABLE_GRADES)):
             continue
         resolved.append((c, keys))
     cache, work = {}, []
@@ -297,7 +264,8 @@ def _load_drafts(args):
     if drafts.get("format") != "cite-bridge-drafts/1":
         sys.exit("下書きの形式が違う（format: cite-bridge-drafts/1 を期待）")
     text = mask_comments(_manuscript().read_text(encoding="utf-8"))
-    now = {c["item"]: c for c in coverage_items(text)}
+    _, blocks = parse_blocks(cfg.CIT)
+    now = {c["item"]: c for c in coverage_items(text, bib, mark_keys(blocks))}
     store = load_candidates()
     exc = load_excerpt_fields()
     cache, ok, bad = {}, [], []
@@ -418,7 +386,8 @@ def apply_candidate(item, action, by, note, cfp, dry=False):
         return False, f"{item}: " + self_check_problem(by, writer_of(c.get("記入")))
     target = _manuscript()
     raw = target.read_bytes().decode("utf-8")  # 改行を変えずに書き戻すため、改行の変換をせずに読む
-    cur = next((x for x in coverage_items(mask_comments(raw)) if x["item"] == item), None)
+    _, cit_blocks = parse_blocks(cfg.CIT)
+    cur = next((x for x in coverage_items(mask_comments(raw), parse_bib(), mark_keys(cit_blocks)) if x["item"] == item), None)
     if not cur:
         return False, f"{item}: 原稿のその文が変わった。書かなかった"
     if cur["marked"]:
@@ -435,7 +404,7 @@ def apply_candidate(item, action, by, note, cfp, dry=False):
     if c["kind"] == "引用でない":
         if not dry:
             ex = load_excluded()
-            ex.append({"item": item, "paren": cur["paren"], "nth": cur["nth"], "fingerprint": cur["fingerprint"],
+            ex.append({"item": item, "paren": cur["paren"], "nth": cur["nth"], "part": cur["part"], "fingerprint": cur["fingerprint"],
                        "line": cur["line"], "reason": c["理由"], "by": by, "date": today})
             cfg.EXCLUDED.write_text(json.dumps(ex, ensure_ascii=False, indent=1) + "\n", encoding="utf-8", newline="\n")
             c["status"] = "accepted"

@@ -3,6 +3,7 @@
 import hashlib
 import re
 from . import config as cfg
+from .bib import resolve_keys
 from .config import RETURNED
 
 
@@ -25,10 +26,14 @@ def manuscript_marks(text):
     for m in cfg.MARK_RE.finditer(text):
         if any(a <= m.start() < z for a, z in spans):
             continue
-        cid = m.group("id") if "id" in gi else m.group(1)
         key = m.group("key") if "key" in gi else None
-        res.append((cid, m.start(), key))
+        res.append((mark_id(m), m.start(), key))
     return res
+
+
+def mark_id(m):
+    """印の正規表現のマッチから ID を取る（名前つきのグループ id、無ければグループ1）。"""
+    return m.group("id") if "id" in cfg.MARK_RE.groupindex else m.group(1)
 
 
 def sentence_at(text, off):
@@ -79,18 +84,20 @@ def fingerprint(sentence):
     return hashlib.sha1(s.encode("utf-8")).hexdigest()[:8]
 
 
-def coverage_of(text):
-    """原稿の出典らしき括弧（COVER_RE）を、印のある文にあるものと無いものに分ける。text は HTML コメントを伏せたもの。
+def coverage_of(text, bib=None, mark_keys=None):
+    """原稿の出典らしき括弧を、印のある文にあるものと無いものに分ける。text は HTML コメントを伏せたもの。
 
+    返り値は (印のある出典の数, 印の無い出典の件の並び, 括弧の数)。引用でないと記録したものは並びに入れない。
     印の無い文の出典は、このツールが何も確かめていない引用である。check の「確認待ち 0」が引用全体の確認と読まれないよう数を出す。
     """
+    items = coverage_items(text, bib, mark_keys)
     marked, unmarked = 0, []
-    for c in coverage_items(text):
+    for c in items:
         if c["marked"]:
             marked += 1
         elif not c["excluded"]:
-            unmarked.append((c["line"], c["paren"], c["section"]))
-    return marked, unmarked
+            unmarked.append(c)
+    return marked, unmarked, len({c["off"] for c in items})
 
 
 def load_excluded():
@@ -98,36 +105,99 @@ def load_excluded():
     return json.loads(cfg.EXCLUDED.read_text(encoding="utf-8")) if cfg.EXCLUDED and cfg.EXCLUDED.exists() else []
 
 
-def coverage_items(text):
-    """原稿の出典らしき括弧を、文と指紋つきで並べる。item は文の指紋・括弧・文の中で何番目の同じ括弧か、から作る ID で、
-    文が変わらない限り変わらない（候補の作業票と、引用でないの記録が使う）。"""
-    excluded = {(x["fingerprint"], x["paren"], x.get("nth", 0)) for x in load_excluded()}
+def mark_keys(blocks):
+    """印の ID から、その引用のブロックの key の集合 {ID: {key}} を作る（§8.1 の 5）。指示は 文献、主張は 抜き書き の key。"""
+    out = {}
+    for b in blocks:
+        f = b["fields"]
+        if f.get("種類") == "指示":
+            keys = {f.get("文献", "").strip()}
+        else:
+            keys = {r.strip().split("#")[0] for r in f.get("抜き書き", "").split(",") if "#" in r}
+        out[b["id"]] = {k for k in keys if k}
+    return out
+
+
+def _paren_matches(text):
+    """出典らしき括弧（COVER_RE）と、頁だけ・同書の括弧（REPEAT_RE）を、位置の順に (一致, 種類) で返す。
+    REPEAT_RE に当たっても、COVER_RE に当たる括弧と重なれば数えない（COVER_RE の側で数える）。"""
+    covers = list(cfg.COVER_RE.finditer(text))
+    spans = [(m.start(), m.end()) for m in covers]
+    reps = [m for m in cfg.REPEAT_RE.finditer(text) if not any(a <= m.start() < z for a, z in spans)]
+    found = [(m, "cite") for m in covers] + [(m, "repeat") for m in reps]
+    return sorted(found, key=lambda x: x[0].start())
+
+
+def _sources_in(inner):
+    """括弧の中身を ; と ； で分け、前後の空白を除いて、全角の括弧で包んだものが COVER_RE に全体一致するものを出典とする（§8.1 の 1）。"""
+    return [p for p in (x.strip() for x in re.split(r"[;；]", inner)) if cfg.COVER_RE.fullmatch(f"（{p}）")]
+
+
+def coverage_items(text, bib=None, mark_keys=None):
+    """原稿の出典らしき括弧を、文と指紋つきで並べる（§8.1）。
+    出典が二つ以上の括弧は出典ごとに一件（part が出典の番号）、それ以外は括弧ごとに一件（part は None）。
+    repeat（頁だけ・同書）の括弧も一件。item は文の指紋・括弧・文の中で何番目の同じ括弧か（と part）から作る ID で、
+    文が変わらない限り変わらない（候補の作業票と、引用でないの記録が使う）。
+    bib と mark_keys（mark_keys の結果）を渡すと、印を key で結ぶ（§8.1 の 5）。渡さなければ key を使わない。"""
+    excluded = {(x["fingerprint"], x["paren"], x.get("nth", 0), x.get("part")) for x in load_excluded()}
     seen = {}
     out = []
-    for m in cfg.COVER_RE.finditer(text):
+    for m, kind in _paren_matches(text):
+        paren = m.group(0)
         sent = sentence_at(text, m.start())
         fp = fingerprint(sent)
-        nth = seen.get((fp, m.group(0)), 0)
-        seen[(fp, m.group(0))] = nth + 1
-        item = "q" + hashlib.sha1(f"{fp}\t{m.group(0)}\t{nth}".encode("utf-8")).hexdigest()[:7]
+        nth = seen.get((fp, paren), 0)
+        seen[(fp, paren)] = nth + 1
+        srcs = _sources_in(paren[1:-1]) if kind == "cite" else []
+        split = len(srcs) >= 2
         k = m.end()
         while k < len(text) and text[k] in " \t":
             k += 1
-        out.append({"item": item, "off": m.start(), "end": m.end(), "paren": m.group(0), "nth": nth, "sentence": sent,
-                    "fingerprint": fp, "direct": bool(cfg.MARK_RE.match(text, k)), "excluded": (fp, m.group(0), nth) in excluded,
-                    "line": text.count("\n", 0, m.start()) + 1, "section": heading_at(text, m.start())})
-    # 括弧の直後に印があれば印のある出典。無くても、同じ文に括弧へ付いていない印が残っていれば、その数だけ前から印のあるものとみなす
-    # （印を文末に置いた引用）。一文に出典が三つあり印が二つなら、残る一つは印の無い出典である
+        dm = cfg.MARK_RE.match(text, k)
+        for part, source in (enumerate(srcs) if split else [(None, paren[1:-1])]):
+            ident = f"{fp}\t{paren}\t{nth}" + ("" if part is None else f"\t{part}")
+            out.append({"item": "q" + hashlib.sha1(ident.encode("utf-8")).hexdigest()[:7], "off": m.start(), "end": m.end(),
+                        "paren": paren, "nth": nth, "sentence": sent, "fingerprint": fp, "kind": kind,
+                        "source": source, "part": part, "nparts": len(srcs) if split else None,
+                        "window": source if split else text[max(0, m.start() - 30):m.end()],
+                        "direct": bool(dm), "dmark": mark_id(dm) if dm else None,
+                        "excluded": (fp, paren, nth, part) in excluded, "marked": False,
+                        "line": text.count("\n", 0, m.start()) + 1, "section": heading_at(text, m.start())})
     by_sent = {}
     for c in out:
         by_sent.setdefault((c["fingerprint"], c["sentence"]), []).append(c)
-    for (fp, sent), cs in by_sent.items():
-        spare = len(cfg.MARK_RE.findall(sent)) - sum(c["direct"] for c in cs)
-        for c in cs:
-            c["marked"] = c["direct"] or spare > 0
-            if not c["direct"] and spare > 0:
-                spare -= 1
+    for cs in by_sent.values():
+        _mark_sentence(cs, [cid for cid, _, _ in manuscript_marks(cs[0]["sentence"])], bib, mark_keys)
     return out
+
+
+def _mark_sentence(cs, marks, bib, mark_keys):
+    """一文の出典 cs に印を付ける（§8.1 の 5）。marks は文の中の印の ID を位置の順に並べたもの。
+    3（key で結ぶ）は bib と mark_keys を渡したときだけ行う。4 は括弧の直後の印、残りは使われていない印を前から配る。"""
+    used = set()
+    if bib is not None and mark_keys is not None and marks:
+        cands = [{r["key"]: r["score"] for r in resolve_keys(c["window"], bib)} if c["kind"] == "cite" else {} for c in cs]
+        edges = sorted((-cands[i][key], i, j, key) for i in range(len(cs)) for j in range(len(marks))
+                       for key in mark_keys.get(marks[j], ()) if key in cands[i])
+        pairs = set()
+        for _, i, j, key in edges:
+            if cs[i]["marked"] or (marks[j], key) in pairs:
+                continue
+            cs[i]["marked"] = True
+            pairs.add((marks[j], key))
+            used.add(marks[j])
+    taken = set()  # 同じ括弧の出典は、前のものから一つだけが括弧の直後の印を使える
+    for c in cs:
+        if c["marked"] or c["dmark"] is None or c["dmark"] in used or c["off"] in taken:
+            continue
+        c["marked"] = True
+        used.add(c["dmark"])
+        taken.add(c["off"])
+    spare = [cid for cid in marks if cid not in used]
+    for c in cs:
+        if not c["marked"] and spare:
+            c["marked"] = True
+            spare.pop(0)
 
 
 def evidence_hash(refs, excerpts, reading=""):

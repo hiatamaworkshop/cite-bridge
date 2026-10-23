@@ -515,7 +515,7 @@ class BridgeTest(unittest.TestCase):
         self.write("manuscript.md", self.read("manuscript.md") + "\n印の無い引用がある（Smith, 2010）。製品の頁もある（Acme, Docs page）。\n")
         self.run_bridge("derive")
         out = self.run_bridge("check")[1]
-        self.assertIn("出典らしき括弧 2 のうち、印のあるもの 1、印の無いもの 1", out)  # 既定は年の括弧だけ
+        self.assertIn("出典らしきもの 2（括弧 2）のうち、印のあるもの 1、印の無いもの 1", out)  # 既定は年の括弧だけ
         code, out = self.run_bridge("coverage")
         self.assertIn("manuscript.md:7  （Smith, 2010）", out)
         self.write("bridge/bridge.toml", CONFIG + "[coverage]\npattern = '[（(][^（）()]*\\d{4}[^（）()]*[）)]|[（(][A-Z]\\w*, [^（）()]+[）)]'\n")

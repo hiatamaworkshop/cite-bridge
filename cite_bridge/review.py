@@ -16,6 +16,7 @@ from .manuscript import (
     evidence_hash,
     fingerprint,
     heading_at,
+    mark_keys,
     manuscript_marks,
     mask_comments,
     sentence_at,
@@ -195,7 +196,7 @@ def review_data(cids=None, images=None, include_done=False, all_orphans=False, c
         items.append(item)
     cands = []
     if not cids:
-        cov = {c["item"]: c for c in coverage_items(text)}
+        cov = {c["item"]: c for c in coverage_items(text, bib, mark_keys(blocks))}
         for iid, c in load_candidates()["items"].items():
             if c.get("status") != "pending":
                 continue
