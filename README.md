@@ -29,13 +29,38 @@
 リポジトリの根で実行する。
 
 1. 設定を置く。ひな形は SKILL.md の「設定」にある。書誌は keyline、BibTeX、CSL-JSON を読める。
-2. 原本の PDF から抽出テキストを作る。`bridge.py extract`。Web 資料は `bridge.py snapshot <key>`。
-3. 抜き書きを書き、引用を書き、原稿に印を置く。印の無い出典は `bridge.py propose` で作業票にできる。
-4. `bridge.py derive` で導く欄（所在・照合・前後の文）を書き、`bridge.py check` で整合を検査する。
+2. 原本の PDF から抽出テキストを作る。`bridge.py extract`（頭書きつき。頭書きの無い古い抽出は `extract --header-only` で足す）。Web 資料は `bridge.py snapshot <key>`。
+3. 抜き書きを書き、引用を書き、原稿に印を置く。印の無い出典は `bridge.py propose` で作業票にできる（`--key <key>` で key の候補に当たるものだけ、`--checkable` で機械で照合できる格のものだけに絞れる）。
+4. `bridge.py derive` で導く欄（所在・照合・前後の文・要ヒューマンチェック）を書き、`bridge.py check` で整合を検査する。
 5. `bridge.py review --html -o review.html` で承認の画面を作り、人が判断して判断ファイルを保存する。
-6. `bridge.py apply <判断ファイル>` で書き込む。提出前は `bridge.py check --strict`、地点の記録は `bridge.py checkpoint`。
+6. `bridge.py apply <判断ファイル>` で書き込む。要ヒューマンチェックの抜き書きは、次の「原本での確認」で記録する。
+7. 提出前は `bridge.py check --strict`、地点の記録は `bridge.py checkpoint`（承認者の一覧があるときは `--by <人>`）。
 
 git の pre-commit に検査を置くには、同梱の `hooks/pre-commit` を使う（SKILL.md の「hook」）。
+
+## 原本での確認（要ヒューマンチェック）
+
+照合が近似一致か照合不能の抜き書き、OCR の抽出や OCR の文字の層の抜き書き、逐語の範囲に読めない字がある抜き書きは、機械では逐語の実在を保証できない。
+道具はそれに「要ヒューマンチェック」の印を付け、原本で確かめた記録が無ければ確認待ち（NOTE）として出す。確かめるのは人か、人が委ねた外部の AI である。
+
+| コマンド | 内容 |
+|---|---|
+| `review --source-checks [--images DIR] [-o 出力.md]` | 原本での確認が残る抜き書きを一覧にする（md。頁の画像を添えられる） |
+| `review --source-checks --json -o 依頼.json` | 外の AI へ渡す依頼（`cite-bridge-source-checks/1`）。答えは判断ファイルの `source_checks` に書く |
+| `confirm <key#eN> --source --by <名前> [--result 一致\|違う] [--page "p.49 §4・3"] [--note …]` | 原本で確かめた記録を書く。違うときは --note に原本の字を書く |
+| `apply <判断ファイル>` | 判断ファイルの `source_checks` を書く（逐語の指紋が今と合うものだけ） |
+
+- 記録は、確認者・日付・結果（一致か違う）・頁と節・メモを持つ。確認者は承認者の一覧の名前で、model のときは抜き書きの書き手と違う者でなければ数えない。
+- 逐語を直すと記録は有効でなくなり、確かめ直しになる。道具は逐語を直さない。
+- 0.2.0 までの自由文の記録は有効でない。確かめ直して記録し直す。
+
+委ねる場合の決まり。
+
+1. 要ヒューマンチェックの依頼は、人が外部の AI に委ねてよい。委ねるかを決めるのは人で、委ねる AI を承認者の一覧に model として載せるのも人である。
+2. 委ねた AI は、`review --source-checks --json` の依頼を受け取り、その名前で判断ファイルを書く。人がそれを `apply` に渡す。
+3. 書き手の AI（抜き書きを記入したモデル）は、自分の書いた抜き書きの原本での確認を記録できない。
+4. 誰が確かめたかは、記録の確認者と、マニフェストの確認者の種類ごとの数に残る。最終の提出（`checkpoint --by`）は人が出す。
+5. 道具は外部の AI を呼ばない。依頼の JSON を書き出し、判断ファイルを受け取るだけである。
 
 ## 分類器（任意の検査）
 

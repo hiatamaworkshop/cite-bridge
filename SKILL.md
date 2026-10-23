@@ -38,7 +38,8 @@ description: 引用ごとに錨（原典の逐語と、道具が導いた所在�
 ```
 
 - 書く欄：逐語、強さ（観察／示唆／主張／一般化／条件付き）、要約、言っていないこと、記入（書いた者と日付）。
-  照合が近似一致か照合不能のときは、原本での確認（日付、頁、確認者）を書く。確認者が分からない記録は確認として数えない。
+  要ヒューマンチェックの印（`@要ヒューマンチェック`）が付いた抜き書きは、原本での確認を `confirm --source` で記録する（欄を手で書かない。下の「要ヒューマンチェック」）。
+  確認者が分からない記録は確認として数えない。
 - 要約には原文の範囲の外を書かない。自分の読みは引用の側の解釈に書く。
 - 言っていないことや解釈が原文の別の箇所に依るなら、その箇所も抜き書きにして ID（同じ文献なら `e6`、別の文献なら `key#e6`）で指す。
   「同じ頁にある」とだけ書いて指さない形は、未検証の主張が混ざる経路になる。check は指した ID が実在するかを検査する。
@@ -79,6 +80,28 @@ description: 引用ごとに錨（原典の逐語と、道具が導いた所在�
 - 引用一件の本文は、印を含む文である。鉤括弧の中の。では文を切らない。HTML コメントは文の判定と指紋から除くので、
   コメントだけを直しても要再確認にはならない。コメントの中の印は数えない。
 - 印〔c001〕は原稿に残る。提出物を作るときは `strip` で印を外した写しを作り、それを変換に渡す。
+
+## 要ヒューマンチェック（原本での確認）
+
+照合が近似一致か照合不能の抜き書き、OCR の抽出や OCR の文字の層の抜き書き、逐語の範囲に読めない字がある抜き書きは、機械では逐語の実在を保証できない。
+道具はそれに `@要ヒューマンチェック`（理由を「、」で結んだもの）を付け、原本で確かめた記録が無ければ check が NOTE を出す。
+理由は「照合が近似一致」「照合で見つからない」「照合不能（格）」「OCR の抽出」「OCR の文字の層」「逐語の範囲に読めない字」のどれか。
+この印は確認の記録に依らず残る。済んだかは `原本での確認` の記録で決まる。頁の区切りのずれ（抽出の診断 2）は要ヒューマンチェックの理由にしない。
+
+- 確かめる材料は `review --source-checks`（md。`--images DIR` で頁の画像を添える）。外の AI に渡すなら `review --source-checks --json -o 依頼.json`（format `cite-bridge-source-checks/1`）。
+- 記録は `confirm <key#eN> --source --by <名前> [--result 一致|違う] [--page "p.49 §4・3"] [--note …]`。違うのときは --note に原本の字を書く。
+  外の AI が答えたら、その判断ファイルの `source_checks` を `apply` で書く（逐語の指紋が今と合うものだけ書く）。
+- 記録が有効であるのは、確認者が承認者の一覧にあり、model なら抜き書きの書き手と違い、逐語の指紋が今と合い、結果が一致のとき。
+  0.2.0 までの自由文の記録は有効でない（確かめ直して記録し直す）。
+- 逐語を直すと記録は有効でなくなる。直すのは書き手で、道具は直さない。違うと報告された逐語も、書き手が直して確かめ直す。
+
+委ねる場合の決まり（README の「原本での確認（要ヒューマンチェック）」と同じ）。
+
+1. 要ヒューマンチェックの依頼は、人が外部の AI に委ねてよい。委ねるかを決めるのは人で、委ねる AI を承認者の一覧に model として載せるのも人である。
+2. 委ねた AI は、依頼の JSON を受け取り、その名前で判断ファイルを書く。人がそれを `apply` に渡す。
+3. 書き手の AI（抜き書きを記入したモデル）は、自分の書いた抜き書きの原本での確認を記録できない。
+4. 誰が確かめたかは、記録の確認者と、マニフェストの確認者の種類ごとの数に残る。最終の提出（`checkpoint --by <人>`）は人が出す。
+5. 道具は外部の AI を呼ばない。依頼の JSON を書き出し、判断ファイルを受け取るだけである。
 
 ## hook
 
@@ -132,6 +155,7 @@ language = "ja"                                  # 導く欄の名前を書く�
 # alice = "human"
 [coverage]
 # pattern = '…'                                  # 出典らしき括弧（既定は年を含む括弧）。印の無い文にあるものを数える
+# repeat_pattern = '…'                           # 頁だけ・同書の括弧（既定は「（同書…）」「（同）」「（p.49）」等）。出典でなく、前の出典の繰り返しとして一件に数える
 [hook]
 # watch = ["extra/dir"]                          # pre-commit が監視する、設定が指す以外のパス
 ```
@@ -160,17 +184,21 @@ python .claude/skills/cite-bridge/bridge.py apply <判断ファイル.json> [--d
 python .claude/skills/cite-bridge/bridge.py apply --latest [--from DIR] [--dry-run]       # ダウンロード（既定）の最新の判断ファイルを使う
 python .claude/skills/cite-bridge/bridge.py coverage                                     # 印の無い文にある出典らしき括弧の一覧
 python .claude/skills/cite-bridge/bridge.py propose [--section 2.2] [--lines 80-120] [--limit 15] [--add-key ITEM=KEY]  # 印の無い出典の作業票
+python .claude/skills/cite-bridge/bridge.py propose [--key stepwrite2025 ...] [--checkable]  # key の候補に当たる出典だけ／機械で照合できる格の第一候補の出典だけ（repeat は --checkable で外れる）
 python .claude/skills/cite-bridge/bridge.py sentences <key> [--grep 語 ...] [--range 40-50]   # 原典を作業票と同じ番号の文で引く
 python .claude/skills/cite-bridge/bridge.py propose --load bridge/candidates/drafts.json     # 書き手の下書きを検査して候補にする
 python .claude/skills/cite-bridge/bridge.py approve c001 --by 人 [--note 理由]
 python .claude/skills/cite-bridge/bridge.py approve c001 --by 人 --send-back --note 理由   # 差し戻し
 python .claude/skills/cite-bridge/bridge.py confirm stepwrite2025#e2 --by 人            # 要約の確認
+python .claude/skills/cite-bridge/bridge.py confirm stepwrite2025#e2 --source --by 人 [--result 違う] [--page "p.49 §4・3"] --note "…"  # 原本での確認（要ヒューマンチェック）
+python .claude/skills/cite-bridge/bridge.py review --source-checks [--json] [--images DIR] [-o 出力]  # 原本での確認が残る抜き書きの一覧（--json は外の AI への依頼）
 python .claude/skills/cite-bridge/bridge.py --citations <別の引用ファイル> check   # 原稿が複数あるとき、写しで試すとき
-python .claude/skills/cite-bridge/bridge.py extract [<key> ...] [--force]  # 原本の PDF から抽出テキストを作る（pymupdf）
+python .claude/skills/cite-bridge/bridge.py extract [<key> ...] [--force]  # 原本の PDF から抽出テキストを作る（pymupdf。頭書きつき）
+python .claude/skills/cite-bridge/bridge.py extract [<key> ...] --header-only  # 頭書きの無い古い抽出テキストに頭書きを足す（本文は変えない）
 python .claude/skills/cite-bridge/bridge.py snapshot <key> [<URL>]       # Web 資料の写し（既定は書誌の行の URL）
 python .claude/skills/cite-bridge/bridge.py snapshot <key> --rebuild     # 保存した生の HTML から本文を作り直す（取り直さない）
 python .claude/skills/cite-bridge/bridge.py strip <原稿> <出力>            # 印を外した写しを作る
-python .claude/skills/cite-bridge/bridge.py checkpoint [--label 中間提出]   # check --strict を通った地点をマニフェストで残す（道具の版つき）
+python .claude/skills/cite-bridge/bridge.py checkpoint [--label 中間提出] [--by 人]   # check --strict を通った地点をマニフェストで残す（道具の版つき）。承認者の一覧があるときは --by（human）が要る
 python .claude/skills/cite-bridge/bridge.py precommit                       # git の pre-commit から呼ぶ（hook 節）
 python .claude/skills/cite-bridge/bridge.py classify [--send] [--list [--all]] [--cids c001 ...] [--limit N]   # 分類器による検査（README「分類器」。--send が無ければ送らない）
 python .claude/skills/cite-bridge/bridge.py classify --eval <組.json> --variant <案.toml> [--types 型 …] [--reps 2] [--send]   # 文面の測定（台帳に書かない）
@@ -199,7 +227,7 @@ python .claude/skills/cite-bridge/bridge.py classify --eval <組.json> --variant
   引用のカードに出ないので、要約・言っていないこと・強さを原文と照らして印を付けるのはここである。引用に使い始めたら、その引用の承認で改めて見る。
 - 承認の HTML には、判断とは別に「指摘」の欄がある。原稿への気づきを書く欄で、apply は引用ブロックの「指摘」に足す（承認の指紋には入らない）。
   指摘だけを書いて判断を保留にしてもよい。承認の理由に原稿への指摘を書かずに済むようにした（§16.7）。
-- check は「網羅」の行に、原稿の出典らしき括弧のうち印の無い文にあるものの数を出す。印の無い引用はこのツールが何も確かめていない。
+- check は「網羅」の行に、原稿の出典らしきもの（括弧の数を併記）のうち、印の無いものの数を出す。印の無い引用はこのツールが何も確かめていない。
   「確認待ち 0」や checkpoint は、印のある引用についての状態であって、原稿の引用全体の確認ではない。一覧は coverage で出す。
   パターンは数え方の下限の目安で、括弧を使わない出典は数えない。
 - 印の無い出典は、候補として作って人が受け入れる（構想メモ §18）。役割は、道具が拾う・絞る・確かめる・書く、書き手の AI が選ぶ・解釈の欄を書く、
@@ -217,7 +245,12 @@ python .claude/skills/cite-bridge/bridge.py classify --eval <組.json> --variant
      原稿の括弧の直後に印を置き、承認と新しい抜き書きの要約の確認を記録する（受け入れは承認を兼ねる）。指示なら引用のブロックと印。
      引用でないなら excluded.json に記録し、網羅の数から外す。候補を作った後に候補か原稿の文が変わっていれば書かない。却下は理由とともに候補に残り、
      次の propose の作業票に出る。
-  網羅の数は括弧ごとに見る。括弧の直後に印があれば印のある出典で、同じ文に括弧へ付いていない印が残っていればその数だけ前から印のあるものとみなす。
+  網羅の数は出典ごとに見る。括弧の中を「;」「；」で分け、出典が二つ以上あれば、出典ごとに一件とする（coverage の一覧では「出典 1/2」と出る）。
+  頁だけ・同書の括弧（「（p.49）」「（同書 p.269）」「（同）」等）は出典でなく、前の出典の繰り返しとして一件に数える。
+  印は三段で付ける。まず、書誌と引用の key があるとき、同じ文の出典のうち key の候補に印の引用の key があるものに結ぶ（根拠が二つの文献にまたがれば、一つの印が二つの出典を受け持つ）。
+  次に、残った出典のうち、括弧の直後の印がまだ使われていないものに付ける（分けた出典が複数なら前のものから一つだけ）。最後に、使われていない印を、残りの印の無い出典へ前から配る。
+- propose の絞り込み。`--key <key>`（何度でも）は、key の候補（上位3件と --add-key）にその key がある出典だけを作業票にする。
+  `--checkable` は、key の第一候補が機械で照合できる格（PDF の抽出あり・Web 写しあり）の出典だけにする。repeat の件は `--checkable` で外れる。絞り込みは --limit で切る前に行う。
 - md2docx の review_html.py（差分のレビュー）は review --json を読み、本文の〔c003〕に状態の印を付ける。承認の HTML が出力先の隣に
   （既定の名前 cite_review.html で）あれば、印はその引用のカードへのリンクになる。依存は表示 → bridge の一方向で、bridge は表示を知らない。
 - review の md 出力は、AI に渡す材料と、HTML を開けない場面のために残す。
@@ -233,7 +266,7 @@ python .claude/skills/cite-bridge/bridge.py classify --eval <組.json> --variant
 - 見出しの検出は推定である（番号が順に進むものだけを見出しとし、目次の行は除く）。節が誤って導かれたら、抽出テキストの見出しの行を確かめる。
 
 - checkpoint は、整合の崩れも確認待ちも無いときだけ `bridge/checkpoints/<UTC 時刻>.json` を書く。中身は git の HEAD と未コミットの入力、
-  設定・書誌・原稿・引用・抜き書き・抽出テキストの sha256、抜き書きの照合と格の内訳、引用の状態、承認者ごとの件数、道具の版（tool: version・道具のソースの sha256・道具のフォルダの最終コミット・未コミットの変更の有無）。分類器を設定していれば、
+  設定・書誌・原稿・引用・抜き書き・抽出テキストの sha256、抜き書きの照合と格の内訳、引用の状態、承認者ごとの件数、原本での確認の集計と checkpoint --by の名前、網羅の数（括弧の数を含む）、道具の版（tool: version・道具のソースの sha256・道具のフォルダの最終コミット・未コミットの変更の有無）。分類器を設定していれば、
   提供元・モデル・型（名前、版、文面の指紋）・判定数・印の数も残す（SPEC §8）。
 - OCR は道具に入れない（外部の依存を核に持ち込まないため）。OCR で作ったテキストは、頭に `<!-- ocr` で始まる頭書き（エンジン、日付）を置いて
   `<text_dir>/<PDF と同じ名>.txt` に置く。格は「PDF所持（OCR の抽出）」になり、機械で照合できる範囲には数えない。誤読があるので、照合は近似一致が多くなる。
@@ -252,8 +285,8 @@ python .claude/skills/cite-bridge/bridge.py classify --eval <組.json> --variant
 strip、印の形の設定、URL の PDF の写し、LaTeX の \cite と印の key、checkpoint、OCR の印、承認の理由と根拠、差し戻し、
 要約の確認、欄の中の参照、review（md と JSON と HTML）、apply（書き込みと指紋の食い違いの拒否）、折りたたみの見出しと作り直し、
 網羅の数え方、作業票、候補の検査と受け入れと拒否、人の読み、precommit、引用に使われていない抜き書きの確認、文面の測定と材料の整え、
-言語の組と言語違いの組、改変の難しさ、実際の誤りの件、記録より重い判定だけの印。承認の HTML の JavaScript のうち、
-画面に依らない部分（保存した入力の統合、古い判断の判定、判断ファイルの組み立て）は node で動かす（`tests/test_review_js.py`。node が無ければ飛ばす）。分類器（偽のサーバで Jev の API の形に答えさせる。外へは送らない）の型の登録・台帳・古さ・見積り、モジュールの import に循環が無いこと。70件）。
+言語の組と言語違いの組、改変の難しさ、実際の誤りの件、記録より重い判定だけの印、抽出の頭書きと診断、要ヒューマンチェックと原本での確認、孫引き、分類器の数の揃え、出典ごとの網羅。承認の HTML の JavaScript のうち、
+画面に依らない部分（保存した入力の統合、古い判断の判定、判断ファイルの組み立て）は node で動かす（`tests/test_review_js.py`。node が無ければ飛ばす）。分類器（偽のサーバで Jev の API の形に答えさせる。外へは送らない）の型の登録・台帳・古さ・見積り、モジュールの import に循環が無いこと）。
 hook は道具の側を直したときに試験も走らせる。
 
 ## AI が守ること
@@ -265,3 +298,6 @@ hook は道具の側を直したときに試験も走らせる。
 - 候補の下書きでは、原典と本文がずれていれば、ずれのまま書く（原文との差を外挿にし、解釈と言っていないことに理由を書く）。本文に合わせて読みを寄せない。
 - 人に確認を頼むときは review の出力を見せる。手で材料を組むときも、前後の文を補って見せない。OCR の層では頁の画像を見せる。
 - 導く欄を手で直さない。おかしければ逐語か抽出テキストを直して derive する。
+- 書き手の AI は、自分の書いた抜き書きと引用について、原本での確認・要約の確認・承認を記録しない（道具も、model の確認者について断る）。
+- 原本での確認の欄を手で書かない（`confirm --source` か `apply` を通す。指紋が要る）。
+- 外部の AI に委ねるかを決め、その AI を承認者の一覧に載せるのは人である。
