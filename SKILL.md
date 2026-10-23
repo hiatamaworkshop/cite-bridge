@@ -6,7 +6,7 @@ description: 引用ごとに錨（原典の逐語と、道具が導いた所在�
 # 引用ブリッジ
 
 道具の概要は `README.md`。ファイルの形式（欄、指紋、判断ファイル、マニフェスト等）の正本は `SPEC.md`。この文書は使い方と運用の作法である。
-設計の経緯は、この道具を作った論文のリポジトリ（thesis）の `notes/構想_AI協調の論文執筆ツールセットと引用ブリッジ_2026-10-10.md`（§6 の 7、§13）にある。
+設計は `docs/design-0.3.0.md` にある。
 使う側のリポジトリでは `.claude/skills/cite-bridge/` に置く（submodule）。以下のコマンド例はこの置き場所を前提にしている。
 
 ## 保証と持ち主
@@ -22,16 +22,16 @@ description: 引用ごとに錨（原典の逐語と、道具が導いた所在�
 抜き書き `bridge/excerpts/<key>.md`（文献ごとに一ファイル。見出しは書誌リストの key）
 
 ```
-# stepwrite2025
+# smith2020
 
 ## e2
-逐語: Users can issue commands such as "modify answer" after navigating to a given question. Upon detecting such edits, StepWrite removes all subsequent question-answer pairs.
+逐語: Users can revise an earlier answer by navigating back to a given question. Upon detecting such a revision, the system removes all subsequent question-answer pairs.
 強さ: 観察
 要約: 特定の質問へ戻って回答を修正すると、それ以降の質問と回答の対がすべて削除される。
 言っていないこと: 未来の質問を指名できないとは書いていない。
-記入: Claude 2026-10-10
+記入: Claude 2026-01-01
 @照合: 正規化で一致
-@所在: PDF 5頁目 / §3.3 Modular Prompt Pipeline: Q&A to Final Output
+@所在: PDF 5頁目 / §3.3 Dialogue Flow
 @節の種類: 本論
 @前: …
 @後: …
@@ -43,7 +43,7 @@ description: 引用ごとに錨（原典の逐語と、道具が導いた所在�
 - 要約には原文の範囲の外を書かない。自分の読みは引用の側の解釈に書く。
 - 言っていないことや解釈が原文の別の箇所に依るなら、その箇所も抜き書きにして ID（同じ文献なら `e6`、別の文献なら `key#e6`）で指す。
   「同じ頁にある」とだけ書いて指さない形は、未検証の主張が混ざる経路になる。check は指した ID が実在するかを検査する。
-- 要約は抽出テキストではなく、確かめた逐語から書く。抽出テキストの誤読を補って要約に入れない（§16.2 の 6）。
+- 要約は抽出テキストではなく、確かめた逐語から書く。抽出テキストの誤読を補って要約に入れない。
 - 人が要約・言っていないこと・強さを原文と照らしたら `confirm` で記録する（`要約の確認` と、そのときの指紋）。
   確認の後に欄が変われば check が「確認し直す」と出す。未確認の件数は check の INFO に出る（--strict では止めない）。
 - 逐語は原文のまま写す。文体の規約（エムダッシュを使わない等）は逐語の欄に当てない。
@@ -58,11 +58,11 @@ description: 引用ごとに錨（原典の逐語と、道具が導いた所在�
 
 ## c001
 種類: 主張
-抜き書き: stepwrite2025#e2
+抜き書き: smith2020#e2
 理由: §2.4 で、戻って直すと以降の質問と回答が削除される仕様を、先行システムの制約として引く
 解釈: …
 原文との差: 言い換え
-記入: Claude 2026-10-10
+記入: Claude 2026-01-01
 承認: 未
 ```
 
@@ -72,7 +72,7 @@ description: 引用ごとに錨（原典の逐語と、道具が導いた所在�
   差し戻しは理由を `差し戻しの理由` に残す。書き手が本文か根拠を直すと「差し戻し後に直された」になり、承認を待つ。
 - 人の読み（原文の語でない読みを、人が本文へ入れるとき）は、書き手の解釈とは別の欄 `人の読み`、`人の読みの記入`（書いた人と日付）に書く。
   AI は書けない（設定の承認者の一覧で human でない者の記入は断る）。読みの中に、この引用の抜き書きの ID（`e6`、`key#e6`）で錨を置く。
-  読みは根拠の指紋に入るので、承認の後に直すと要再確認に戻る（§16.2 の 7、SPEC.md §4.1）。人の判断（承認、差し戻し）は別である。
+  読みは根拠の指紋に入るので、承認の後に直すと要再確認に戻る（SPEC.md §4.1）。人の判断（承認、差し戻し）は別である。
 - 原文との差は 一致／言い換え／限定つき一般化／外挿。外挿は確認待ちとして残り、本文に限定を付けるか自分の主張として書き直すまで解けない。
 - 本文の引用符の中の文字列は、指している抜き書きの逐語に含まれていなければならない（言語が違う引用は訳とみなして外す）。
   引用符の中でも原文の逐語でない句（コマンドの型の一つの言い方、UI の文字列の一例等）は、ブロックの「引用でない句」に
@@ -125,7 +125,7 @@ check を走らせ、整合の崩れ（ERROR）があるときだけコミット
 
 ```toml
 [bibliography]
-path = "notes/書誌リスト.md"
+path = "bib/bibliography.md"
 format = "keyline"                               # 書誌の読み方（アダプタ）。keyline / bibtex / csl-json
 # files_field = "file"                           # bibtex と csl-json で PDF のパスを持つ欄（Zotero・JabRef の file）
 pdf_pattern = 'PDF所持: `?references/([^`]+?\.pdf)'  # 注記の中で原本の PDF を指す書き方
@@ -184,13 +184,13 @@ python .claude/skills/cite-bridge/bridge.py apply <判断ファイル.json> [--d
 python .claude/skills/cite-bridge/bridge.py apply --latest [--from DIR] [--dry-run]       # ダウンロード（既定）の最新の判断ファイルを使う
 python .claude/skills/cite-bridge/bridge.py coverage                                     # 印の無い文にある出典らしき括弧の一覧
 python .claude/skills/cite-bridge/bridge.py propose [--section 2.2] [--lines 80-120] [--limit 15] [--add-key ITEM=KEY]  # 印の無い出典の作業票
-python .claude/skills/cite-bridge/bridge.py propose [--key stepwrite2025 ...] [--checkable]  # key の候補に当たる出典だけ／機械で照合できる格の第一候補の出典だけ（repeat は --checkable で外れる）
+python .claude/skills/cite-bridge/bridge.py propose [--key smith2020 ...] [--checkable]  # key の候補に当たる出典だけ／機械で照合できる格の第一候補の出典だけ（repeat は --checkable で外れる）
 python .claude/skills/cite-bridge/bridge.py sentences <key> [--grep 語 ...] [--range 40-50]   # 原典を作業票と同じ番号の文で引く
 python .claude/skills/cite-bridge/bridge.py propose --load bridge/candidates/drafts.json     # 書き手の下書きを検査して候補にする
 python .claude/skills/cite-bridge/bridge.py approve c001 --by 人 [--note 理由]
 python .claude/skills/cite-bridge/bridge.py approve c001 --by 人 --send-back --note 理由   # 差し戻し
-python .claude/skills/cite-bridge/bridge.py confirm stepwrite2025#e2 --by 人            # 要約の確認
-python .claude/skills/cite-bridge/bridge.py confirm stepwrite2025#e2 --source --by 人 [--result 違う] [--page "p.49 §4・3"] --note "…"  # 原本での確認（要ヒューマンチェック）
+python .claude/skills/cite-bridge/bridge.py confirm smith2020#e2 --by 人            # 要約の確認
+python .claude/skills/cite-bridge/bridge.py confirm smith2020#e2 --source --by 人 [--result 違う] [--page "p.49 §4・3"] --note "…"  # 原本での確認（要ヒューマンチェック）
 python .claude/skills/cite-bridge/bridge.py review --source-checks [--json] [--images DIR] [-o 出力]  # 原本での確認が残る抜き書きの一覧（--json は外の AI への依頼）
 python .claude/skills/cite-bridge/bridge.py --citations <別の引用ファイル> check   # 原稿が複数あるとき、写しで試すとき
 python .claude/skills/cite-bridge/bridge.py extract [<key> ...] [--force]  # 原本の PDF から抽出テキストを作る（pymupdf。頭書きつき）
@@ -217,7 +217,7 @@ python .claude/skills/cite-bridge/bridge.py classify --eval <組.json> --variant
   保留・承認・差し戻しと理由、要約を確かめた印を入れる。入力はブラウザに一時保存され、最後に判断ファイル（JSON）として保存する。
   HTML はサーバを持たず、何も書き込まない。判断ファイルを apply に渡すと、HTML を作った時点の指紋（本文・根拠・要約）と今の指紋を
   照らし、合うものだけを approve・confirm と同じ関数で書き込む。合わないものは書かずに報告する（見ていないものへの承認を防ぐ）。
-  サーバで判断を受ける形にするかは別の問題として残す（構想メモ §16.6）。
+  サーバで判断を受ける形にするかは、まだ決めていない。
 - 判断ファイルは保存のたびに判断をすべて含めて書き出すので、古いファイルを後から適用すると判断が巻き戻る。apply は適用したファイルを
   applied.json に記録し、同じファイルと、最後に適用したものより前に保存されたファイルを断る（意図したときだけ --allow-older）。
 - 承認者の一覧（approvers）があれば、承認・差し戻し・要約の確認・判断ファイルは一覧の名前でしか書けない。承認の HTML は一覧から選ぶ形になる。
@@ -226,11 +226,11 @@ python .claude/skills/cite-bridge/bridge.py classify --eval <組.json> --variant
 - 承認の HTML の末尾に「引用に使われていない抜き書き」の一覧が出る（どの引用も根拠にしておらず、要約を確かめていないもの）。
   引用のカードに出ないので、要約・言っていないこと・強さを原文と照らして印を付けるのはここである。引用に使い始めたら、その引用の承認で改めて見る。
 - 承認の HTML には、判断とは別に「指摘」の欄がある。原稿への気づきを書く欄で、apply は引用ブロックの「指摘」に足す（承認の指紋には入らない）。
-  指摘だけを書いて判断を保留にしてもよい。承認の理由に原稿への指摘を書かずに済むようにした（§16.7）。
+  指摘だけを書いて判断を保留にしてもよい。承認の理由に原稿への指摘を書かずに済むようにした。
 - check は「網羅」の行に、原稿の出典らしきもの（括弧の数を併記）のうち、印の無いものの数を出す。印の無い引用はこのツールが何も確かめていない。
   「確認待ち 0」や checkpoint は、印のある引用についての状態であって、原稿の引用全体の確認ではない。一覧は coverage で出す。
   パターンは数え方の下限の目安で、括弧を使わない出典は数えない。
-- 印の無い出典は、候補として作って人が受け入れる（構想メモ §18）。役割は、道具が拾う・絞る・確かめる・書く、書き手の AI が選ぶ・解釈の欄を書く、
+- 印の無い出典は、候補として作って人が受け入れる。役割は、道具が拾う・絞る・確かめる・書く、書き手の AI が選ぶ・解釈の欄を書く、
   人が受け入れる。
   1. propose が、印の無い出典の括弧ごとに作業票（`candidates/work.md` と `work.json`）を作る。括弧が受け持つ句（同じ文の前後の出典の括弧の間）、
      書誌の key の候補（括弧と直前の語の名前と年から推す）、同じ文献の既存の抜き書き、原典の文の上位（番号 n つき）を載せる。
@@ -256,8 +256,7 @@ python .claude/skills/cite-bridge/bridge.py classify --eval <組.json> --variant
 - review の md 出力は、AI に渡す材料と、HTML を開けない場面のために残す。
 - snapshot は h1 から h6 に加えて、折りたたみの見出し（details の summary、Google のヘルプの a.zippy）を小見出しとして拾う。
   画像の代替テキスト（alt）は `[図: …]` の行として残す。ただし同じ段落に文字がある画像（文の途中の矢印のアイコン、項目の頭のロゴ）は
-  図ではないので出さない（文が切れ、逐語の照合が崩れるため）。画面の部品の名前など、図にしか無い内容を逐語と照合の範囲に入れるためである
-  （Grid 3 の頁で undo と clear が図にだけあり、写しの全文に無いと誤って判断した。2026-10-16）。
+  図ではないので出さない（文が切れ、逐語の照合が崩れるため）。画面の部品の名前など、図にしか無い内容を逐語と照合の範囲に入れるためである。
   見出しの拾い方を直したときは、--rebuild で取得し直さずに写しを作り直せる（取得日とハッシュは元のまま、作り直した日を足す）。
 - 写しと OCR の頭書き（`<!-- … -->`）は前後の文から外す。Web の写しでは空行も文の区切りとする。
 - 導く欄には「含む文」もある。逐語が文の途中で切れているとき、原文の文全体を示す。逐語の外側にある限定（「…が考えられる」
@@ -280,7 +279,7 @@ python .claude/skills/cite-bridge/bridge.py classify --eval <組.json> --variant
 
 ## 試験
 
-`python -m unittest discover -s .claude/skills/cite-bridge/tests`。論文のデータに依らず、一時フォルダに小さな一式を作って動かす
+`python -m unittest discover -s .claude/skills/cite-bridge/tests`。利用者のデータに依らず、一時フォルダに小さな一式を作って動かす
 （照合と所在、節の種類、含む文、導く欄の古さ、和文の小書きの仮名、承認と再確認、引用でない句、孤児、英語の欄名、三つの書誌の形式、
 strip、印の形の設定、URL の PDF の写し、LaTeX の \cite と印の key、checkpoint、OCR の印、承認の理由と根拠、差し戻し、
 要約の確認、欄の中の参照、review（md と JSON と HTML）、apply（書き込みと指紋の食い違いの拒否）、折りたたみの見出しと作り直し、

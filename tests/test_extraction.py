@@ -164,6 +164,24 @@ class ExtractionHeaderTest(unittest.TestCase):
         self.assertIn("既に頭書きがある", out)
         self.assertEqual(self.txt.read_text(encoding="utf-8"), text)
 
+    def test_header_only_skips_text_that_is_not_utf8_and_goes_on(self):
+        # 道具の外で作った抽出テキスト（Shift_JIS）は、止まらずに飛ばす。同じ実行で、UTF-8 の次の文献には頭書きが足される
+        self.write("bib.md", BIB + "\nSmith, K. (2021). Another study. *Journal*, 2(1), 1–2.\nkey: paper2021\n（PDF: `paper2021.pdf`）\n")
+        make_pdf(self.dir / "refs" / "paper2021.pdf", PAGES)
+        sjis = "音声の研究の結果は、利用者に分かりやすい形で示された。\n".encode("shift_jis")
+        with self.assertRaises(UnicodeDecodeError):
+            sjis.decode("utf-8")  # 試験の前提: この字は UTF-8 として読めない
+        (self.dir / "refs" / "_txt").mkdir(parents=True)
+        (self.dir / "refs" / "_txt" / "paper2020.txt").write_bytes(sjis)
+        self.write("refs/_txt/paper2021.txt", PAGE1 + "\n")
+        code, out = self.run_bridge("extract", "--header-only")
+        self.assertEqual(code, 0, out)
+        self.assertIn("skip paper2020: refs/_txt/paper2020.txt は UTF-8 で読めない（頭書きを足さなかった）", out)
+        self.assertEqual((self.dir / "refs" / "_txt" / "paper2020.txt").read_bytes(), sjis)  # バイトは変わらない
+        self.assertIn("ok   paper2021:", out)
+        self.assertTrue(self.read("refs/_txt/paper2021.txt").startswith("<!-- extract\n"))
+        self.assertEqual(self.read("refs/_txt/paper2021.txt").split("-->\n", 1)[1], PAGE1 + "\n")
+
     def test_header_only_refuses_force(self):
         self.write_body(PAGE1)
         code, out = self.run_bridge("extract", "paper2020", "--header-only", "--force")

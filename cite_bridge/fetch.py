@@ -50,7 +50,11 @@ def _add_header(key, pdf, src, out):
     import pymupdf
     if not out.exists():
         return
-    raw = out.read_bytes().decode("utf-8")
+    try:
+        raw = out.read_bytes().decode("utf-8")
+    except UnicodeDecodeError:  # 道具の外で作ったテキストは UTF-8 でないことがある。文字コードは推測も変換もせず、飛ばす
+        print(f"skip {key}: {out.as_posix()} は UTF-8 で読めない（頭書きを足さなかった）")
+        return
     if raw.startswith("<!--"):
         print(f"skip {key}: {out.as_posix()} は既に頭書きがある")
         return
