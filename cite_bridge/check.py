@@ -137,11 +137,16 @@ def run_check():
                 keys_in_text[cid] = {k.strip() for k in mkey.split(",")}
         block_ids = set()
         counts = {"承認済": 0, "要再確認": 0, "未承認": 0, "指示": 0}
+        first_line = {}  # 同じ ID の最初のブロックの行（重複を見つけたとき、先の行を書く）
         for b in blocks:
             cid = b["id"]
             w = f"{cfg.CIT.as_posix()}:{b['line']} {cid}"
             block_ids.add(cid)
             f = b["fields"]
+            if cid in first_line:  # 確認待ち。書き込みは両方のブロックを避ける（approve.py の _citation_now）
+                notes.append(f"{w}: 引用のブロックの ID の重複（先は {first_line[cid]} 行）")
+            else:
+                first_line[cid] = b["line"]
             if cid not in ids_in_text:
                 errors.append(f"{w}: 原稿に〔{cid}〕が無い（孤児のブロック）")
                 continue

@@ -114,7 +114,15 @@
     - `--citations` は全体の選択肢なので、サブコマンドの前に置く（`bridge.py --citations X check`）。試験もその形を使う。
     - 閉じた時点の確認（leader）: git diff を確かめ、`python -m pytest -q tests` は 145 passed。レビュアーは接続していなかったので、この項目はレビューを受けていない。
 - [ ] C14 --citations で写しを指したときの記録の置き場
-- [ ] C15 引用のブロックの ID の重複を確認待ちにする
+- [x] C15 引用のブロックの ID の重複を確認待ちにする (2026-11-06、重複は NOTE にして書き込みを断る)
+  - 確かめた記録（2026-11-06）:
+    - cite_bridge/check.py の run_check: 引用のブロックの loop で、同じ ID の二つ目以降に `notes` を足す（先の行は最初のブロックの行）。ERROR は増やしていない（CLAUDE.md の規則 4）。出力は既存の NOTE と同じ経路なので、行は `NOTE  <パス>:<行> <ID>: …` になり、NOTE の後に空白が二つ入る。
+    - cite_bridge/approve.py の `_citation_now`: 同じ ID のブロックが二つ以上なら `(None, "<パス> に <ID> のブロックがちょうど一つ無い（<n> 個）")` を返す。n = 0 の「ブロックが無い」の文言は変えていない。`write_approval` は `<ID>: ` を付け、`write_remark` は `_citation_now` を通るので同じ理由になる。apply は decisions の approve と remark をそれぞれ SKIP に入れ、残りを処理する。`_replace_block_lines` で引用のブロックを書くのは `write_approval` と `write_remark` だけで、どちらも `_citation_now` の後に走る（確かめた）。候補の受け入れは新しい ID のブロックを末尾に足すだけなので、重複を作らず、この変更の対象外（確かめた）。
+    - 試験: tests/test_bridge.py の test_duplicate_citation_block_is_a_note_and_writers_refuse（check が NOTE を出し、--strict は exit 1、approve と指摘の apply が理由つきで断り、引用のファイルは変わらない）と test_apply_skips_duplicate_block_and_writes_the_rest（重複した c001 は SKIP、別の ID の c002 は承認を書く、applied.json は written 1・skipped 1）。
+    - `python -m pytest -q tests`: 147 passed（前は 145）。
+    - 実データ（読むだけ。thesis のフォルダを作業フォルダにして `python <cite-bridge>/bridge.py <cmd>`）: `check` は exit 0、ERROR 0 件、「ID の重複」の NOTE は 0 件（thesis の引用に同じ ID のブロックは無い）。`grade`、`coverage`、`classify --list`、`review --source-checks -o <一時フォルダの md>` も exit 0。checkpoint・apply・derive・extract・confirm は走らせていない。
+    - SPEC.md と README.md は変えていない。NOTE の全部の一覧はどちらにも無い（C13 と同じ）。
+    - 閉じた時点の確認（leader）: git diff を確かめ、`python -m pytest -q tests` は 147 passed。レビュアーは接続していなかったので、この項目はレビューを受けていない。
 - [ ] C16 指示の引用の欄と承認を SPEC とそろえる
 - [x] C17 試験が pymupdf の有無と版で落ちない (2026-11-05、無い環境ではスキップ、2.0 でも通る)
   - 確かめた記録（2026-11-05）:
@@ -139,7 +147,6 @@
 
 C13・C15・C11 を決定にした（2026-11-05）。残りの順の案: C21 → C22 → C23 → C24 → C25。C13 と C15 は check の NOTE と書き込みの断りで小さく、C11 は C10 の次に重い穴だが JS で画面の確認が残る。C14・C16・C18・C20 は設計を決めてから。
 
-- [ ] C15
 - [ ] C11
 
 ## 項目
@@ -169,16 +176,6 @@ C13・C15・C11 を決定にした（2026-11-05）。残りの順の案: C21 →
 - [ ] 決めた置き場が、`--citations` の引用のファイルのフォルダに従う
 - [ ] 写しを指して apply しても、元の `applied.json` が変わらない試験を足し、全体の試験が通る
 - [ ] SPEC §9 と README の `--citations` の説明が実装と合う
-
-### C15. 引用のブロックの ID の重複を確認待ちにする
-
-抜き書きの ID の重複は check の ERROR になるが、引用のブロックの ID の重複は何も出ない（2026-10-31 に再現）。承認の書き込み（_replace_block_lines）は同じ ID のブロックを両方とも書き換え、承認の行は前のブロックにだけ置く。CLAUDE.md の規則 4 に従い NOTE にする。
-
-#### 完了条件
-- [ ] 引用のファイルに同じ ID のブロックが二つ以上あると、check が二つ目からのブロックごとに `NOTE <パス>:<行> <ID>: 引用のブロックの ID の重複（先は <行> 行）` を出す（抜き書きの「ID の重複」の書き方にそろえる）
-- [ ] approve・apply・指摘の書き込みが、ID の重複したブロックに書かず、`<ID>: <パス> に <ID> のブロックがちょうど一つ無い（<n> 個）` を理由に出す（原稿の印の「ちょうど一つ無い」の書き方にそろえる）。apply ではその件を SKIP にして残りを処理する
-- [ ] 重複したブロックの試験を足し、全体の試験が通る
-- [ ] 実データでの確認が通る
 
 ### C16. 指示の引用の欄と承認を SPEC とそろえる
 状態: 提案

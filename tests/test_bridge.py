@@ -294,6 +294,64 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("抜き書きの文献が合わない", out)
 
+    DUP_BLOCK = "\n## c001\n種類: 主張\n抜き書き: doe2020#e1\n理由: 二つ目\n原文との差: 一致\n記入: test\n承認: 未\n"
+
+    def _dup_citations(self):
+        """c001 のブロックを二つにした引用のファイル。(二つ目の行, 一つ目の行) を返す。"""
+        self.run_bridge("derive")
+        self.write("bridge/citations.md", self.read("bridge/citations.md") + self.DUP_BLOCK)
+        lines = self.read("bridge/citations.md").splitlines()
+        first = lines.index("## c001") + 1
+        second = max(i for i, ln in enumerate(lines) if ln == "## c001") + 1
+        return second, first
+
+    def test_duplicate_citation_block_is_a_note_and_writers_refuse(self):
+        """引用のブロックの ID が二つあると、check は二つ目を NOTE にする。承認と指摘の書き込みは両方に触れず断る。"""
+        import json
+        second, first = self._dup_citations()
+        code, out = self.run_bridge("check")
+        self.assertEqual(code, 0, out)  # NOTE だけ（ERROR は増やさない）
+        self.assertIn(f"NOTE  bridge/citations.md:{second} c001: 引用のブロックの ID の重複（先は {first} 行）", out)
+        self.assertEqual(self.run_bridge("check", "--strict")[0], 1)
+        before = self.read("bridge/citations.md")
+        code, out = self.run_bridge("approve", "c001", "--by", "tester")
+        self.assertEqual(code, 1, out)
+        self.assertIn("c001: bridge/citations.md に c001 のブロックがちょうど一つ無い（2 個）", out)
+        self.assertEqual(self.read("bridge/citations.md"), before)
+        d = {"format": "cite-bridge-decisions/1", "manuscript": "manuscript.md", "by": "tester",
+             "decisions": [{"id": "c001", "action": "", "remark": "試験の指摘", "fingerprint": "a", "evidence": "b"}],
+             "candidates": [], "confirms": [], "source_checks": []}
+        self.write("decisions.json", json.dumps(d, ensure_ascii=False))
+        code, out = self.run_bridge("apply", "decisions.json")
+        self.assertEqual(code, 1, out)
+        self.assertIn("SKIP c001: bridge/citations.md に c001 のブロックがちょうど一つ無い（2 個）", out)
+        self.assertEqual(self.read("bridge/citations.md"), before)  # 指摘も両方のブロックに入らない
+
+    def test_apply_skips_duplicate_block_and_writes_the_rest(self):
+        """重複したブロックの件は SKIP にし、同じ判断ファイルの別の ID（一つだけのブロック）は書く。applied.json には記録する。"""
+        import json
+        self._dup_citations()
+        self.write("manuscript.md", self.read("manuscript.md") + "\n別の文〔c002〕。\n")
+        self.write("bridge/citations.md", self.read("bridge/citations.md")
+                   + "\n## c002\n種類: 主張\n抜き書き: doe2020#e1\n理由: 試験\n原文との差: 一致\n記入: test\n承認: 未\n")
+        c = {x["id"]: x for x in json.loads(self.run_bridge("review", "--json", "--all")[1])["citations"]}["c002"]
+        d = {"format": "cite-bridge-decisions/1", "manuscript": "manuscript.md", "by": "tester",
+             "decisions": [{"id": "c001", "action": "approve", "note": "", "fingerprint": "a", "evidence": "b"},
+                           {"id": "c002", "action": "approve", "note": "", "fingerprint": c["fingerprint"], "evidence": c["evidence_fp"]}],
+             "candidates": [], "confirms": [], "source_checks": []}
+        self.write("decisions.json", json.dumps(d, ensure_ascii=False))
+        code, out = self.run_bridge("apply", "decisions.json")
+        self.assertEqual(code, 1, out)  # 書かなかった件があるので 1。途中で止まってはいない
+        self.assertNotIn("Traceback", out)
+        self.assertIn("SKIP c001: bridge/citations.md に c001 のブロックがちょうど一つ無い（2 個）", out)
+        self.assertIn("承認を記録: c002 tester", out)
+        self.assertIn("書いた 1 件、書かなかった 1 件", out)
+        cit = self.read("bridge/citations.md")
+        self.assertEqual(cit.count("承認: tester"), 1)
+        self.assertGreater(cit.index("承認: tester"), cit.index("## c002"))  # 承認は c002 のブロックに入る
+        log = json.loads(self.read("bridge/applied.json"))["manuscript.md"]["files"][0]
+        self.assertEqual((log["written"], log["skipped"]), (1, 1))
+
     def test_missing_citations_file_is_a_note(self):
         """引用のファイルが無いと、引用の検査が走らないので NOTE にする（黙って通さない）。check --strict と checkpoint は止まる。"""
         self.run_bridge("derive")

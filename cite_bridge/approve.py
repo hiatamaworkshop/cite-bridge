@@ -63,9 +63,12 @@ def _citation_now(cid):
     offs = [off for c, off, _ in manuscript_marks(text) if c == cid]
     if len(offs) != 1:
         return None, f"原稿に〔{cid}〕がちょうど一つ無い（{len(offs)} 箇所）"
-    block = next((b for b in blocks if b["id"] == cid), None)
-    if block is None:
+    same = [b for b in blocks if b["id"] == cid]
+    if not same:
         return None, f"{cfg.CIT.as_posix()} に {cid} のブロックが無い"
+    if len(same) > 1:  # 同じ ID の二つ目以降は、どの書き込みも避ける（どちらに入れるかを道具が決めない）
+        return None, f"{cfg.CIT.as_posix()} に {cid} のブロックがちょうど一つ無い（{len(same)} 個）"
+    block = same[0]
     sent = sentence_at(text, offs[0])
     refs = [r.strip() for r in block["fields"].get("抜き書き", "").split(",") if r.strip()]
     now = (sent, fingerprint(sent), evidence_hash(refs, load_excerpt_fields(), block["fields"].get("人の読み", "")), block["fields"])
