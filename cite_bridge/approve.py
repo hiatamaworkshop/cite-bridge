@@ -56,19 +56,20 @@ def _replace_block_lines(path, bid, drop_re, new_lines):
 
 
 def _citation_now(cid):
-    """(本文の文, 本文の指紋, 根拠の指紋, ブロックの欄)。"""
+    """(今の状態, 失敗の理由)。今の状態は (本文の文, 本文の指紋, 根拠の指紋, ブロックの欄)。失敗のときは今の状態が None で、理由の文が入る。"""
     head, blocks = parse_blocks(cfg.CIT)
     target = Path(head["fields"].get("対象", ""))
     text = mask_comments(target.read_text(encoding="utf-8"))
     offs = [off for c, off, _ in manuscript_marks(text) if c == cid]
     if len(offs) != 1:
-        sys.exit(f"原稿に〔{cid}〕がちょうど一つ無い（{len(offs)} 箇所）")
+        return None, f"原稿に〔{cid}〕がちょうど一つ無い（{len(offs)} 箇所）"
     block = next((b for b in blocks if b["id"] == cid), None)
     if block is None:
-        sys.exit(f"{cfg.CIT.as_posix()} に {cid} のブロックが無い")
+        return None, f"{cfg.CIT.as_posix()} に {cid} のブロックが無い"
     sent = sentence_at(text, offs[0])
     refs = [r.strip() for r in block["fields"].get("抜き書き", "").split(",") if r.strip()]
-    return sent, fingerprint(sent), evidence_hash(refs, load_excerpt_fields(), block["fields"].get("人の読み", "")), block["fields"]
+    now = (sent, fingerprint(sent), evidence_hash(refs, load_excerpt_fields(), block["fields"].get("人の読み", "")), block["fields"])
+    return now, None
 
 
 APPROVAL_LINE_RE = r"^@?(承認|差し戻し|approval|approved_|returned_)"
@@ -93,7 +94,10 @@ def write_approval(cid, by, note=None, send_back=False, seen=None, dry=False):
     """
     if approver_problem(by):
         return False, f"{cid}: " + approver_problem(by)
-    sent, fp, ev, f = _citation_now(cid)
+    now, why = _citation_now(cid)
+    if now is None:
+        return False, f"{cid}: {why}"
+    sent, fp, ev, f = now
     if seen and tuple(seen) != (fp, ev):
         return False, f"{cid}: 判断した後に{'本文' if seen[0] != fp else '根拠'}が変わった。書かなかった（review を作り直して見直す）"
     if f.get("種類") != "主張":
@@ -195,11 +199,13 @@ def write_source_check(eid, by, result="一致", page=None, note=None, seen=None
 
 
 def write_remark(cid, by, remark, dry=False):
-    """引用の「指摘」の欄に足す。承認の判断とは別の、原稿への気づきで、指紋には入らない。同じ文は二度足さない。"""
+    """引用の「指摘」の欄に足す。承認の判断とは別の、原稿への気づきで、指紋には入らない。同じ文は二度足さない。
+    原稿に印が無い ID や、ブロックの無い ID は足さない（apply は SKIP にする）。"""
+    now, why = _citation_now(cid)
+    if now is None:
+        return False, f"{cid}: {why}"
     head, blocks = parse_blocks(cfg.CIT)
     b = next((x for x in blocks if x["id"] == cid), None)
-    if b is None:
-        return False, f"{cid}: 引用のブロックが無い"
     remark = re.sub(r"\s+", " ", remark).strip()
     have = b["fields"].get("指摘", "")
     if remark in have:

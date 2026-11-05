@@ -94,7 +94,15 @@
     - 実データ（読むだけ。thesis のフォルダを作業フォルダにして `python <cite-bridge>/bridge.py <cmd>`）: `check` は exit 0、ERROR 0 件。`grade`、`coverage`、`classify --list`、`review --source-checks -o <一時フォルダの md>` も exit 0。`apply`（`--dry-run` を含む）は、この項目の共通の確かめ方で「derive・extract・confirm・apply は走らせない」と決まっているので走らせていない。
     - SPEC.md は変えていない。§5 の「fingerprint が今と合わなければ書かず、理由を出す」に空と欠けが入るため。
 - [ ] C11 承認の HTML が、要約が変わった後の要約の確認を戻さない
-- [ ] C12 apply が一件の失敗で途中で止まらない
+- [x] C12 apply が一件の失敗で途中で止まらない (2026-11-05、失敗の件を SKIP にして続ける)
+  - 確かめた記録（2026-11-05）:
+    - approve.py の `_citation_now` は、印がちょうど一つ無い件とブロックが無い件を `(None, 理由)` で返す（前は `sys.exit`）。`write_approval` と `write_remark` はこれを `(False, "<id>: 理由")` にする。`write_remark` は、印の無い ID の指摘を書かない（前は、ブロックさえあれば印が無くても書いていた）。`write_confirm`・`write_source_check`・`apply_candidate` は、もとから `sys.exit` を使っていない（確かめた）。
+    - apply.py: 書き込みの関数が返した失敗は `skipped` に入り、`SKIP` の行になる。confirms と source_checks の失敗の文は、ID で始まらないので `_tag` で `<id>: ` を付けた。decisions と candidates の文は、もとから ID で始まる。書いた件と書かなかった件の数を出し、`applied.json` を記録する（書かなかった件があるときは終了コード 1）。
+    - approve と confirm のコマンドは、失敗の文を `sys.exit(文)` で出すので、終了コードは 1 のまま。approve の失敗の文は、ID の頭つき（`c009: 原稿に〔c009〕がちょうど一つ無い（0 箇所）`）になった（前は頭無し）。
+    - 試験: tests/test_bridge.py の test_apply_skips_absent_ids_and_goes_on（印の無い c009 とブロックの無い c003 を、有効な件に挟む。applied.json の written 2・skipped 3、再適用は「適用済み」）、test_apply_skips_absent_entries_of_other_kinds（候補の文が変わった件、抜き書きの無い confirm と source_check を挟み、後ろの要約の確認は書く）、test_approve_and_confirm_absent_ids_still_exit_1（approve と confirm が理由を出し、終了コード 1）。`python -m pytest -q tests`: 144 passed（前は 141）。
+    - 実データ（読むだけ。thesis のフォルダを作業フォルダにして `python <cite-bridge>/bridge.py <cmd>`）: `check` は exit 0、ERROR 0 件。`grade`、`coverage`、`classify --list`、`review --source-checks -o <一時フォルダの md>` も exit 0。`apply` は、共通の確かめ方で「derive・extract・confirm・apply は走らせない」と決まっているので走らせていない。
+    - SPEC.md と README.md は変えていない。apply の挙動の文（§5 の「合わなければ読み飛ばして理由を出す」）はそのまま正しい。
+    - 閉じた時点の確認（leader）: git diff を確かめ、`python -m pytest -q tests` は 144 passed。レビュアーは接続していなかったので、この項目はレビューを受けていない。後で統制のセッションが差分を読んで確かめた（2026-11-05。apply から呼ぶ書き込みの関数に `sys.exit` が残らないこと、propose の受け入れの `write_approval` は印とブロックを書いた直後に呼ぶので失敗しにくく、前より悪くならないこと、指摘も原稿に印の無い ID では SKIP になること）。
 - [ ] C13 引用のファイルが無いとき check を確認待ちにする
 - [ ] C14 --citations で写しを指したときの記録の置き場
 - [ ] C15 引用のブロックの ID の重複を確認待ちにする
@@ -106,9 +114,8 @@
 
 ## 予定
 
-C12 は C10 と同じく apply の件ごとの処理を直す。C17 は試験と README だけを触るので、並行してよい。
+C17 は試験と README だけを触るので、並行してよい。
 
-- [ ] C12 apply が一件の失敗で途中で止まらない
 - [ ] C17 試験が pymupdf の有無と版で落ちない
 
 ## 項目
@@ -127,17 +134,6 @@ C12 は C10 と同じく apply の件ごとの処理を直す。C17 は試験と
 - [ ] 読み戻すとき、残した指紋が今の要約の指紋と違う印と、指紋を持たない前の形の印を戻さない
 - [ ] tests/test_review_js.py に、指紋の違う印と前の形の印が戻らない試験を足し、全体の試験が通る
 - [ ] localStorage の形を変えた点を報告に書く（SPEC の形式には入っていない）
-
-### C12. apply が一件の失敗で途中で止まらない
-
-承認の書き込み（approve.py の _citation_now）は、原稿に印がちょうど一つ無いと `sys.exit` で終わる。判断ファイルに原稿から消えた ID があると、apply がそこで終わり、それより前の件（指摘など）は書かれたまま、`applied.json` に記録が残らず、書いた件の出力も出ない（2026-10-31 に再現）。
-
-#### 完了条件
-- [ ] apply から呼ぶ書き込みの関数が、件の失敗を `sys.exit` でなく `(False, 理由)` で返す
-- [ ] 判断ファイルに原稿に無い ID があっても、その件を SKIP にして残りを処理し、書いた件と書かなかった件を出し、`applied.json` に記録する
-- [ ] `approve` と `confirm` のコマンドは、今と同じく理由を出して終了コード 1 で終わる
-- [ ] 原稿に無い ID を含む判断ファイルの試験を足し、全体の試験が通る
-- [ ] 実データでの確認が通る
 
 ### C13. 引用のファイルが無いとき check を確認待ちにする
 状態: 提案

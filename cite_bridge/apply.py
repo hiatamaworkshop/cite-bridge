@@ -36,6 +36,11 @@ def _gap(x, *keys):
     return "・".join(gone) if gone else None
 
 
+def _tag(eid, msg):
+    """書けなかった件の理由の頭に ID を付ける（理由が既に ID で始まるときは付けない）。SKIP の行を `SKIP <id>: …` にそろえる。"""
+    return msg if msg.startswith(f"{eid}:") else f"{eid}: {msg}"
+
+
 def _id_of(x):
     """SKIP の行の頭に出す件の ID。無ければ「?」。"""
     return (x.get("id") if isinstance(x, dict) else None) or "?"
@@ -108,7 +113,7 @@ def cmd_apply(args):
             skipped.append(f"{_id_of(x)}: 判断ファイルの {gone} が空か無い。書かなかった")
             continue
         ok, msg = write_confirm(x["id"], by, seen=x["fingerprint"], dry=args.dry_run)
-        (done if ok else skipped).append(msg)
+        (done if ok else skipped).append(msg if ok else _tag(x["id"], msg))
     for x in d.get("source_checks", []):  # 原本での確認（§5.4 の 2）。指紋が今の逐語と合うものだけ書く
         gone = _gap(x, "id", "fingerprint")
         if gone:
@@ -116,7 +121,7 @@ def cmd_apply(args):
             continue
         ok, msg = write_source_check(x["id"], by, x.get("result", "一致"), x.get("page") or None, x.get("note") or None,
                                      seen=x["fingerprint"], dry=args.dry_run)
-        (done if ok else skipped).append(msg)
+        (done if ok else skipped).append(msg if ok else _tag(x["id"], msg))
     for m in done:
         print(("（試し）" if args.dry_run else "") + m)
     for m in skipped:

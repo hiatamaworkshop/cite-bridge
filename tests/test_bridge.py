@@ -826,6 +826,75 @@ class BridgeTest(unittest.TestCase):
         self.assertIn("承認: 未", self.read("bridge/citations.md"))
         self.assertNotIn("要約の確認:", self.read("bridge/excerpts/doe2020.md"))
 
+    def test_apply_skips_absent_ids_and_goes_on(self):
+        """原稿に印の無い ID（印が無い、ブロックが無い）の件は SKIP にし、前後の件を書く。終わらず、applied.json に記録する。"""
+        import json
+        self.run_bridge("derive")
+        self.write("manuscript.md", self.read("manuscript.md") + "\n続きの文〔c003〕。\n")  # c003 は印だけ有り、ブロックは無い
+        c = json.loads(self.run_bridge("review", "--json", "--all")[1])["citations"][0]
+        ok_fp = {"fingerprint": c["fingerprint"], "evidence": c["evidence_fp"]}
+        d = {"format": "cite-bridge-decisions/1", "manuscript": "manuscript.md", "by": "tester",
+             "decisions": [
+                 {"id": "c001", "action": "approve", "note": "", **ok_fp},
+                 {"id": "c009", "action": "approve", "note": "", "fingerprint": "a", "evidence": "b"},  # 印が無い
+                 {"id": "c001", "action": "", "remark": "試験の指摘", **ok_fp},
+                 {"id": "c003", "action": "approve", "note": "", "fingerprint": "a", "evidence": "b"},  # ブロックが無い
+                 {"id": "c009", "action": "", "remark": "原稿に無い", "fingerprint": "a", "evidence": "b"}],
+             "candidates": [], "confirms": [], "source_checks": []}
+        self.write("decisions.json", json.dumps(d, ensure_ascii=False))
+        code, out = self.run_bridge("apply", "decisions.json")
+        self.assertEqual(code, 1, out)  # 書かなかった件があるので 1。途中で止まってはいない
+        self.assertNotIn("Traceback", out)
+        self.assertIn("SKIP c009: 原稿に〔c009〕がちょうど一つ無い（0 箇所）", out)
+        self.assertIn("SKIP c003: ", out)
+        self.assertIn("c003 のブロックが無い", out)
+        self.assertIn("書いた 2 件、書かなかった 3 件", out)
+        cit = self.read("bridge/citations.md")
+        self.assertIn("承認: tester", cit)  # 前の件は書かれている
+        self.assertIn("指摘: 試験の指摘（tester ", cit)  # 後ろの件も書かれている
+        log = json.loads(self.read("bridge/applied.json"))["manuscript.md"]["files"][0]
+        self.assertEqual((log["written"], log["skipped"]), (2, 3))  # 適用の記録が残る
+
+    def test_apply_skips_absent_entries_of_other_kinds(self):
+        """候補の文が原稿から変わった件、抜き書きの無い確認・原本での確認は SKIP にし、他の件を書く。"""
+        import json
+        self.run_bridge("derive")
+        ya, sec, cfp = self._pending_candidates()
+        self.write("manuscript.md", self.read("manuscript.md").replace("不利なメディア", "不利な媒体"))
+        c = json.loads(self.run_bridge("review", "--json", "--all")[1])["citations"][0]
+        d = {"format": "cite-bridge-decisions/1", "manuscript": "manuscript.md", "by": "tester", "decisions": [],
+             "candidates": [{"id": ya, "action": "accept", "note": "", "cfp": cfp[ya]}],
+             "confirms": [{"id": "doe2020#e9", "fingerprint": "a"},
+                          {"id": "doe2020#e1", "fingerprint": c["evidence"][0]["summary_fp"]}],
+             "source_checks": [{"id": "doe2020#e9", "fingerprint": "a", "result": "一致"}]}
+        self.write("decisions.json", json.dumps(d, ensure_ascii=False))
+        code, out = self.run_bridge("apply", "decisions.json")
+        self.assertEqual(code, 1, out)
+        self.assertNotIn("Traceback", out)
+        self.assertIn(f"SKIP {ya}: 原稿のその文が変わった。書かなかった", out)
+        self.assertIn("SKIP doe2020#e9: 抜き書き 'doe2020#e9' が無い", out)
+        self.assertIn("要約の確認を記録: doe2020#e1 tester", out)  # 前の件が無くても、後ろの件は書く
+        self.assertIn("要約の確認: tester", self.read("bridge/excerpts/doe2020.md"))
+        self.assertIn("書いた 1 件、書かなかった 3 件", out)
+        self.assertTrue((self.dir / "bridge/applied.json").exists())  # 途中で止まらず、適用の記録が残る
+        code, out = self.run_bridge("apply", "decisions.json")
+        self.assertIn("適用済み", out)  # 同じファイルの再適用は断る（記録が効いている）
+
+    def test_approve_and_confirm_absent_ids_still_exit_1(self):
+        """approve と confirm のコマンドは、原稿に無い ID を理由つきで出し、終了コード 1 で終わる（今と同じ）。"""
+        self.run_bridge("derive")
+        self.write("manuscript.md", self.read("manuscript.md") + "\n続きの文〔c003〕。\n")
+        code, out = self.run_bridge("approve", "c009", "--by", "tester")
+        self.assertEqual(code, 1, out)
+        self.assertIn("原稿に〔c009〕がちょうど一つ無い（0 箇所）", out)
+        code, out = self.run_bridge("approve", "c003", "--by", "tester")
+        self.assertEqual(code, 1, out)
+        self.assertIn("c003 のブロックが無い", out)
+        code, out = self.run_bridge("confirm", "doe2020#e9", "--by", "tester")
+        self.assertEqual(code, 1, out)
+        self.assertIn("抜き書き 'doe2020#e9' が無い", out)
+        self.assertNotIn("承認: tester", self.read("bridge/citations.md"))
+
 
 if __name__ == "__main__":
     unittest.main()
