@@ -53,7 +53,7 @@ def make_pdf(path, pages):
         if kind == "ocr":
             pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 200, 200), False)
             pix.clear_with(255)
-            pg.insert_image(pg.rect, pixmap=pix)
+            pg.insert_image(pg.rect, pixmap=pix, keep_proportion=False)  # 頁の全体を覆う（版によって縦横比を保つ既定が違うため）
             pg.insert_text((72, 100), body, render_mode=3)
         else:
             pg.insert_text((72, 72), body)

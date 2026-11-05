@@ -84,7 +84,7 @@
 ## 0.3.0 の後: 2026-10-31 のレビューで見つけた穴
 
 道具の全体を読み、一時フォルダの小さな一式で動かして見つけたもの（0971124 の時点）。どれも提案で、決めてから着手する。
-先に指紋の照合を素通りできる穴（C10、C11）と、確認待ちを黙って通す穴（C12、C13）を塞ぐ。C17 は他の項目の試験を走らせる前提なので、早めに行う。
+先に指紋の照合を素通りできる穴（C10、C11）と、確認待ちを黙って通す穴（C12、C13）を塞ぐ。
 
 - [x] C10 判断ファイルの指紋が空か無いものを断る (2026-11-05、apply で SKIP にする)
   - 確かめた記録（2026-11-05）:
@@ -107,16 +107,23 @@
 - [ ] C14 --citations で写しを指したときの記録の置き場
 - [ ] C15 引用のブロックの ID の重複を確認待ちにする
 - [ ] C16 指示の引用の欄と承認を SPEC とそろえる
-- [ ] C17 試験が pymupdf の有無と版で落ちない
+- [x] C17 試験が pymupdf の有無と版で落ちない (2026-11-05、無い環境ではスキップ、2.0 でも通る)
+  - 確かめた記録（2026-11-05）:
+    - pymupdf の無い環境の再現: 利用者の環境は触らず、一時フォルダ（scratchpad の nopymupdf）に pymupdf.py と fitz.py を置き、ImportError だけを投げる偽物にした。`PYTHONPATH` の先頭に置いて `python -m pytest -q tests` を走らせた（子プロセスの bridge にも効く）。修正前は、test_snapshot_pdf_url と test_source_checks_images_option_writes_page_image の 2 件が失敗し、他の PDF の試験は飛んでいた（この 2 件が失敗したのは、偽物の ImportError による。実際に無い環境では ModuleNotFoundError になる）。
+    - 修正: tests/test_bridge.py に `HAS_PYMUPDF`（pymupdf の import の成否）を置き、test_snapshot_pdf_url に `skipUnless`。tests/test_source_review.py の test_source_checks_images_option_writes_page_image に `tb.HAS_PYMUPDF` の `skipUnless`。tests/test_extraction.py は、もとの `skipIf`（モジュールの pymupdf）のまま。
+    - pymupdf の無い環境: `python -m pytest -q tests` は 129 passed、15 skipped（飛んだのは test_extraction の 13 件と、上の 2 件）。
+    - 縦横比の確認: 正方形の画像を頁に `insert_image` すると、pymupdf 2.0 では既定で頁の 70.7% を覆い、`keep_proportion=False` で 100%。1.28.2 では既定でも 100%。tests/test_extraction.py の make_pdf と tests/test_source_review.py の make_pdf に `keep_proportion=False` を入れた。2.0 で修正前の 4 件が落ちることは、この比で確かめた（修正前の試験は 2.0 で走らせていない）。
+    - pymupdf の版: 1.28.2（この環境の既定、Python 3.12.10）で `python -m pytest -q tests` は 144 passed。2.0 は `pip install --target` で一時フォルダに入れ、`PYTHONPATH` で先頭に置いて走らせた（利用者の環境は変えていない）。2.0 でも 144 passed。
+    - README の「動かすのに要るもの」: 試験で確かめた版として 1.28.2 と 2.0 を書いた。2.1 は版の一覧にあるが、試していない。
+    - 実データ（読むだけ）: 変えたのは tests と README だけなので、実データへの影響は無い。`check`・`grade`・`coverage`・`classify --list`・`review --source-checks -o <一時フォルダの md>` は、cwd を thesis にして exit 0。`check` の ERROR は 0 件。`apply`・`derive`・`extract`・`confirm` は走らせていない。
+    - 閉じた時点の確認（leader）: git diff を確かめ、`python -m pytest -q tests` は 144 passed（pymupdf 1.28.2）。レビュアーは接続していなかったので、この項目はレビューを受けていない。pymupdf 2.1 は試していない。
 - [ ] C18 model の承認と、README の「人の承認が保証する」をそろえる
 - [ ] C19 レビューで見つけた小さな崩れ
 - [ ] C20 短い逐語の照合と、確認者の名前の比べ方
 
 ## 予定
 
-C17 は試験と README だけを触るので、並行してよい。
-
-- [ ] C17 試験が pymupdf の有無と版で落ちない
+今は決定の項目が無い。C11、C13〜C16、C18〜C20 は提案で、決めたものから並べる。
 
 ## 項目
 
@@ -180,16 +187,6 @@ SPEC §3.1 は 理由・記入・承認 をすべての引用に要るとする�
 - [ ] 指示の引用の 理由・記入・承認 の扱いが、SPEC §3.1 と check と review で同じになる
 - [ ] 決めた扱いの試験を足し、全体の試験が通る
 - [ ] 実データでの確認が通る。NOTE が増えたら件数を報告に書く
-
-### C17. 試験が pymupdf の有無と版で落ちない
-
-pymupdf の無い環境で、`test_bridge.py` の test_snapshot_pdf_url と `test_source_review.py` の test_source_checks_images_option_writes_page_image が、飛ばされずに ModuleNotFoundError で失敗する。pymupdf 2.0 では `test_extraction.py` の OCR の文字の層の試験 4 件が失敗する。試験の PDF は正方形の画像を `insert_image` で置くので縦横比が保たれ、頁の 7 割ほどしか覆わず、§2.4.1 の 8 割の規則に当たらない（`keep_proportion=False` にすると 13 件すべて通ることを 2026-10-31 に確かめた）。README は pymupdf の版を書いていない。
-
-#### 完了条件
-- [ ] pymupdf の無い環境で、PDF を作る試験が失敗でなくスキップになる
-- [ ] OCR の文字の層の試験の PDF が、pymupdf の版に依らず頁全体を画像で覆う
-- [ ] README の「動かすのに要るもの」に、試験で確かめた pymupdf の版を書く
-- [ ] pymupdf の無い環境と、ある環境の両方で全体の試験が通る
 
 ### C18. model の承認と、README の「人の承認が保証する」をそろえる
 状態: 提案

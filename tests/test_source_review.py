@@ -108,6 +108,7 @@ class SourceReviewTest(unittest.TestCase):
         self.assertIn("- 理由: OCR の文字の層（PDF 2頁目）", out)
         self.assertIn("confirm ocr2020#e1 --source --by <名前> --page", out)
 
+    @unittest.skipUnless(tb.HAS_PYMUPDF, "pymupdf が無い")
     def test_source_checks_images_option_writes_page_image(self):
         self.run_bridge("derive")
         pdf_name = "ocr2020.pdf"
@@ -205,7 +206,7 @@ def make_pdf(path):
     pg = d.new_page()  # 二頁目が OCR の文字の層（逐語の頁）
     pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 200, 200), False)
     pix.clear_with(255)
-    pg.insert_image(pg.rect, pixmap=pix)
+    pg.insert_image(pg.rect, pixmap=pix, keep_proportion=False)  # 頁の全体を覆う（版によって縦横比を保つ既定が違うため）
     pg.insert_text((72, 100), OCR_SENTENCE, render_mode=3)
     path.parent.mkdir(parents=True, exist_ok=True)
     d.save(path)

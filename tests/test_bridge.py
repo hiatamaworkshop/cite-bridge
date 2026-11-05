@@ -13,6 +13,12 @@ from pathlib import Path
 
 BRIDGE = Path(__file__).resolve().parent.parent / "bridge.py"
 
+try:  # PDF を作る試験（pymupdf が要る）は、無い環境では飛ばす
+    import pymupdf  # noqa: F401
+    HAS_PYMUPDF = True
+except ImportError:
+    HAS_PYMUPDF = False
+
 PAPER = """A Study of Things
 Abstract We study things and how people use them in many settings.
 \f1 Introduction
@@ -243,6 +249,7 @@ class BridgeTest(unittest.TestCase):
         self.assertNotIn("〔c001〕", self.read("out.md"))
         self.assertIn("〔c001〕", self.read("manuscript.md"))
 
+    @unittest.skipUnless(HAS_PYMUPDF, "pymupdf が無い")
     def test_snapshot_pdf_url(self):
         # URL が PDF を指すとき、頁を保って抽出する（file:// で試す。ネットワークは使わない）
         import pymupdf

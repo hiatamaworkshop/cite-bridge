@@ -195,6 +195,7 @@ bridge.py classify --eval <測定の組.json> --variant <文面の案.toml> [--v
 
 - Python 3.11 以上（標準ライブラリの `tomllib` を使う）。
 - 標準ライブラリだけで動く。PDF の抽出（`extract`、PDF の URL の `snapshot`）にだけ `pymupdf` が要る。
+  試験で確かめた版は `pymupdf` 1.28.2 と 2.0 である（どちらも全試験が通った）。`pymupdf` が無いときは、PDF を作る試験だけを飛ばす。
 - 試験は `python -m unittest discover -s tests`。利用者のデータに依らず、一時フォルダに小さな一式を作って動かす。
   承認の HTML の JavaScript の試験には node を使う（無ければその試験だけ飛ばす）。
 
