@@ -294,6 +294,35 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("抜き書きの文献が合わない", out)
 
+    def test_missing_citations_file_is_a_note(self):
+        """引用のファイルが無いと、引用の検査が走らないので NOTE にする（黙って通さない）。check --strict と checkpoint は止まる。"""
+        self.run_bridge("derive")
+        self.run_bridge("approve", "c001", "--by", "tester")
+        code, out = self.run_bridge("check", "--strict")
+        self.assertEqual(code, 0, out)  # 引用のファイルが有り、確認待ちが無い
+        self.assertNotIn("引用のファイルが無い", out)
+        # 設定の書き方を間違えたとき（bridge/citation.md と打ち間違えた）
+        self.write("bridge/bridge.toml", CONFIG.replace('citations = "bridge/citations.md"', 'citations = "bridge/citation.md"'))
+        msg = "bridge/citation.md: 引用のファイルが無い（設定の citations か --citations のパスを確かめる）"
+        code, out = self.run_bridge("check")
+        self.assertEqual(code, 0, out)  # 普通の check は NOTE では終わらない（今の NOTE と同じ）
+        self.assertIn(f"NOTE  {msg}", out)
+        self.assertEqual(self.run_bridge("check", "--strict")[0], 1)
+        code, out = self.run_bridge("checkpoint")
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"NOTE  {msg}", out)
+        self.assertFalse((self.dir / "bridge/checkpoints").exists())
+        # --citations で存在しないものを指したとき（設定は正しい）
+        self.write("bridge/bridge.toml", CONFIG)
+        code, out = self.run_bridge("--citations", "bridge/none.md", "check")
+        self.assertIn("NOTE  bridge/none.md: 引用のファイルが無い", out)
+        self.assertEqual(self.run_bridge("--citations", "bridge/none.md", "check", "--strict")[0], 1)
+        self.assertEqual(self.run_bridge("--citations", "bridge/none.md", "checkpoint")[0], 1)
+        self.assertFalse((self.dir / "bridge/checkpoints").exists())
+        # 正しいパスなら、今まで通りの結果（checkpoint も書ける）
+        self.assertEqual(self.run_bridge("--citations", "bridge/citations.md", "check", "--strict")[0], 0)
+        self.assertEqual(self.run_bridge("--citations", "bridge/citations.md", "checkpoint", "--label", "test")[0], 0)
+
     def test_checkpoint(self):
         self.run_bridge("derive")
         code, out = self.run_bridge("checkpoint")

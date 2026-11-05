@@ -254,8 +254,9 @@ def run_check():
         returned = counts.get("差し戻し", 0) + counts.get("差し戻し後に直された", 0)
         infos.append(f"引用: 主張 承認済 {counts['承認済']} / 要再確認 {counts['要再確認']} / 未承認 {counts['未承認']}"
                      + (f" / 差し戻し {returned}" if returned else "") + f"、指示 {counts['指示']}")
-    else:
+    else:  # 引用のファイルが無いと、引用の検査は走らない。確認待ちにして、check --strict と checkpoint を止める（黙って通さない）
         counts, target, coverage = {}, None, {}
+        notes.append(f"{cfg.CIT.as_posix()}: 引用のファイルが無い（設定の citations か --citations のパスを確かめる）")
 
     summary = {}
     for st, _, _ in states.values():

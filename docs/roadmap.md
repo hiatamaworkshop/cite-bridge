@@ -103,7 +103,16 @@
     - 実データ（読むだけ。thesis のフォルダを作業フォルダにして `python <cite-bridge>/bridge.py <cmd>`）: `check` は exit 0、ERROR 0 件。`grade`、`coverage`、`classify --list`、`review --source-checks -o <一時フォルダの md>` も exit 0。`apply` は、共通の確かめ方で「derive・extract・confirm・apply は走らせない」と決まっているので走らせていない。
     - SPEC.md と README.md は変えていない。apply の挙動の文（§5 の「合わなければ読み飛ばして理由を出す」）はそのまま正しい。
     - 閉じた時点の確認（leader）: git diff を確かめ、`python -m pytest -q tests` は 144 passed。レビュアーは接続していなかったので、この項目はレビューを受けていない。後で統制のセッションが差分を読んで確かめた（2026-11-05。apply から呼ぶ書き込みの関数に `sys.exit` が残らないこと、propose の受け入れの `write_approval` は印とブロックを書いた直後に呼ぶので失敗しにくく、前より悪くならないこと、指摘も原稿に印の無い ID では SKIP になること）。
-- [ ] C13 引用のファイルが無いとき check を確認待ちにする
+- [x] C13 引用のファイルが無いとき check を確認待ちにする (2026-11-05、無いとき NOTE を出して --strict と checkpoint を止める)
+  - 確かめた記録（2026-11-05）:
+    - cite_bridge/check.py の run_check: 引用のファイルが無い枝（`cfg.CIT` が存在しない）で、`notes` に `<cfg.CIT のパス>: 引用のファイルが無い（設定の citations か --citations のパスを確かめる）` を足す。ERROR は増やしていない（CLAUDE.md の規則 4）。引用のファイルが有る枝は変えていない。
+    - 出力は既存の NOTE と同じ経路（cmd_check の `print("NOTE ", n)`）なので、行は `NOTE  <パス>: …` になり、NOTE の前後に空白が二つ入る（既存の NOTE も同じ）。
+    - `check --strict` は既存の NOTE と同じく、確認待ちとして exit 1。`checkpoint` は notes があれば書かず exit 1。普通の `check` は NOTE だけなら exit 0 のまま（既存と同じ）。SPEC・README・SKILL は NOTE の全部の一覧を書いていないので、変えていない。
+    - 試験: tests/test_bridge.py の test_missing_citations_file_is_a_note。引用の有る一式（承認済み）では、check --strict が exit 0 で NOTE は出ない。設定を `bridge/citation.md` に打ち間違えると、check は exit 0 で NOTE を出し、check --strict と checkpoint は exit 1、bridge/checkpoints は作られない。`--citations bridge/none.md` も同じ。正しい `--citations` に戻すと check --strict と checkpoint は exit 0。
+    - `python -m pytest -q tests`: 145 passed（前は 144）。
+    - 実データ（読むだけ。thesis のフォルダを作業フォルダにして `python <cite-bridge>/bridge.py <cmd>`）: `check` は exit 0、ERROR 0 件、「引用のファイルが無い」の NOTE は 0 件（thesis の bridge/citations.md は有る）。`grade`、`coverage`、`classify --list`、`review --source-checks -o <一時フォルダの md>` も exit 0。checkpoint・apply・derive・extract・confirm は走らせていない。
+    - `--citations` は全体の選択肢なので、サブコマンドの前に置く（`bridge.py --citations X check`）。試験もその形を使う。
+    - 閉じた時点の確認（leader）: git diff を確かめ、`python -m pytest -q tests` は 145 passed。レビュアーは接続していなかったので、この項目はレビューを受けていない。
 - [ ] C14 --citations で写しを指したときの記録の置き場
 - [ ] C15 引用のブロックの ID の重複を確認待ちにする
 - [ ] C16 指示の引用の欄と承認を SPEC とそろえる
@@ -130,7 +139,6 @@
 
 C13・C15・C11 を決定にした（2026-11-05）。残りの順の案: C21 → C22 → C23 → C24 → C25。C13 と C15 は check の NOTE と書き込みの断りで小さく、C11 は C10 の次に重い穴だが JS で画面の確認が残る。C14・C16・C18・C20 は設計を決めてから。
 
-- [ ] C13
 - [ ] C15
 - [ ] C11
 
@@ -149,16 +157,6 @@ C13・C15・C11 を決定にした（2026-11-05）。残りの順の案: C21 →
 - [ ] 読み戻すとき、残した指紋が今の要約の指紋と違う印と、指紋を持たない前の形の印を戻さない
 - [ ] tests/test_review_js.py に、指紋の違う印と前の形の印が戻らない試験を足し、全体の試験が通る
 - [ ] localStorage の形を変えた点を報告に書く（SPEC の形式には入っていない）
-
-### C13. 引用のファイルが無いとき check を確認待ちにする
-
-run_check は引用のファイル（設定の `bridge.citations`、または `--citations`）が無いと、引用の検査を黙って飛ばす。設定のパスを打ち間違えると `check --strict` が exit 0 で通り、`checkpoint` も書ける（2026-10-31 に再現）。CLAUDE.md の規則 4 に従い、ERROR ではなく NOTE にする。
-
-#### 完了条件
-- [ ] 引用のファイルが無いとき、check が `NOTE <パス>: 引用のファイルが無い（設定の citations か --citations のパスを確かめる）` を出す。<パス> は設定か `--citations` で決まった引用のファイルのパス
-- [ ] `check --strict` と `checkpoint` がそれで止まる
-- [ ] 引用のファイルが無い一式の試験を足し、全体の試験が通る
-- [ ] 実データでの確認が通る
 
 ### C14. --citations で写しを指したときの記録の置き場
 状態: 提案
