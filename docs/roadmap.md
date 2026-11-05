@@ -100,7 +100,11 @@
 
 ## 予定
 
-今は C10〜C20 がすべて提案なので、載せる項目が無い。決めたものから、上の「レビューで見つけた穴」の順の考え（C10、C11、C12、C13 を先に。C17 は早めに）に沿って並べる。
+C10 と C12 はどちらも apply の件ごとの処理を直すので、続けて行う。C17 は試験と README だけを触るので、並行してよい。
+
+- [ ] C10 判断ファイルの指紋が空か無いものを断る
+- [ ] C12 apply が一件の失敗で途中で止まらない
+- [ ] C17 試験が pymupdf の有無と版で落ちない
 
 ## 項目
 
@@ -109,7 +113,6 @@
 - 実データでの確認: 利用者の原稿のリポジトリ (場所は CLAUDE.local.md) で、データを変えずに `check`、`grade`、`coverage`、`classify --list`、`review --source-checks -o <一時フォルダの md>` (C3 より前は `review -o <一時フォルダの md>`) が最後まで走る。derive・extract・confirm・apply は走らせない。check の ERROR は「導く欄が古い」だけでよい (導く欄が増えるため)。それ以外の ERROR は実装の誤りとして直す。NOTE は増えてよい。
 
 ### C10. 判断ファイルの指紋が空か無いものを断る
-状態: 提案
 
 apply は判断ファイルの `confirms` と `source_checks` の `fingerprint` を、write_confirm と write_source_check の `seen` に渡す。`seen` が空の文字列だと照合を飛ばすので（`if seen and seen != …`）、`"fingerprint": ""` の判断ファイルで、見ていない要約と逐語の確認が今の指紋つきで記録される（2026-10-31 に一時フォルダで再現）。外部の AI が手で書く `source_checks`（SPEC §5.1）がこの経路を通る。鍵そのものが無いと `KeyError` で止まる。
 
@@ -131,7 +134,6 @@ apply は判断ファイルの `confirms` と `source_checks` の `fingerprint` 
 - [ ] localStorage の形を変えた点を報告に書く（SPEC の形式には入っていない）
 
 ### C12. apply が一件の失敗で途中で止まらない
-状態: 提案
 
 承認の書き込み（approve.py の _citation_now）は、原稿に印がちょうど一つ無いと `sys.exit` で終わる。判断ファイルに原稿から消えた ID があると、apply がそこで終わり、それより前の件（指摘など）は書かれたまま、`applied.json` に記録が残らず、書いた件の出力も出ない（2026-10-31 に再現）。
 
@@ -189,7 +191,6 @@ SPEC §3.1 は 理由・記入・承認 をすべての引用に要るとする�
 - [ ] 実データでの確認が通る。NOTE が増えたら件数を報告に書く
 
 ### C17. 試験が pymupdf の有無と版で落ちない
-状態: 提案
 
 pymupdf の無い環境で、`test_bridge.py` の test_snapshot_pdf_url と `test_source_review.py` の test_source_checks_images_option_writes_page_image が、飛ばされずに ModuleNotFoundError で失敗する。pymupdf 2.0 では `test_extraction.py` の OCR の文字の層の試験 4 件が失敗する。試験の PDF は正方形の画像を `insert_image` で置くので縦横比が保たれ、頁の 7 割ほどしか覆わず、§2.4.1 の 8 割の規則に当たらない（`keep_proportion=False` にすると 13 件すべて通ることを 2026-10-31 に確かめた）。README は pymupdf の版を書いていない。
 
