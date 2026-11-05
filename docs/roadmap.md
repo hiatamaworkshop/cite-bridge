@@ -86,7 +86,13 @@
 道具の全体を読み、一時フォルダの小さな一式で動かして見つけたもの（0971124 の時点）。どれも提案で、決めてから着手する。
 先に指紋の照合を素通りできる穴（C10、C11）と、確認待ちを黙って通す穴（C12、C13）を塞ぐ。C17 は他の項目の試験を走らせる前提なので、早めに行う。
 
-- [ ] C10 判断ファイルの指紋が空か無いものを断る
+- [x] C10 判断ファイルの指紋が空か無いものを断る (2026-11-05、apply で SKIP にする)
+  - 確かめた記録（2026-11-05）:
+    - cite_bridge/apply.py: 件を書く前に `_gap` で照合に要る欄を見る。空か無い件は書かず、`SKIP <id>: 判断ファイルの <欄> が空か無い。書かなかった` を出して次の件へ進む。欄は decisions が `id`・`fingerprint`・`evidence`（action も remark も無い件は従来どおり何もしない）、candidates（action が accept か reject の件のみ）が `id`・`cfp`、confirms と source_checks が `id`・`fingerprint`。`seen` の falsy 判定には頼らない。件が辞書でない、または id が無いときは SKIP の ID を `?` で出す。
+    - 直した前は、decisions の空の `fingerprint` は write_approval の照合で「本文が変わった」の文で断り、空の `cfp` は apply_candidate で「候補が変わった」の文で断っていた（どちらも誤った理由の文）。confirms と source_checks の空の `fingerprint` は `if seen and` の falsy 判定で照合を飛ばして書いていた。鍵の欠けた件は KeyError で apply が止まっていた。直接の `confirm` コマンドは変えていない。
+    - 試験: tests/test_bridge.py の test_apply_skips_empty_fingerprints（decisions・candidates・confirms・source_checks の指紋が空。同じファイルの指紋の合う要約の確認は書く）と test_apply_skips_missing_keys_and_goes_on（decisions の evidence、candidates の cfp、confirms の id、source_checks の fingerprint の欠け。KeyError が出ず、候補の却下は書く）。`python -m pytest -q tests`: 141 passed（前は 139）。
+    - 実データ（読むだけ。thesis のフォルダを作業フォルダにして `python <cite-bridge>/bridge.py <cmd>`）: `check` は exit 0、ERROR 0 件。`grade`、`coverage`、`classify --list`、`review --source-checks -o <一時フォルダの md>` も exit 0。`apply`（`--dry-run` を含む）は、この項目の共通の確かめ方で「derive・extract・confirm・apply は走らせない」と決まっているので走らせていない。
+    - SPEC.md は変えていない。§5 の「fingerprint が今と合わなければ書かず、理由を出す」に空と欠けが入るため。
 - [ ] C11 承認の HTML が、要約が変わった後の要約の確認を戻さない
 - [ ] C12 apply が一件の失敗で途中で止まらない
 - [ ] C13 引用のファイルが無いとき check を確認待ちにする
@@ -100,9 +106,8 @@
 
 ## 予定
 
-C10 と C12 はどちらも apply の件ごとの処理を直すので、続けて行う。C17 は試験と README だけを触るので、並行してよい。
+C12 は C10 と同じく apply の件ごとの処理を直す。C17 は試験と README だけを触るので、並行してよい。
 
-- [ ] C10 判断ファイルの指紋が空か無いものを断る
 - [ ] C12 apply が一件の失敗で途中で止まらない
 - [ ] C17 試験が pymupdf の有無と版で落ちない
 
@@ -111,16 +116,6 @@ C10 と C12 はどちらも apply の件ごとの処理を直すので、続け�
 各項目の完了条件に共通する確かめ方:
 - 全体の試験: 道具のフォルダで `python -m pytest -q tests` がすべて通る (`tests/test_review_js.py` は node が要る)。
 - 実データでの確認: 利用者の原稿のリポジトリ (場所は CLAUDE.local.md) で、データを変えずに `check`、`grade`、`coverage`、`classify --list`、`review --source-checks -o <一時フォルダの md>` (C3 より前は `review -o <一時フォルダの md>`) が最後まで走る。derive・extract・confirm・apply は走らせない。check の ERROR は「導く欄が古い」だけでよい (導く欄が増えるため)。それ以外の ERROR は実装の誤りとして直す。NOTE は増えてよい。
-
-### C10. 判断ファイルの指紋が空か無いものを断る
-
-apply は判断ファイルの `confirms` と `source_checks` の `fingerprint` を、write_confirm と write_source_check の `seen` に渡す。`seen` が空の文字列だと照合を飛ばすので（`if seen and seen != …`）、`"fingerprint": ""` の判断ファイルで、見ていない要約と逐語の確認が今の指紋つきで記録される（2026-10-31 に一時フォルダで再現）。外部の AI が手で書く `source_checks`（SPEC §5.1）がこの経路を通る。鍵そのものが無いと `KeyError` で止まる。
-
-#### 完了条件
-- [ ] apply が、`decisions` の `fingerprint`・`evidence`、`candidates` の `cfp`、`confirms` と `source_checks` の `fingerprint` が空か無い件を書かず、理由を SKIP に出す
-- [ ] 鍵の欠けた件があっても KeyError で止まらず、残りの件を処理する
-- [ ] 指紋が空の件・鍵が無い件を書かないことを確かめる試験を足し、全体の試験が通る
-- [ ] 実データでの確認が通る
 
 ### C11. 承認の HTML が、要約が変わった後の要約の確認を戻さない
 状態: 提案

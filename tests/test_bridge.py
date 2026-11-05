@@ -755,6 +755,77 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertIn("未承認 1", out)
 
+    def _pending_candidates(self):
+        """二件の候補（主張・引用でない）を作り、(主張の item, 節の item, {item: cfp}) を返す。"""
+        import json
+        ya, sec = self._propose()
+        n = ya["keys"][0]["passages"][0]["n"]
+        drafts = {"format": "cite-bridge-drafts/1", "items": [
+            {"item": ya["item"], "kind": "主張", "key": "yamada2002",
+             "excerpts": [{"sentences": [n], "from": "音声は", "強さ": "観察", "要約": "音声は状態を理解しにくい。",
+                           "言っていないこと": "入力の側の話ではない。"}],
+             "理由": "試験", "原文との差": "言い換え", "記入": "AI 2026-10-11"},
+            {"item": sec["item"], "kind": "引用でない", "理由": "節の参照"}]}
+        self.write("drafts.json", json.dumps(drafts, ensure_ascii=False))
+        self.assertEqual(self.run_bridge("propose", "--load", "drafts.json")[0], 0)
+        data = json.loads(self.run_bridge("review", "--json")[1])
+        return ya["item"], sec["item"], {c["id"]: c["cfp"] for c in data["candidates"]}
+
+    def test_apply_skips_empty_fingerprints(self):
+        """指紋が空の件は、どの種類でも書かず SKIP に理由を出す。同じ判断ファイルの他の件は書く。"""
+        import json
+        self.run_bridge("derive")
+        ya, sec, cfp = self._pending_candidates()
+        c = json.loads(self.run_bridge("review", "--json", "--all")[1])["citations"][0]
+        d = {"format": "cite-bridge-decisions/1", "manuscript": "manuscript.md", "by": "tester",
+             "decisions": [{"id": "c001", "action": "approve", "note": "", "fingerprint": "", "evidence": c["evidence_fp"]}],
+             "candidates": [{"id": ya, "action": "accept", "note": "", "cfp": ""},
+                            {"id": sec, "action": "reject", "note": "試験", "cfp": ""}],
+             "confirms": [{"id": "doe2020#e2", "fingerprint": ""},
+                          {"id": "doe2020#e1", "fingerprint": c["evidence"][0]["summary_fp"]}],
+             "source_checks": [{"id": "doe2020#e3", "fingerprint": "", "result": "一致"}]}
+        self.write("decisions.json", json.dumps(d, ensure_ascii=False))
+        code, out = self.run_bridge("apply", "decisions.json")
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"SKIP c001: 判断ファイルの fingerprint が空か無い", out)
+        self.assertIn(f"SKIP {ya}: 判断ファイルの cfp が空か無い", out)
+        self.assertIn(f"SKIP {sec}: 判断ファイルの cfp が空か無い", out)
+        self.assertIn("SKIP doe2020#e2: 判断ファイルの fingerprint が空か無い", out)
+        self.assertIn("SKIP doe2020#e3: 判断ファイルの fingerprint が空か無い", out)
+        self.assertIn("書いた 1 件、書かなかった 5 件", out)
+        self.assertIn("承認: 未", self.read("bridge/citations.md"))  # 指紋が空の承認は書かない
+        self.assertNotIn("〔c002〕", self.read("manuscript.md"))  # 指紋が空の候補の受け入れは書かない
+        self.assertEqual(json.loads(self.read("bridge/candidates/candidates.json"))["items"][sec]["status"], "pending")
+        ex = self.read("bridge/excerpts/doe2020.md")
+        self.assertEqual(ex.count("要約の確認: tester"), 1)  # 指紋の合う要約の確認は、空の件に挟まれても書く
+        self.assertNotIn("原本での確認:", ex)
+
+    def test_apply_skips_missing_keys_and_goes_on(self):
+        """鍵の欠けた件（decisions の evidence、candidates の cfp、confirms の id、source_checks の fingerprint）で KeyError にせず、残りを処理する。"""
+        import json
+        self.run_bridge("derive")
+        ya, sec, cfp = self._pending_candidates()
+        c = json.loads(self.run_bridge("review", "--json", "--all")[1])["citations"][0]
+        d = {"format": "cite-bridge-decisions/1", "manuscript": "manuscript.md", "by": "tester",
+             "decisions": [{"id": "c001", "action": "approve", "note": "", "fingerprint": c["fingerprint"]}],
+             "candidates": [{"id": ya, "action": "accept", "note": "原文どおり"},
+                            {"id": sec, "action": "reject", "note": "試験", "cfp": cfp[sec]}],
+             "confirms": [{"fingerprint": c["evidence"][0]["summary_fp"]}],
+             "source_checks": [{"id": "doe2020#e1", "result": "一致"}]}
+        self.write("decisions.json", json.dumps(d, ensure_ascii=False))
+        code, out = self.run_bridge("apply", "decisions.json")
+        self.assertEqual(code, 1, out)
+        self.assertNotIn("KeyError", out)
+        self.assertIn("SKIP c001: 判断ファイルの evidence が空か無い", out)
+        self.assertIn(f"SKIP {ya}: 判断ファイルの cfp が空か無い", out)
+        self.assertIn("SKIP ?: 判断ファイルの id が空か無い", out)
+        self.assertIn("SKIP doe2020#e1: 判断ファイルの fingerprint が空か無い", out)
+        self.assertIn("書いた 1 件、書かなかった 4 件", out)
+        self.assertEqual(json.loads(self.read("bridge/candidates/candidates.json"))["items"][sec]["status"], "rejected")  # 残りの件は書く
+        self.assertEqual(json.loads(self.read("bridge/candidates/candidates.json"))["items"][ya]["status"], "pending")
+        self.assertIn("承認: 未", self.read("bridge/citations.md"))
+        self.assertNotIn("要約の確認:", self.read("bridge/excerpts/doe2020.md"))
+
 
 if __name__ == "__main__":
     unittest.main()

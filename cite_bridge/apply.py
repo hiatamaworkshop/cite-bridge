@@ -25,6 +25,22 @@ def _latest_decisions(folder, manuscript):
     return best[0] if best else None
 
 
+def _gap(x, *keys):
+    """判断ファイルの件 x で、照合に要る欄（keys）が空か無いときは、その欄の名前を並べた文を返す。揃っていれば None。
+
+    指紋が空だと照合を飛ばす書き込みがあるので、書き込みの前にここで断る。件が辞書でないときは全部が無いものとして扱う。
+    """
+    if not isinstance(x, dict):
+        x = {}
+    gone = [k for k in keys if not str(x.get(k) or "").strip()]
+    return "・".join(gone) if gone else None
+
+
+def _id_of(x):
+    """SKIP の行の頭に出す件の ID。無ければ「?」。"""
+    return (x.get("id") if isinstance(x, dict) else None) or "?"
+
+
 def cmd_apply(args):
     """承認の HTML が書き出した判断ファイルを、指紋を照らしてから書き込む。
 
@@ -65,6 +81,12 @@ def cmd_apply(args):
                  "判断が巻き戻るので断った（意図したときだけ --allow-older）")
     done, skipped = [], []
     for x in d.get("decisions", []):
+        if not (isinstance(x, dict) and (x.get("action") or x.get("remark"))):
+            continue
+        gone = _gap(x, "id", "fingerprint", "evidence")
+        if gone:
+            skipped.append(f"{_id_of(x)}: 判断ファイルの {gone} が空か無い。書かなかった")
+            continue
         if x.get("action"):
             ok, msg = write_approval(x["id"], by, x.get("note") or None, x["action"] == "send_back",
                                      seen=(x["fingerprint"], x["evidence"]), dry=args.dry_run)
@@ -73,13 +95,25 @@ def cmd_apply(args):
             ok, msg = write_remark(x["id"], by, x["remark"], dry=args.dry_run)
             (done if ok else skipped).append(msg)
     for x in d.get("candidates", []):
-        if x.get("action") in ("accept", "reject"):
-            ok, msg = apply_candidate(x["id"], x["action"], by, x.get("note") or None, x.get("cfp"), dry=args.dry_run)
+        if isinstance(x, dict) and x.get("action") in ("accept", "reject"):
+            gone = _gap(x, "id", "cfp")
+            if gone:
+                skipped.append(f"{_id_of(x)}: 判断ファイルの {gone} が空か無い。書かなかった")
+                continue
+            ok, msg = apply_candidate(x["id"], x["action"], by, x.get("note") or None, x["cfp"], dry=args.dry_run)
             (done if ok else skipped).append(msg)
     for x in d.get("confirms", []):
+        gone = _gap(x, "id", "fingerprint")
+        if gone:
+            skipped.append(f"{_id_of(x)}: 判断ファイルの {gone} が空か無い。書かなかった")
+            continue
         ok, msg = write_confirm(x["id"], by, seen=x["fingerprint"], dry=args.dry_run)
         (done if ok else skipped).append(msg)
     for x in d.get("source_checks", []):  # 原本での確認（§5.4 の 2）。指紋が今の逐語と合うものだけ書く
+        gone = _gap(x, "id", "fingerprint")
+        if gone:
+            skipped.append(f"{_id_of(x)}: 判断ファイルの {gone} が空か無い。書かなかった")
+            continue
         ok, msg = write_source_check(x["id"], by, x.get("result", "一致"), x.get("page") or None, x.get("note") or None,
                                      seen=x["fingerprint"], dry=args.dry_run)
         (done if ok else skipped).append(msg)
