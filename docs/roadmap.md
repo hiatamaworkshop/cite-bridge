@@ -93,7 +93,15 @@
     - 試験: tests/test_bridge.py の test_apply_skips_empty_fingerprints（decisions・candidates・confirms・source_checks の指紋が空。同じファイルの指紋の合う要約の確認は書く）と test_apply_skips_missing_keys_and_goes_on（decisions の evidence、candidates の cfp、confirms の id、source_checks の fingerprint の欠け。KeyError が出ず、候補の却下は書く）。`python -m pytest -q tests`: 141 passed（前は 139）。
     - 実データ（読むだけ。thesis のフォルダを作業フォルダにして `python <cite-bridge>/bridge.py <cmd>`）: `check` は exit 0、ERROR 0 件。`grade`、`coverage`、`classify --list`、`review --source-checks -o <一時フォルダの md>` も exit 0。`apply`（`--dry-run` を含む）は、この項目の共通の確かめ方で「derive・extract・confirm・apply は走らせない」と決まっているので走らせていない。
     - SPEC.md は変えていない。§5 の「fingerprint が今と合わなければ書かず、理由を出す」に空と欠けが入るため。
-- [ ] C11 承認の HTML が、要約が変わった後の要約の確認を戻さない
+- [x] C11 承認の HTML が、要約が変わった後の要約の確認を戻さない (2026-11-06、印に要約の指紋を持たせ、違う印と前の形の印を戻さない)
+  - 確かめた記録（2026-11-06）:
+    - cite_bridge/templates/review.js: `summaryFp(D, e)`（引用の根拠の excerpts、無ければ orphans から、この HTML での要約の指紋を引く。どちらにも無ければ undefined）と `isStaleConfirm(v, fp)`（印が無い、オブジェクトでない、今の指紋が無い、指紋が違う、のどれかで古い）を足し、module.exports に加えた（既存の名前は変えていない）。
+    - localStorage の形の変更（SPEC の形式には入っていない）: `confirms` は、前は抜き書きの ID の文字列の並び、今は `{id, fingerprint}` の並び。fingerprint は印を付けた HTML での要約の指紋。collect はこの形で残し、restore は `isStaleConfirm` が真の印（指紋の違う印と、前の形の文字列の印）を戻さない。前の形の印は一度だけ外れ、人が付け直す。
+    - buildOutput は、前と同じく今の HTML の要約の指紋を判断ファイルに付ける（判断ファイルの形 cite-bridge-decisions/1 は変えていない）。`confirms` の要素は文字列と `{id, …}` のどちらも受ける。どちらにも無い ID は前と同じく落とす。
+    - 試験: tests/test_review_js.py に test_summary_fingerprint_comes_from_citations_or_orphans、test_summary_confirm_with_other_or_no_fingerprint_is_not_restored（同じ指紋は戻す、違う指紋・前の形・無い ID は戻さない）、test_summary_confirm_in_output_has_the_current_fingerprint。`python -m pytest -q tests`: 150 passed（前は 147。node あり、スキップ無し）。
+    - 実データ（読むだけ。thesis のフォルダを作業フォルダにして `python <cite-bridge>/bridge.py <cmd>`）: `check` は exit 0、ERROR 0 件。`grade`、`coverage`、`classify --list`、`review --source-checks -o <一時フォルダの md>` も exit 0。`review --html -o <一時フォルダ>` も走り（主張の引用 23 件、要約の確認の入力 22）、出た HTML の script は `node --check` を通る。thesis の git status は前後とも空。derive・extract・confirm・apply は走らせていない。
+    - 未確認: 承認の HTML をブラウザで開き、印を付けて作り直した後の戻り方を画面で見ること（DOM の部分は構文の確認だけ）。
+    - 閉じた時点の確認: チームを使わず、このセッションで実装した。レビューは受けていない。
 - [x] C12 apply が一件の失敗で途中で止まらない (2026-11-05、失敗の件を SKIP にして続ける)
   - 確かめた記録（2026-11-05）:
     - approve.py の `_citation_now` は、印がちょうど一つ無い件とブロックが無い件を `(None, 理由)` で返す（前は `sys.exit`）。`write_approval` と `write_remark` はこれを `(False, "<id>: 理由")` にする。`write_remark` は、印の無い ID の指摘を書かない（前は、ブロックさえあれば印が無くても書いていた）。`write_confirm`・`write_source_check`・`apply_candidate` は、もとから `sys.exit` を使っていない（確かめた）。
@@ -146,25 +154,13 @@
 
 ## 予定
 
-C13・C15・C11 を決定にした（2026-11-05）。残りの順の案: C21 → C22 → C23 → C24 → C25。C13 と C15 は check の NOTE と書き込みの断りで小さく、C11 は C10 の次に重い穴だが JS で画面の確認が残る。C14・C16・C18・C20 は設計を決めてから。
-
-- [ ] C11
+C13・C15・C11 を決定にし、終えた（2026-11-06）。決定の項目は今は無い。残りの順の案: C21 → C22 → C23 → C24 → C25。C14・C16・C18・C20 は設計を決めてから。
 
 ## 項目
 
 各項目の完了条件に共通する確かめ方:
 - 全体の試験: 道具のフォルダで `python -m pytest -q tests` がすべて通る (`tests/test_review_js.py` は node が要る)。
 - 実データでの確認: 利用者の原稿のリポジトリ (場所は CLAUDE.local.md) で、データを変えずに `check`、`grade`、`coverage`、`classify --list`、`review --source-checks -o <一時フォルダの md>` (C3 より前は `review -o <一時フォルダの md>`) が最後まで走る。derive・extract・confirm・apply は走らせない。check の ERROR は「導く欄が古い」だけでよい (導く欄が増えるため)。それ以外の ERROR は実装の誤りとして直す。NOTE は増えてよい。
-
-### C11. 承認の HTML が、要約が変わった後の要約の確認を戻さない
-
-承認の HTML は、要約の確認の印を ID だけで localStorage に残し（templates/review.js の collect）、読み戻すときに古さを見ず（restore）、保存のときにその時点の要約の指紋を付ける（buildOutput）。前の HTML で印を付けた抜き書きの要約が後で変わっても、作り直した HTML で印が戻り、人が見ていない要約への確認として apply を通る。判断（isStale）と原本での確認（isStaleSource）には古さの検査があり、要約の確認だけに無い（コードを読んで確認。画面では動かしていない）。
-
-#### 完了条件
-- [ ] 要約の確認の印を、印を付けたときの要約の指紋と一緒に残す
-- [ ] 読み戻すとき、残した指紋が今の要約の指紋と違う印と、指紋を持たない前の形の印を戻さない
-- [ ] tests/test_review_js.py に、指紋の違う印と前の形の印が戻らない試験を足し、全体の試験が通る
-- [ ] localStorage の形を変えた点を報告に書く（SPEC の形式には入っていない）
 
 ### C14. --citations で写しを指したときの記録の置き場
 状態: 提案

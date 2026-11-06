@@ -41,13 +41,24 @@ function missingSourceNotes(sources) {
 function isStaleSource(v, fp) {
   return !v || !fp || v.fingerprint !== fp;
 }
+// この HTML での抜き書きの要約の指紋。引用の根拠に無ければ、どの引用にも使われていない抜き書き（orphans）から引く
+function summaryFp(D, e) {
+  const c = D.citations.find(c => e in c.excerpts);
+  if (c) return c.excerpts[e];
+  if (D.orphans && e in D.orphans) return D.orphans[e];
+  return undefined;
+}
+// 保存した要約の確認の印が、今の要約の指紋と違えば戻さない（要約が変わったので見直してもらう）。
+// 指紋を持たない前の形（ID の文字列だけ）の印も戻さない
+function isStaleConfirm(v, fp) {
+  return !v || typeof v !== 'object' || !fp || v.fingerprint !== fp;
+}
 // 判断ファイルの内容（cite-bridge-decisions/1）。判断も確認も原本での確認も無ければ null
 function buildOutput(s, D, byId, nowIso) {
   const confirms = [];
-  for (const e of s.confirms) {
-    const c = D.citations.find(c => e in c.excerpts);
-    if (c) confirms.push({id: e, fingerprint: c.excerpts[e]});
-    else if (D.orphans && e in D.orphans) confirms.push({id: e, fingerprint: D.orphans[e]});  // どの引用にも使われていない抜き書き
+  for (const v of s.confirms) {
+    const e = typeof v === 'string' ? v : v.id, fp = summaryFp(D, e);
+    if (fp !== undefined) confirms.push({id: e, fingerprint: fp});
   }
   const sources = s.sources || {};
   const source_checks = Object.entries(sources).filter(([id, v]) => v.result)
@@ -93,8 +104,10 @@ if (typeof document !== 'undefined') (function () {
       if ((r && r.value) || note || remark) s.decisions[id] = makeDecision(byId[id], r ? r.value : '', note, remark);
       a.querySelector('.decide').dataset.choice = r ? r.value : '';
     });
-    document.querySelectorAll('input[data-confirm]:checked').forEach(c => s.confirms.push(c.dataset.confirm));
-    s.confirms = [...new Set(s.confirms)];
+    // 要約の確認の印は、印を付けた時の要約の指紋と一緒に残す（読み戻すときに古さを見る）
+    const ids = new Set();
+    document.querySelectorAll('input[data-confirm]:checked').forEach(c => ids.add(c.dataset.confirm));
+    s.confirms = [...ids].map(e => ({id: e, fingerprint: summaryFp(D, e)}));
     // 原本での確認は、結果を選んだものだけを集める。指紋は読み込んだ時の値（D.vfp）を持たせる
     document.querySelectorAll('[data-scheck]').forEach(h => {
       const eid = h.dataset.scheck, r = h.querySelector('input[type=radio]:checked');
@@ -131,7 +144,10 @@ if (typeof document !== 'undefined') (function () {
       a.querySelector('textarea[data-note]').value = d.note || '';
       const rm = a.querySelector('textarea[data-remark]'); if (rm) rm.value = d.remark || '';
     }
-    (s.confirms || []).forEach(e => document.querySelectorAll('input[data-confirm="' + e + '"]').forEach(c => c.checked = true));
+    for (const v of s.confirms || []) {
+      if (isStaleConfirm(v, summaryFp(D, v.id))) continue;  // 要約が変わったものと前の形の印は戻さない
+      document.querySelectorAll('input[data-confirm="' + v.id + '"]').forEach(c => c.checked = true);
+    }
     for (const [eid, v] of Object.entries(s.sources || {})) {
       if (isStaleSource(v, D.vfp[eid])) continue;  // 逐語が変わったものは戻さない
       document.querySelectorAll('[data-scheck="' + eid + '"]').forEach(h => {
@@ -212,4 +228,4 @@ if (typeof document !== 'undefined') (function () {
 })();
 
 if (typeof module !== 'undefined') module.exports = {mergeStored, isStale, makeDecision, missingReasons, buildOutput, downloadName,
-  missingSourceNotes, isStaleSource};
+  missingSourceNotes, isStaleSource, summaryFp, isStaleConfirm};

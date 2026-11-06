@@ -83,6 +83,16 @@ out.srcOutput = m.buildOutput({by: 'hiatama', confirms: [], decisions: {}, sourc
   'a#e1': {result: '一致', page: 'p.2', note: '', fingerprint: 'vfp1'},
   'a#e2': {result: '', page: '', note: '', fingerprint: 'vfp2'},  // 結果を選んでいないものは書かない
 }}, D, byId, '2026-10-15T01:00:00.000Z');
+// 要約の確認の印。印を付けた時の要約の指紋を持ち、今の指紋と違う印と、指紋を持たない前の形の印は戻さない
+out.confirmFp = [m.summaryFp(D, 'a#e2'), m.summaryFp(D, 'z#e7'), m.summaryFp(D, 'unknown#e9') === undefined];
+out.confirmStale = [
+  m.isStaleConfirm({id: 'a#e1', fingerprint: 'sum1'}, m.summaryFp(D, 'a#e1')),
+  m.isStaleConfirm({id: 'a#e1', fingerprint: 'OLD'}, m.summaryFp(D, 'a#e1')),   // 印の後に要約が変わった
+  m.isStaleConfirm('a#e1', m.summaryFp(D, 'a#e1')),                            // 前の形（ID の文字列だけ）
+  m.isStaleConfirm({id: 'unknown#e9', fingerprint: 'x'}, m.summaryFp(D, 'unknown#e9')),
+];
+out.confirmOutput = m.buildOutput({by: 'x', decisions: {}, confirms: [
+  {id: 'a#e1', fingerprint: 'sum1'}, {id: 'unknown#e9', fingerprint: 'x'}]}, D, byId, 't').confirms;
 out.srcOnly = m.buildOutput({by: 'x', confirms: [], decisions: {}, sources: {'a#e2': {result: '', fingerprint: 'vfp2'}}}, D, byId, 't');
 console.log(JSON.stringify(out));
 """
@@ -160,6 +170,15 @@ class ReviewJsTest(unittest.TestCase):
 
     def test_merge_stored_keeps_sources_later_wins(self):
         self.assertEqual(self.out["srcMerged"]["a#e1"], {"result": "違う", "note": "n", "fingerprint": "v1"})
+
+    def test_summary_fingerprint_comes_from_citations_or_orphans(self):
+        self.assertEqual(self.out["confirmFp"], ["sum2", "sum7", True])
+
+    def test_summary_confirm_with_other_or_no_fingerprint_is_not_restored(self):  # C11
+        self.assertEqual(self.out["confirmStale"], [False, True, True, True])
+
+    def test_summary_confirm_in_output_has_the_current_fingerprint(self):
+        self.assertEqual(self.out["confirmOutput"], [{"id": "a#e1", "fingerprint": "sum1"}])
 
     def test_page_script_parses(self):
         """ひな形に差し込んだ後の HTML の script が、構文として読めること。"""
