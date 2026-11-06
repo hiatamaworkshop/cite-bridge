@@ -166,7 +166,7 @@ language = "ja"                                  # 導く欄の名前を書く�
   `mark_pattern = '\\cite\{(?P<key>[^}]+)\}(?P<strip>%(?P<id>c\d+))'`、`paragraph = "blank"`、英語の sentence_end。
   名前つきのグループ id が ID、key があれば印の key と根拠の文献が合うかも検査し、strip があれば strip と指紋はその部分だけを外す。
 - 欄の名前と値は英語でも書ける（verbatim, strength: observation, not_said, written_by, kind: claim, excerpts, diff: paraphrase 等。
-  対応は bridge.py の FIELD_ALIASES と VALUE_ALIASES）。内部では日本語の名前にそろえる。出力の文はいまは日本語だけである。
+  対応は cite_bridge/config.py の FIELD_ALIASES と VALUE_ALIASES）。内部では日本語の名前にそろえる。出力の文はいまは日本語だけである。
 
 ## コマンド
 
@@ -226,7 +226,7 @@ python .claude/skills/cite-bridge/bridge.py classify --eval <組.json> --variant
 - 承認の HTML の末尾に「引用に使われていない抜き書き」の一覧が出る（どの引用も根拠にしておらず、要約を確かめていないもの）。
   引用のカードに出ないので、要約・言っていないこと・強さを原文と照らして印を付けるのはここである。引用に使い始めたら、その引用の承認で改めて見る。
 - 承認の HTML には、判断とは別に「指摘」の欄がある。原稿への気づきを書く欄で、apply は引用ブロックの「指摘」に足す（承認の指紋には入らない）。
-  指摘だけを書いて判断を保留にしてもよい。承認の理由に原稿への指摘を書かずに済むようにした。
+  指摘だけを書いて判断を保留にしてもよい。原稿への指摘はこの欄に書き、承認の理由には混ぜない。
 - check は「網羅」の行に、原稿の出典らしきもの（括弧の数を併記）のうち、印の無いものの数を出す。印の無い引用はこのツールが何も確かめていない。
   「確認待ち 0」や checkpoint は、印のある引用についての状態であって、原稿の引用全体の確認ではない。一覧は coverage で出す。
   パターンは数え方の下限の目安で、括弧を使わない出典は数えない。
