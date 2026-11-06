@@ -245,6 +245,41 @@ class BridgeTest(unittest.TestCase):
         self.write("bridge/bridge.toml", CONFIG.replace('path = "bib.md"\nformat = "keyline"', 'path = "bib.json"\nformat = "csl-json"'))
         self.assertIn("PDF所持（抽出あり）: 1", self.run_bridge("grade")[1])
 
+    def _duplicate_case(self, bib_name, fmt, clean, dup):
+        """書誌を重複のないものから重複のあるものに替える。ERROR は増えず、重複の NOTE の行を返す（check の出力）。"""
+        if fmt != "keyline":
+            self.write("bridge/bridge.toml", CONFIG.replace('path = "bib.md"\nformat = "keyline"', f'path = "{bib_name}"\nformat = "{fmt}"'))
+        self.write(bib_name, clean)
+        before = [ln for ln in self.run_bridge("check")[1].splitlines() if ln.startswith("ERROR")]
+        self.write(bib_name, dup)
+        out = self.run_bridge("check")[1]
+        self.assertEqual([ln for ln in out.splitlines() if ln.startswith("ERROR")], before)
+        return [ln for ln in out.splitlines() if "書誌の key の重複" in ln]
+
+    def test_duplicate_key_is_a_note_keyline(self):
+        clean = ("Doe, J. (2020). A study of things. *Journal of Things*, 1(1), 1–3.\nkey: doe2020\n（PDF: `doe2020.pdf`）\n"
+                 "Yamada, T. (2002). 言語の研究. 1–2.\nkey: yamada2002\n（注）\n")
+        dup = clean + ("Doe, J. (2021). Another study. *Journal*.\nkey: doe2020\n（注）\n"
+                       "Doe, J. (2022). Third. *Journal*.\nkey: doe2020\n（注）\n")
+        notes = self._duplicate_case("bib.md", "keyline", clean, dup)
+        self.assertEqual(len(notes), 2)  # 二つ目と三つ目の両方が出る（先は一つ目の行）
+        self.assertIn("bib.md:8 doe2020: 書誌の key の重複（先は 2 行）", notes[0])
+        self.assertIn("bib.md:11 doe2020: 書誌の key の重複（先は 2 行）", notes[1])
+
+    def test_duplicate_key_is_a_note_bibtex(self):
+        clean = "@article{doe2020, author = {Doe, Jane}, title = {A Study}, year = 2020, file = {:doe2020.pdf:PDF}}\n@misc{acme_docs, title = {Acme}}\n"
+        dup = clean + "@article{doe2020, author = {Doe, Jane}, title = {Another}, year = 2021}\n"
+        notes = self._duplicate_case("bib.bib", "bibtex", clean, dup)
+        self.assertEqual(len(notes), 1)
+        self.assertIn("bib.bib:3 doe2020: 書誌の key の重複（先は 1 行）", notes[0])
+
+    def test_duplicate_key_is_a_note_csl_json(self):
+        clean = '[{"id": "doe2020", "title": "A Study", "file": "doe2020.pdf"}, {"id": "acme_docs", "title": "Acme"}]'
+        dup = '[{"id": "doe2020", "title": "A Study", "file": "doe2020.pdf"}, {"id": "acme_docs", "title": "Acme"}, {"id": "doe2020", "title": "Another"}]'
+        notes = self._duplicate_case("bib.json", "csl-json", clean, dup)
+        self.assertEqual(len(notes), 1)  # 行が無いので何件目で示す
+        self.assertIn("bib.json:3 件目 doe2020: 書誌の key の重複（先は 1 件目）", notes[0])
+
     def test_keyline_key_on_first_line_reads_no_entry(self):
         """key: の行がファイルの先頭にあると、直前の行が無い。最後の行を書誌の行として読まない（entry は空、accessed は None）。注記の PDF は読む。"""
         self.write("bib.md", "key: doe2020\n（PDF: `doe2020.pdf`）\n参照 2020-01-02 https://example.org/last-line\n")

@@ -66,13 +66,16 @@ def _bibtex_date(v):
     return m.group(0).strip() if m else None
 
 
-def bib_csljson(text):
-    """CSL-JSON（Zotero 等の書き出し）。id が key。PDF は設定の files_field（既定 file）の欄から取る。"""
+def _csl_items(text):
     import json
     data = json.loads(text)
-    items = data.get("items", []) if isinstance(data, dict) else data
+    return data.get("items", []) if isinstance(data, dict) else data
+
+
+def bib_csljson(text):
+    """CSL-JSON（Zotero 等の書き出し）。id が key。PDF は設定の files_field（既定 file）の欄から取る。"""
     bib = {}
-    for it in items:
+    for it in _csl_items(text):
         authors = [a.get("family") or a.get("literal", "") for a in it.get("author", [])]
         year = (it.get("issued", {}).get("date-parts") or [[None]])[0][0]
         bib[it["id"]] = {
@@ -109,10 +112,13 @@ def _bibtex_fields(body):
     return fields
 
 
+BIBTEX_HEAD_RE = r"@(\w+)\s*\{\s*([^,\s]+)\s*,"  # エントリの頭（種類・引用キー）
+
+
 def bib_bibtex(text):
     """BibTeX。引用キーが key。PDF は設定の files_field（既定 file）の欄から取る。"""
     bib = {}
-    for m in re.finditer(r"@(\w+)\s*\{\s*([^,\s]+)\s*,", text):
+    for m in re.finditer(BIBTEX_HEAD_RE, text):
         if m.group(1).lower() in ("comment", "string", "preamble"):
             continue
         depth, j = 1, m.end()
@@ -131,6 +137,26 @@ def bib_bibtex(text):
 
 
 BIB_ADAPTERS = {"keyline": bib_keyline, "csl-json": bib_csljson, "bibtex": bib_bibtex}
+
+
+def bib_occurrences():
+    """書誌の見出しを並び順に [(key, 番号, 行か)] で返す。同じ key が二つ以上あるかを check が見るのに使う。
+    keyline と BibTeX は行の番号（行か が真）、CSL-JSON は行が無いので何件目かの番号（行か が偽）。辞書は後のものが残るので、重複はここで数える。"""
+    text = cfg.BIB.read_text(encoding="utf-8")
+    if cfg.BIB_FORMAT == "keyline":
+        out = []
+        for i, ln in enumerate(text.splitlines()):
+            m = KEY_LINE_RE.match(ln.strip())
+            if m:
+                out.append((m.group(1), i + 1, True))
+        return out
+    if cfg.BIB_FORMAT == "bibtex":
+        return [(m.group(2), text.count("\n", 0, m.start()) + 1, True)
+                for m in re.finditer(BIBTEX_HEAD_RE, text)
+                if m.group(1).lower() not in ("comment", "string", "preamble")]
+    if cfg.BIB_FORMAT == "csl-json":
+        return [(it["id"], n, False) for n, it in enumerate(_csl_items(text), 1)]
+    return []
 
 
 def resolve_keys(window, bib, limit=3):

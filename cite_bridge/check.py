@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 import sys
 from . import config as cfg
-from .bib import extraction_diagnosis, grade_of, parse_bib
+from .bib import bib_occurrences, extraction_diagnosis, grade_of, parse_bib
 from .blocks import parse_blocks
 from .config import DIFFS, EXC_REQUIRED, KINDS, STRENGTHS
 from .derive import derive_excerpts
@@ -34,6 +34,15 @@ def run_check():
     """整合の検査。表示も終了もせず、結果を辞書で返す（check と checkpoint が使う）。"""
     bib = parse_bib()
     errors, notes, infos = [], [], []
+    first = {}  # 書誌の key の最初の出現（重複の NOTE の「先は」に使う）
+    for k, num, is_line in bib_occurrences():
+        if k not in first:
+            first[k] = (num, is_line)
+            continue
+        fnum, fline = first[k]
+        loc = str(num) if is_line else f"{num} 件目"
+        ref = f"{fnum} 行" if fline else f"{fnum} 件目"
+        notes.append(f"{cfg.BIB.as_posix()}:{loc} {k}: 書誌の key の重複（先は {ref}）")
     marked, done, by_kind = 0, 0, {"human": 0, "model": 0}  # 要ヒューマンチェックの印と確認（§5.3 の 4・5）
     approvers, grades, used = {}, {}, set()
     cache = {}
