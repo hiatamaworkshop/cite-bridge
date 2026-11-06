@@ -28,8 +28,9 @@ def bib_keyline(text):
             continue
         note = lines[i + 1] if i + 1 < len(lines) and lines[i + 1].startswith("（") else ""
         pdfs = cfg.PDF_RE.findall(note) if cfg.PDF_RE else []
-        am = re.search(r"参照\s*(\d{4}-\d{2}-\d{2})", lines[i - 1])
-        bib[m.group(1)] = {"entry": lines[i - 1], "pdfs": pdfs, "accessed": am.group(1) if am else None}
+        before = lines[i - 1] if i > 0 else ""  # 先頭の key: には直前の行が無い。最後の行を書誌の行として読まない
+        am = re.search(r"参照\s*(\d{4}-\d{2}-\d{2})", before)
+        bib[m.group(1)] = {"entry": before, "pdfs": pdfs, "accessed": am.group(1) if am else None}
     return bib
 
 

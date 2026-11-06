@@ -3,6 +3,7 @@
 
 実行:  python -m unittest discover -s .claude/skills/cite-bridge/tests
 """
+import json
 import os
 import shutil
 import subprocess
@@ -243,6 +244,21 @@ class BridgeTest(unittest.TestCase):
         self.write("bib.json", '[{"id": "doe2020", "title": "A Study", "file": "doe2020.pdf"}]')
         self.write("bridge/bridge.toml", CONFIG.replace('path = "bib.md"\nformat = "keyline"', 'path = "bib.json"\nformat = "csl-json"'))
         self.assertIn("PDF所持（抽出あり）: 1", self.run_bridge("grade")[1])
+
+    def test_keyline_key_on_first_line_reads_no_entry(self):
+        """key: の行がファイルの先頭にあると、直前の行が無い。最後の行を書誌の行として読まない（entry は空、accessed は None）。注記の PDF は読む。"""
+        self.write("bib.md", "key: doe2020\n（PDF: `doe2020.pdf`）\n参照 2020-01-02 https://example.org/last-line\n")
+        code = ("import re, sys, json; sys.path.insert(0, sys.argv[1]);"
+                "from cite_bridge import config as cfg; cfg.PDF_RE = re.compile(r'PDF: `?([^`]+?\\.pdf)');"
+                "from cite_bridge.bib import bib_keyline;"
+                "print(json.dumps(bib_keyline(open(sys.argv[2], encoding='utf-8').read())))")
+        r = subprocess.run([sys.executable, "-X", "utf8", "-c", code, str(BRIDGE.parent), str(self.dir / "bib.md")],
+                           capture_output=True, text=True, encoding="utf-8", env=self.clean_env())
+        self.assertEqual(r.returncode, 0, r.stderr)
+        got = json.loads(r.stdout)["doe2020"]
+        self.assertEqual(got["entry"], "")
+        self.assertIsNone(got["accessed"])
+        self.assertEqual(got["pdfs"], ["doe2020.pdf"])
 
     def test_strip(self):
         self.assertEqual(self.run_bridge("strip", "manuscript.md", "out.md")[0], 0)
