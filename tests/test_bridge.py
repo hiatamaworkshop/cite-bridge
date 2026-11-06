@@ -400,6 +400,47 @@ class BridgeTest(unittest.TestCase):
         self.assertIn("SKIP c001: bridge/citations.md に c001 のブロックがちょうど一つ無い（2 個）", out)
         self.assertEqual(self.read("bridge/citations.md"), before)  # 指摘も両方のブロックに入らない
 
+    def _check_result(self):
+        """run_check の集計（citations・approvers）を返す。承認者の数は check の出力に出ないので、設定を読んだ後で直接取る。"""
+        import json
+        snippet = ("import json, sys\n"
+                   f"sys.path.insert(0, {str(BRIDGE.parent)!r})\n"
+                   "from cite_bridge import config as cfg\n"
+                   "cfg.load_config(cfg.CONFIG_USED)\n"
+                   "from cite_bridge.check import run_check\n"
+                   "r = run_check()\n"
+                   "print(json.dumps({'citations': r['citations'], 'approvers': r['approvers']}, ensure_ascii=False))\n")
+        r = subprocess.run([sys.executable, "-X", "utf8", "-c", snippet], cwd=self.dir,
+                           capture_output=True, text=True, encoding="utf-8", env=self.clean_env())
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        return json.loads(r.stdout)
+
+    def test_duplicate_block_is_left_out_of_the_counts(self):
+        """二つ目からのブロックは、集計（INFO の「引用: 主張 …」）と承認者の数に入らず、ID ごとに一度だけ数える。その欄の ERROR と ID の NOTE は出る。"""
+        self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\nreviewer-model = "model"\n')
+        self.run_bridge("derive")
+        self.assertEqual(self.run_bridge("approve", "c001", "--by", "alice")[0], 0)
+        self.assertIn("引用: 主張 承認済 1 / 要再確認 0 / 未承認 0、指示 0", self.run_bridge("check")[1])
+        before = self._check_result()
+        self.assertEqual(before["citations"]["承認済"], 1)
+        self.assertEqual(before["approvers"], {"alice": 1})
+        # 承認済のブロックを写して二つ目にし、その理由の欄を空にする（二つ目の欄の ERROR が出ることを確かめる）
+        lines = self.read("bridge/citations.md").splitlines()
+        start = lines.index("## c001")
+        end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+        copy = [ln for ln in lines[start:end] if not ln.startswith("理由:")]
+        self.write("bridge/citations.md", "\n".join(lines) + "\n\n" + "\n".join(copy) + "\n")
+        new = self.read("bridge/citations.md").splitlines()
+        second = max(i for i, ln in enumerate(new) if ln == "## c001") + 1
+        code, out = self.run_bridge("check")
+        self.assertEqual(code, 1, out)  # ERROR は理由の欄の一つだけ
+        self.assertIn(f"ERROR bridge/citations.md:{second} c001: 欄 '理由' が空", out)
+        self.assertIn(f"NOTE  bridge/citations.md:{second} c001: 引用のブロックの ID の重複", out)
+        self.assertIn("引用: 主張 承認済 1 / 要再確認 0 / 未承認 0、指示 0", out)
+        after = self._check_result()
+        self.assertEqual(after["citations"], before["citations"])
+        self.assertEqual(after["approvers"], {"alice": 1})
+
     def test_apply_skips_duplicate_block_and_writes_the_rest(self):
         """重複したブロックの件は SKIP にし、同じ判断ファイルの別の ID（一つだけのブロック）は書く。applied.json には記録する。"""
         import json

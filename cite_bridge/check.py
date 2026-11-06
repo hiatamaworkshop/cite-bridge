@@ -156,7 +156,8 @@ def run_check():
             w = f"{cfg.CIT.as_posix()}:{b['line']} {cid}"
             block_ids.add(cid)
             f = b["fields"]
-            if cid in first_line:  # 確認待ち。書き込みは両方のブロックを避ける（approve.py の _citation_now）
+            again = cid in first_line  # 二つ目からのブロック。検査は続けるが、集計と承認者の数には入れない（ID ごとに一度）
+            if again:  # 確認待ち。書き込みは両方のブロックを避ける（approve.py の _citation_now）
                 notes.append(f"{w}: 引用のブロックの ID の重複（先は {first_line[cid]} 行）")
             else:
                 first_line[cid] = b["line"]
@@ -176,7 +177,8 @@ def run_check():
                     errors.append(f"{w}: 指示の引用は 文献 に書誌の key を書く")
                 if cid in keys_in_text and f.get("文献") not in keys_in_text[cid]:
                     errors.append(f"{w}: 原稿の印の key {sorted(keys_in_text[cid])} と 文献 '{f.get('文献')}' が合わない")
-                counts["指示"] += 1
+                if not again:
+                    counts["指示"] += 1
                 continue
             refs = [r.strip() for r in f.get("抜き書き", "").split(",") if r.strip()]
             if cid in keys_in_text and not ({r.split("#")[0] for r in refs} & keys_in_text[cid]):
@@ -236,7 +238,8 @@ def run_check():
             if state == "承認済" and self_check_problem(extra, writer_of(f.get("記入"))):  # §5.8。書き手と同じモデルの承認は数えない
                 notes.append(f"{w}: 承認を数えない（{self_check_problem(extra, writer_of(f.get('記入')))}）")
                 state = "未承認"
-            counts[state] = counts.get(state, 0) + 1
+            if not again:
+                counts[state] = counts.get(state, 0) + 1
             if state == "未承認":
                 notes.append(f"{w}: 未承認（{heading_at(text, ids_in_text[cid][0])}）")
             elif state == "要再確認":
@@ -246,7 +249,8 @@ def run_check():
             elif state == "差し戻し後に直された":
                 notes.append(f"{w}: 差し戻しの後に直された。確認を待っている（差し戻しの理由: {extra}）")
             else:
-                approvers[extra] = approvers.get(extra, 0) + 1
+                if not again:
+                    approvers[extra] = approvers.get(extra, 0) + 1
                 if cfg.APPROVERS and extra not in cfg.APPROVERS:
                     notes.append(f"{w}: 承認者 '{extra}' は承認者の一覧に無い")
             for r in refs:
