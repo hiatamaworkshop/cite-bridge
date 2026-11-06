@@ -21,54 +21,64 @@ def printed_page(entry, pdf_page, total, src=None):
 
 def derive_excerpts(bib, sources_cache):
     """抜き書きファイルごとに (head_derived, {id: derived}) を作る。"""
-    result = {}
-    for path in sorted(cfg.EXC_DIR.glob("*.md")):
-        head, blocks = parse_blocks(path)
-        key = head["title"]
-        grade, txt = grade_of(key, bib)
-        hd = {"格": grade}
-        if txt:
-            hd["抽出"] = txt.as_posix()
-            diag = extraction_diagnosis(key, bib, txt)
-            if diag:
-                hd["抽出の診断"] = "；".join(text for _, text in diag)
-        bd = {}
-        src = None
-        if txt:
-            if txt not in sources_cache:
-                sources_cache[txt] = Source(txt)
-            src = sources_cache[txt]
-        for b in blocks:
-            d = {}
-            quote = b["fields"].get("逐語", "")
-            a = z = None
-            if not src:
-                d["照合"] = "照合不能（" + grade + "）"
-            elif not quote:
-                d["照合"] = "逐語が空"
+    return {path: derive_excerpt_file(path, bib, sources_cache) for path in sorted(cfg.EXC_DIR.glob("*.md"))}
+
+
+def rederive_files(paths):
+    """書いた抜き書きのファイルごとに、導く欄を導き直して書く。各ファイルは一度だけ導く（apply は書き終えてから、ここへまとめて渡す）。"""
+    bib, cache = parse_bib(), {}
+    for path in sorted(paths):
+        hd, bd = derive_excerpt_file(path, bib, cache)
+        rewrite_derived(path, hd, bd)
+
+
+def derive_excerpt_file(path, bib, sources_cache):
+    """一つの抜き書きファイルの (head_derived, {id: derived})。derive_excerpts の一件分。"""
+    head, blocks = parse_blocks(path)
+    key = head["title"]
+    grade, txt = grade_of(key, bib)
+    hd = {"格": grade}
+    if txt:
+        hd["抽出"] = txt.as_posix()
+        diag = extraction_diagnosis(key, bib, txt)
+        if diag:
+            hd["抽出の診断"] = "；".join(text for _, text in diag)
+    bd = {}
+    src = None
+    if txt:
+        if txt not in sources_cache:
+            sources_cache[txt] = Source(txt)
+        src = sources_cache[txt]
+    for b in blocks:
+        d = {}
+        quote = b["fields"].get("逐語", "")
+        a = z = None
+        if not src:
+            d["照合"] = "照合不能（" + grade + "）"
+        elif not quote:
+            d["照合"] = "逐語が空"
+        else:
+            label, a, z = locate(quote, src)
+            d["照合"] = label
+            if a is not None:
+                sec, kind = section_at(src, a)
+                d["所在"] = printed_page(bib[key]["entry"], src.page_of(a), src.pages(), src) + " / " + sec
+                d["節の種類"] = kind
+                prev, whole, nxt = context(src, a, z)
+                d["前"] = prev
+                if whole:
+                    d["含む文"] = whole
+                d["後"] = nxt
             else:
-                label, a, z = locate(quote, src)
-                d["照合"] = label
-                if a is not None:
-                    sec, kind = section_at(src, a)
-                    d["所在"] = printed_page(bib[key]["entry"], src.page_of(a), src.pages(), src) + " / " + sec
-                    d["節の種類"] = kind
-                    prev, whole, nxt = context(src, a, z)
-                    d["前"] = prev
-                    if whole:
-                        d["含む文"] = whole
-                    d["後"] = nxt
-                else:
-                    others = other_matches(quote, txt, sources_cache)
-                    if others:
-                        d["他の文献で一致"] = ", ".join(others)
-            if not src or quote:
-                reasons = human_check_reasons(grade, src, d["照合"], a, z)
-                if reasons:
-                    d["要ヒューマンチェック"] = "、".join(reasons)
-            bd[b["id"]] = d
-        result[path] = (hd, bd)
-    return result
+                others = other_matches(quote, txt, sources_cache)
+                if others:
+                    d["他の文献で一致"] = ", ".join(others)
+        if not src or quote:
+            reasons = human_check_reasons(grade, src, d["照合"], a, z)
+            if reasons:
+                d["要ヒューマンチェック"] = "、".join(reasons)
+        bd[b["id"]] = d
+    return hd, bd
 
 
 def human_check_reasons(grade, src, label, a, z):

@@ -877,6 +877,59 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("'mallory' は承認者の一覧", out)
 
+    def _apply_counted(self, dec):
+        """apply を走らせ、導き直し（derive_excerpt_file）が呼ばれた抜き書きのファイル名を数える。run_check の集計と同じく、呼び出しの中で数える。(終了コード, 出力, 呼ばれた順のファイル名)。"""
+        self.write("decisions.json", json.dumps(dec, ensure_ascii=False))
+        snippet = ("import json, sys\n"
+                   "sys.path.insert(0, sys.argv[1])\n"
+                   "import cite_bridge.derive as dv\n"
+                   "calls = []\n"
+                   "orig = dv.derive_excerpt_file\n"
+                   "def counted(path, bib, cache):\n"
+                   "    calls.append(path.name)\n"
+                   "    return orig(path, bib, cache)\n"
+                   "dv.derive_excerpt_file = counted\n"
+                   "from cite_bridge.cli import main\n"
+                   "sys.argv = ['bridge.py', 'apply', 'decisions.json']\n"
+                   "try:\n"
+                   "    main()\n"
+                   "finally:\n"
+                   "    print('DERIVED ' + json.dumps(calls), file=sys.stderr)\n")
+        r = subprocess.run([sys.executable, "-X", "utf8", "-c", snippet, str(BRIDGE.parent)], cwd=self.dir,
+                           capture_output=True, text=True, encoding="utf-8", env=self.clean_env())
+        line = next(ln for ln in r.stderr.splitlines() if ln.startswith("DERIVED "))
+        return r.returncode, r.stdout + r.stderr, json.loads(line[len("DERIVED "):])
+
+    def test_apply_rederives_each_written_file_once(self):
+        """apply で要約の確認と原本での確認を何件書いても、導き直しは書いた抜き書きのファイルごとに一度だけ（C24）。書いた結果は、導き直しをもう一度走らせても変わらない。"""
+        import hashlib
+        import re
+        self.run_bridge("derive")
+        # 二つ目の抜き書きのファイル（書誌の yamada2002）を足し、二つのファイルに書く
+        self.write("bridge/excerpts/yamada2002.md", "# yamada2002\n\n## e1\n逐語: 不利なメデイアということになる\n強さ: 観察\n"
+                   "要約: 音声は状態理解で不利と言われる。\n言っていないこと: 改善の方法は示していない。\n記入: test\n")
+        self.run_bridge("derive")
+        fp = {e["id"]: e["summary_fp"] for e in json.loads(self.run_bridge("review", "--json", "--all")[1])["excerpts_only"]}
+
+        def vfp(verbatim):  # 逐語の指紋（manuscript.verbatim_fingerprint と同じ）
+            return hashlib.sha1(re.sub(r"\s", "", verbatim).encode("utf-8")).hexdigest()[:8]
+        d = {"format": "cite-bridge-decisions/1", "manuscript": "manuscript.md", "by": "tester", "decisions": [], "candidates": [],
+             "confirms": [{"id": i, "fingerprint": fp[i]} for i in ("doe2020#e2", "doe2020#e3", "yamada2002#e1")],
+             "source_checks": [{"id": "doe2020#e1", "fingerprint": vfp("Participants completed the task in 12 seconds on average."), "result": "一致"},
+                               {"id": "doe2020#e2", "fingerprint": vfp("Smith (2010) reported that users prefer grids over lists."), "result": "一致"}]}
+        code, out, calls = self._apply_counted(d)
+        self.assertEqual(code, 0, out)
+        self.assertIn("--- 書いた 5 件、書かなかった 0 件", out)  # 書いたのは 5 件だが、導き直しは二つのファイルに一度ずつ
+        self.assertEqual(sorted(calls), ["doe2020.md", "yamada2002.md"])
+        ex = self.read("bridge/excerpts/doe2020.md")
+        self.assertEqual(ex.count("要約の確認: tester"), 2)
+        self.assertEqual(ex.count("原本での確認: tester"), 2)
+        self.assertEqual(self.read("bridge/excerpts/yamada2002.md").count("要約の確認: tester"), 1)
+        # 導く欄は、導き直しをもう一度走らせても変わらない（書いた結果が前と同じ形で並んでいる）
+        before = {n: self.read(f"bridge/excerpts/{n}") for n in ("doe2020.md", "yamada2002.md")}
+        self.assertEqual(self.run_bridge("derive")[0], 0)
+        self.assertEqual({n: self.read(f"bridge/excerpts/{n}") for n in before}, before)
+
     def test_apply_log_refuses_replay_and_older(self):
         import json
         self.run_bridge("derive")

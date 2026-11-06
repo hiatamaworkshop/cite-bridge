@@ -7,6 +7,7 @@ import sys
 from . import config as cfg
 from .approve import approver_problem, write_approval, write_confirm, write_remark, write_source_check
 from .blocks import parse_blocks
+from .derive import rederive_files
 from .propose import apply_candidate
 
 
@@ -85,6 +86,7 @@ def cmd_apply(args):
         sys.exit(f"この判断ファイル（保存 {d.get('saved')}）は、最後に適用したもの（保存 {ent['last_saved']}）より古い。"
                  "判断が巻き戻るので断った（意図したときだけ --allow-older）")
     done, skipped = [], []
+    pending = set()  # 書いた抜き書きのファイル。導き直しは書き終えてから、ファイルごとに一度だけ（C24）
     for x in d.get("decisions", []):
         if not (isinstance(x, dict) and (x.get("action") or x.get("remark"))):
             continue
@@ -105,14 +107,14 @@ def cmd_apply(args):
             if gone:
                 skipped.append(f"{_id_of(x)}: 判断ファイルの {gone} が空か無い。書かなかった")
                 continue
-            ok, msg = apply_candidate(x["id"], x["action"], by, x.get("note") or None, x["cfp"], dry=args.dry_run)
+            ok, msg = apply_candidate(x["id"], x["action"], by, x.get("note") or None, x["cfp"], dry=args.dry_run, pending=pending)
             (done if ok else skipped).append(msg)
     for x in d.get("confirms", []):
         gone = _gap(x, "id", "fingerprint")
         if gone:
             skipped.append(f"{_id_of(x)}: 判断ファイルの {gone} が空か無い。書かなかった")
             continue
-        ok, msg = write_confirm(x["id"], by, seen=x["fingerprint"], dry=args.dry_run)
+        ok, msg = write_confirm(x["id"], by, seen=x["fingerprint"], dry=args.dry_run, pending=pending)
         (done if ok else skipped).append(msg if ok else _tag(x["id"], msg))
     for x in d.get("source_checks", []):  # 原本での確認（§5.4 の 2）。指紋が今の逐語と合うものだけ書く
         gone = _gap(x, "id", "fingerprint")
@@ -120,8 +122,10 @@ def cmd_apply(args):
             skipped.append(f"{_id_of(x)}: 判断ファイルの {gone} が空か無い。書かなかった")
             continue
         ok, msg = write_source_check(x["id"], by, x.get("result", "一致"), x.get("page") or None, x.get("note") or None,
-                                     seen=x["fingerprint"], dry=args.dry_run)
+                                     seen=x["fingerprint"], dry=args.dry_run, pending=pending)
         (done if ok else skipped).append(msg if ok else _tag(x["id"], msg))
+    if pending and not args.dry_run:  # 書いた抜き書きのファイルごとに、導く欄を一度だけ導き直す
+        rederive_files(pending)
     for m in done:
         print(("（試し）" if args.dry_run else "") + m)
     for m in skipped:

@@ -6,9 +6,9 @@ import re
 import sys
 from . import config as cfg
 from .bib import parse_bib
-from .blocks import parse_blocks, rewrite_derived
+from .blocks import parse_blocks
 from .config import RETURNED, out_name
-from .derive import derive_excerpts
+from .derive import rederive_files
 from .manuscript import (
     approval_state,
     evidence_hash,
@@ -132,7 +132,15 @@ def write_approval(cid, by, note=None, send_back=False, seen=None, dry=False):
     return True, msg
 
 
-def write_confirm(eid, by, note=None, seen=None, dry=False):
+def rederive_later(path, pending=None):
+    """書いた抜き書きの導く欄を並べ直す。pending（apply が集める集合）があれば、apply が書き終えてから一度だけ導き直す。無ければ、その場で導き直す（approve・confirm の単独の書き込み）。"""
+    if pending is None:
+        rederive_files({path})
+    else:
+        pending.add(path)
+
+
+def write_confirm(eid, by, note=None, seen=None, dry=False, pending=None):
     """抜き書きの要約・言っていないこと・強さを確かめた記録を書く。seen（要約の指紋）が今と合うときだけ書く。"""
     if "#" not in eid:
         return False, "抜き書きは key#eN で指す"
@@ -157,13 +165,12 @@ def write_confirm(eid, by, note=None, seen=None, dry=False):
         new = [f"{out_name('要約の確認')}: {by} {today}" + (f"（{note}）" if note else ""),
                f"@{out_name('要約の確認時の指紋')}: {sfp}"]
         _replace_block_lines(path, bid, r"^@?(要約の確認|summary_check)", new)
-        hd, bd = derive_excerpts(parse_bib(), {})[path]  # 導く欄をブロックの末尾へ並べ直す
-        rewrite_derived(path, hd, bd)
+        rederive_later(path, pending)  # 導く欄をブロックの末尾へ並べ直す
         return True, f"要約の確認を記録: {eid} {by} {today}"
     return False, f"抜き書き '{eid}' が無い"
 
 
-def write_source_check(eid, by, result="一致", page=None, note=None, seen=None, dry=False):
+def write_source_check(eid, by, result="一致", page=None, note=None, seen=None, dry=False, pending=None):
     """原本での確認を記録する（§5.2、§5.4）。結果は 一致 か 違う（違う はメモが要る）。seen（逐語の指紋）が今と合うときだけ書く。"""
     if "#" not in eid:
         return False, "抜き書きは key#eN で指す"
@@ -195,8 +202,7 @@ def write_source_check(eid, by, result="一致", page=None, note=None, seen=None
         value = f"{by} {today} {result}" + (f" {page}" if page else "") + (f"（{note}）" if note else "")
         new = [f"{out_name('原本での確認')}: {value}", f"@{out_name('原本での確認時の指紋')}: {vfp}"]
         _replace_block_lines(path, bid, r"^@?(原本での確認|source_check|原本での確認時の指紋|source_check_fingerprint):", new)
-        hd, bd = derive_excerpts(parse_bib(), {})[path]  # 導く欄をブロックの末尾へ並べ直す
-        rewrite_derived(path, hd, bd)
+        rederive_later(path, pending)  # 導く欄をブロックの末尾へ並べ直す
         return True, f"原本での確認を記録: {eid} {by} {today} {result}"
     return False, f"抜き書き '{eid}' が無い"
 

@@ -6,11 +6,11 @@ import hashlib
 import re
 import sys
 from . import config as cfg
-from .approve import load_excerpt_fields, write_approval, write_confirm
+from .approve import load_excerpt_fields, rederive_later, write_approval, write_confirm
 from .bib import extraction_diagnosis, grade_of, parse_bib, resolve_keys
-from .blocks import parse_blocks, rewrite_derived
+from .blocks import parse_blocks
 from .config import DIFFS, STRENGTHS, out_name
-from .derive import derive_excerpts, printed_page
+from .derive import printed_page
 from .manuscript import (
     coverage_items,
     load_excluded,
@@ -373,7 +373,7 @@ def _append_block(path, lines):
     path.write_text(body + "\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
 
-def apply_candidate(item, action, by, note, cfp, dry=False):
+def apply_candidate(item, action, by, note, cfp, dry=False, pending=None):
     """候補を受け入れる（抜き書き・引用のブロックを書き、原稿に印を置き、承認と要約の確認を記録する）か、却下を記録する。"""
     import json
     store = load_candidates()
@@ -450,15 +450,13 @@ def apply_candidate(item, action, by, note, cfp, dry=False):
     raw = raw[:cur["end"]] + cfg.MARK_FORMAT.format(id=cid, key=c["key"]) + raw[cur["end"]:]
     target.write_text(raw, encoding="utf-8", newline="")
     if new_eids:
-        for path, (hd, bd) in derive_excerpts(parse_bib(), {}).items():
-            if path == cfg.EXC_DIR / f"{c['key']}.md":
-                rewrite_derived(path, hd, bd)
+        rederive_later(cfg.EXC_DIR / f"{c['key']}.md", pending)
     msgs = [f"候補を受け入れた: {item} → {cid}（{cur['line']} 行）"]
     if c["kind"] == "主張":  # 受け入れは承認を兼ねる（§18.5 の A）。新しい抜き書きの要約の確認も同時に記録する
         _, m = write_approval(cid, by, note or None)
         msgs.append(m)
         for e in new_eids:
-            msgs.append(write_confirm(e, by)[1])
+            msgs.append(write_confirm(e, by, pending=pending)[1])
     c["status"] = "accepted"
     c["decided"] = {"by": by, "date": today, "cid": cid}
     save_candidates(store)
