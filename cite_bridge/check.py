@@ -8,7 +8,7 @@ from .bib import bib_occurrences, extraction_diagnosis, grade_of, parse_bib
 from .blocks import parse_blocks
 from .config import DIFFS, EXC_REQUIRED, KINDS, STRENGTHS
 from .derive import derive_excerpts
-from .judge import count_judgments, load_ledger, units_from_data
+from .judge import count_judgments, load_ledger, read_ledger, units_from_data
 from .manuscript import (
     approval_state,
     coverage_of,
@@ -34,6 +34,10 @@ def run_check():
     """整合の検査。表示も終了もせず、結果を辞書で返す（check と checkpoint が使う）。"""
     bib = parse_bib()
     errors, notes, infos = [], [], []
+    _, bad_ledger = read_ledger()  # 読めない行は台帳から飛ばす（judge.read_ledger）。飛ばしたことは INFO で出す
+    if bad_ledger:
+        nums = "、".join(map(str, bad_ledger))
+        infos.append(f"{cfg.JUDGMENTS.as_posix()}: 判定の台帳の読めない行を {len(bad_ledger)} 行飛ばした（{nums}）")
     first = {}  # 書誌の key の最初の出現（重複の NOTE の「先は」に使う）
     for k, num, is_line in bib_occurrences():
         if k not in first:

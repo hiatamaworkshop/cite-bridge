@@ -145,7 +145,14 @@
 - [ ] C18 model の承認と、README の「人の承認が保証する」をそろえる
 - [-] C19 レビューで見つけた小さな崩れ (却下 2026-11-05、1 項目 1 依頼にするため C21〜C25 に分けた)
 - [ ] C20 短い逐語の照合と、確認者の名前の比べ方
-- [ ] C21 判定の台帳の読めない行で止まらない
+- [x] C21 判定の台帳の読めない行で止まらない (2026-11-07、読めない行は飛ばし、check が INFO で行番号を出す)
+  - 確かめた記録（2026-11-07）:
+    - cite_bridge/judge.py の read_ledger: 読めない行（UTF-8 でない・JSON でない・item・type・label が文字列でない・json.loads が RecursionError になる行）を飛ばす。load_ledger はその辞書を返す。check・checkpoint・classify は最後まで走る。
+    - cite_bridge/check.py の run_check: 飛ばした行があると `INFO <パス>: 判定の台帳の読めない行を <n> 行飛ばした（<行番号>）` を出す。NOTE と ERROR は増やしていない。SPEC.md の判定の台帳の節に規則を書いた。
+    - 試験: tests/test_bridge.py の test_unreadable_ledger_lines_are_skipped_and_noted（UTF-8 でない行、JSON でない行、item が数の行、100000 個の `[` の行を含む台帳で、derive・check（INFO の行番号 2、4、5、6）・checkpoint（承認して通す）・classify --list が exit 0）。前の読み方では UnicodeDecodeError と RecursionError で止まることを確かめた。
+    - `python -m pytest -q tests`: 155 passed（前は 154）。
+    - 実データ（読むだけ。thesis のフォルダ）: check と classify --list の出力は前後で cmp 同一（check は NOTE 33・ERROR 0、飛ばした行は無し）。checkpoint は未承認が残るので exit 1 で前と同じ（書いていない）。
+    - 閉じた時点の確認（leader）: レビューの指摘は一件（RecursionError の行で止まる）で、直した。
 - [x] C22 keyline の書誌で、先頭の key の行を読み違えない (2026-11-06、先頭の key: の entry は空・accessed は None)
   - 確かめた記録（2026-11-06）:
     - cite_bridge/bib.py の bib_keyline: `key:` が 1 行目のとき、書誌の行を `lines[i - 1]`（最後の行）にせず、entry は空文字、accessed は None にする。注記と PDF の読みは前と同じ。
@@ -192,7 +199,6 @@ C13・C15・C11 を決定にし、終えた（2026-11-06）。C21〜C26 と C28 
 どれもデータの形（C27 で固める）と保証の約束（C16・C18・C20）を変えないので、後の決定で手戻りにならない。
 C16 と C18 を決定にした（2026-11-06）。保証の文をそろえる項目で、C27（データの形を固める）の前に置く。C16 は文書と試験だけ、C18 は版を 0.4.0 に上げる。C14・C20 は設計を決めてから。公開に向けた順は「公開に向けて」の段にある。
 
-- [ ] C21
 - [ ] C26
 - [ ] C25
 - [ ] C24
@@ -254,16 +260,6 @@ README は「原典が主張を支えているかは、人の承認が保証す�
 - [ ] 書き手と確認者の名前を、決めた正規化をしてから比べる
 - [ ] それぞれの試験を足し、全体の試験が通る
 - [ ] 実データでの確認が通る。印や NOTE が増えたら件数を報告に書く
-
-### C21. 判定の台帳の読めない行で止まらない
-
-判定の台帳（judgments.jsonl）に JSON として読めない行が一行でもあると、check・checkpoint・classify が止まる（C19 から分けた。2026-10-31 のレビュー）。
-
-#### 完了条件
-- [ ] judgments.jsonl に読めない行があっても、check・checkpoint・classify が最後まで走り、その行を飛ばす
-- [ ] 飛ばした行があるとき、check が `INFO <パス>: 判定の台帳の読めない行を <n> 行飛ばした（<行番号の並び>）` を出す
-- [ ] 読めない行を含む台帳の試験を足し、全体の試験が通る
-- [ ] 実データでの確認が通る
 
 ### C24. apply が件ごとにすべての抜き書きを導き直さない
 

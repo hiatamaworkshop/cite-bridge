@@ -280,6 +280,28 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(len(notes), 1)  # 行が無いので何件目で示す
         self.assertIn("bib.json:3 件目 doe2020: 書誌の key の重複（先は 1 件目）", notes[0])
 
+    def test_unreadable_ledger_lines_are_skipped_and_noted(self):
+        """判定の台帳に読めない行（UTF-8 でない、JSON でない、item と type の無い）があっても、check・checkpoint・classify --list は最後まで走り、その行を飛ばす。飛ばした行は check が INFO で出す。"""
+        lines = [
+            b'{"item": "cite:c001", "type": "cite.diff", "version": 1, "label": "x"}',
+            b'{broken',
+            b'{"item": "cite:c002", "type": "cite.diff", "version": 1, "label": "y"}',
+            b'\xff\xfe not utf-8',
+            b'{"item": 1, "type": "x"}',
+            b"[" * 100000,  # json.loads が RecursionError を投げる行（ValueError ではない）
+        ]
+        (self.dir / "bridge").mkdir(exist_ok=True)
+        (self.dir / "bridge/judgments.jsonl").write_bytes(b"\n".join(lines) + b"\n")
+        self.assertEqual(self.run_bridge("derive")[0], 0)  # 導く欄を揃えて、台帳以外の ERROR を無くす
+        code, out = self.run_bridge("check")
+        self.assertEqual(code, 0, out)
+        self.assertIn("bridge/judgments.jsonl: 判定の台帳の読めない行を 4 行飛ばした（2、4、5、6）", out)
+        self.run_bridge("approve", "c001", "--by", "tester")  # 未承認が残ると checkpoint は止まるので、承認して最後まで通す
+        code, out = self.run_bridge("checkpoint", "--label", "test")
+        self.assertEqual(code, 0, out)
+        code, out = self.run_bridge("classify", "--list")
+        self.assertEqual(code, 0, out)
+
     def test_keyline_key_on_first_line_reads_no_entry(self):
         """key: の行がファイルの先頭にあると、直前の行が無い。最後の行を書誌の行として読まない（entry は空、accessed は None）。注記の PDF は読む。"""
         self.write("bib.md", "key: doe2020\n（PDF: `doe2020.pdf`）\n参照 2020-01-02 https://example.org/last-line\n")

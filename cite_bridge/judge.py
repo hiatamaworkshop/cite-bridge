@@ -289,16 +289,32 @@ FLAGGED = ("食い違い", "要確認")
 
 # ---------------------------------------------------------------- 台帳
 
-def load_ledger():
-    """(item, type) ごとの最新の判定。台帳は追記だけで、同じ組の後のものが新しい。"""
-    out = {}
+def read_ledger():
+    """台帳を読み、((item, type) ごとの最新の判定, 読めなかった行の番号の並び)を返す。
+    読めない行は飛ばす。読めないのは、UTF-8 でない行、JSON でない行、JSON の対象でも item・type・label（文字列）の無い行
+    （読み手がこの三つを直接引く。version・spec・mat の無い行は、古い判定として数えるだけ）。
+    台帳は追記だけで、同じ組の後のものが新しい。"""
+    out, bad = {}, []
     p = cfg.JUDGMENTS
     if p and p.exists():
-        for ln in p.read_text(encoding="utf-8").splitlines():
-            if ln.strip():
-                e = json.loads(ln)
-                out[(e["item"], e["type"])] = e
-    return out
+        for n, raw in enumerate(p.read_bytes().split(b"\n"), 1):
+            raw = raw.rstrip(b"\r")
+            if not raw.strip():
+                continue
+            try:
+                e = json.loads(raw.decode("utf-8"))
+                if not (isinstance(e, dict) and all(isinstance(e.get(k), str) for k in ("item", "type", "label"))):
+                    raise ValueError("item・type・label が文字列で無い")
+            except (UnicodeDecodeError, ValueError, RecursionError):  # 深すぎる入れ子は RecursionError（ValueError ではない）
+                bad.append(n)
+                continue
+            out[(e["item"], e["type"])] = e
+    return out, bad
+
+
+def load_ledger():
+    """(item, type) ごとの最新の判定。読めない行は飛ばす（read_ledger）。"""
+    return read_ledger()[0]
 
 
 def append_ledger(entries):
