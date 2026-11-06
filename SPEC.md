@@ -328,7 +328,15 @@ status は pending / accepted / rejected。decided は、受け入れたとき�
 
 `classify(state, asks) -> list[Verdict | None]`。state は共通の材料の文面、asks は同じ state に対する互いに独立な問い。
 Verdict は label（labels のどれか）、score（Optional）、scores（全ラベル）。答えられなかった問いは None、呼び出し全体の失敗は
-`ClassifierUnavailable`（判定を何も書かない）。鍵は環境変数だけで受け、設定ファイルには書かない。外へ送るのは `classify --send` のときだけ。
+`ClassifierUnavailable`（判定を何も書かない）。外へ送るのは `classify --send` のときだけ。
+
+鍵は設定ファイル（bridge.toml）には書かない。鍵を読むのは送るときだけで、次の順に見て、最初に見つかった値を使う（`cite_bridge/classifier.py` の `jev_key`）。
+
+1. 環境変数 `TYPESAFE_API_KEY`、次に `JEV_API_KEY`。空の値（空白だけを含む）は無いものとする。
+2. `.env`（`KEY=VALUE` の行。コメントと空行は無視し、両端の引用符は外す）。見る場所は、bridge.toml と同じフォルダ（`--config` で替えたときは、その設定ファイルのフォルダ。既定は `bridge/`）、次に作業フォルダ。各フォルダで、`TYPESAFE_API_KEY`、`JEV_API_KEY` の順に値を探す。
+   その `.env` があり、git のリポジトリの中で git に無視されていなければ、鍵を読まずに止める（`ClassifierUnavailable`。その要求は SKIP になり、判定を何も書かない）。リポジトリの外、または git が無いときは、止めずに読む。
+
+どの場所にも鍵が無ければ `ClassifierUnavailable`。
 
 ## 7. 適用の記録
 
@@ -377,7 +385,7 @@ SKILL.md の「設定」の節にひな形がある。表は鍵の一覧であ�
 | approvers | <名前> = human / model | 承認できる者と種類。省くと名前を問わない |
 | coverage | pattern, repeat_pattern | 出典らしき括弧の正規表現（既定は年を含む括弧）と、頁だけ・同書の括弧の正規表現（既定は下） |
 | hook | watch | pre-commit が監視する、設定が指す以外のパス |
-| classifier | provider, model, endpoint, max_chars, types | 分類器の提供元と上限（§6.4）。鍵は環境変数 |
+| classifier | provider, model, endpoint, max_chars, types | 分類器の提供元と上限（§6.4）。鍵は書かない（§6.4） |
 | checks（配列） | type, version, for, question, labels, … | 問いの型の追加と上書き（§6.4） |
 
 `repeat_pattern` の既定は `[（(](?:同書[^（）()\n]*|同上|同|ibid\.?[^（）()\n]*|pp?\.\s?\d[^（）()\n]*)[）)]`。

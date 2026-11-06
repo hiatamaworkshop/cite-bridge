@@ -54,7 +54,7 @@ class Classifier:
 
 JEV_ENDPOINT = "https://api.typesafe.ai/v1/systemone"
 JEV_MODEL = "jev-latest"
-JEV_KEY_VARS = ("TYPESAFE_API_KEY", "JEV_API_KEY")  # 鍵は環境変数だけで受ける。設定ファイルには書かない
+JEV_KEY_VARS = ("TYPESAFE_API_KEY", "JEV_API_KEY")  # 鍵は設定ファイルに書かない。読む場所と順は jev_key（SPEC §6.4）
 
 
 def _dotenv_value(path, names):

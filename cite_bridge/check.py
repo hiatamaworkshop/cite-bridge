@@ -66,7 +66,9 @@ def run_check():
         if hd.get("抽出"):
             used.add(hd["抽出"])
         if hd.get("格") == "Web 写し（保存あり）" and key in bib:
-            wm = re.search(r"^retrieved: (\S+)", Path(hd["抽出"]).read_text(encoding="utf-8", errors="replace")[:2000], re.M)                 if hd.get("抽出") else None
+            src = hd.get("抽出")
+            copy_text = Path(src).read_text(encoding="utf-8", errors="replace") if src else ""
+            wm = re.search(r"^retrieved: (\S+)", copy_text[:2000], re.M)
             got, acc = (wm.group(1) if wm else None), bib[key].get("accessed")
             if got and not acc:
                 infos.append(f"{key}: 書誌に参照日が無い（写しの取得日 {got}）")
