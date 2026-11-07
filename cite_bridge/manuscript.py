@@ -234,6 +234,16 @@ def self_check_problem(by, writer):
     return None
 
 
+def model_approval_problem(by):
+    """承認者の一覧で model の者の、引用の承認を承認済に数えない理由（§3.2）。主張を原典が支えているかは人の承認が保証する。
+
+    承認は記録として残す。一覧が無いときは種類が分からないので、今の扱いのまま（None）。原本での確認と要約の確認には使わない。
+    """
+    if cfg.APPROVERS.get(by) == "model":
+        return f"model '{by}' の承認は記録に残るが、承認済には人（human）の承認が要る"
+    return None
+
+
 SOURCE_CHECK_RE = re.compile(r"^(\S+) (\d{4}-\d{2}-\d{2}) (一致|違う)(.*)$")
 
 

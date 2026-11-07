@@ -459,6 +459,37 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(after["citations"], before["citations"])
         self.assertEqual(after["approvers"], {"alice": 1})
 
+    def test_model_approval_is_kept_but_pending(self):
+        """承認者の一覧で model の者の承認は記録に残るが、承認済に数えず確認待ちにする（SPEC §3.2）。人が承認すると通る。"""
+        self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\nreviewer-model = "model"\n')
+        self.run_bridge("derive")
+        self.assertEqual(self.run_bridge("approve", "c001", "--by", "reviewer-model")[0], 0)  # 書き手（test）と違うので書ける
+        self.assertIn("承認: reviewer-model", self.read("bridge/citations.md"))
+        code, out = self.run_bridge("check")
+        self.assertEqual(code, 0, out)
+        self.assertIn("NOTE  bridge/citations.md:4 c001: 承認を数えない（model 'reviewer-model' の承認は記録に残るが、"
+                      "承認済には人（human）の承認が要る）", out)
+        self.assertIn("引用: 主張 承認済 0 / 要再確認 0 / 未承認 1、指示 0", out)
+        self.assertEqual(self._check_result()["approvers"], {})
+        self.assertEqual(self.run_bridge("check", "--strict")[0], 1)
+        self.assertEqual(self.run_bridge("checkpoint", "--by", "alice")[0], 1)
+        self.assertFalse((self.dir / "bridge/checkpoints").exists())
+        # 人が承認すると承認済
+        self.assertEqual(self.run_bridge("approve", "c001", "--by", "alice")[0], 0)
+        code, out = self.run_bridge("check", "--strict")
+        self.assertEqual(code, 0, out)
+        self.assertIn("引用: 主張 承認済 1 / 要再確認 0 / 未承認 0、指示 0", out)
+        self.assertEqual(self._check_result()["approvers"], {"alice": 1})
+
+    def test_approval_without_approver_list_is_unchanged(self):
+        """承認者の一覧が無いときは種類が分からないので、名前に依らず今のまま承認済に数える。"""
+        self.run_bridge("derive")
+        self.assertEqual(self.run_bridge("approve", "c001", "--by", "reviewer-model")[0], 0)
+        code, out = self.run_bridge("check", "--strict")
+        self.assertEqual(code, 0, out)
+        self.assertIn("引用: 主張 承認済 1 / 要再確認 0 / 未承認 0、指示 0", out)
+        self.assertNotIn("承認を数えない", out)
+
     def test_apply_skips_duplicate_block_and_writes_the_rest(self):
         """重複したブロックの件は SKIP にし、同じ判断ファイルの別の ID（一つだけのブロック）は書く。applied.json には記録する。"""
         import json

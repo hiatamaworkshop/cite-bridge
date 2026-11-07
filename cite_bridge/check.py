@@ -19,6 +19,7 @@ from .manuscript import (
     mark_keys,
     manuscript_marks,
     mask_comments,
+    model_approval_problem,
     refs_in,
     self_check_problem,
     sentence_at,
@@ -239,6 +240,9 @@ def run_check():
             state, extra = approval_state(f, b.get("records", {}), fp, evidence_hash(refs, excerpts, f.get("人の読み", "")))
             if state == "承認済" and self_check_problem(extra, writer_of(f.get("記入"))):  # §5.8。書き手と同じモデルの承認は数えない
                 notes.append(f"{w}: 承認を数えない（{self_check_problem(extra, writer_of(f.get('記入')))}）")
+                state = "未承認"
+            elif state == "承認済" and model_approval_problem(extra):  # §3.2。model の承認は確認待ち（C18）
+                notes.append(f"{w}: 承認を数えない（{model_approval_problem(extra)}）")
                 state = "未承認"
             if not again:
                 counts[state] = counts.get(state, 0) + 1
