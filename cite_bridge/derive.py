@@ -4,7 +4,7 @@ import re
 from . import config as cfg
 from .bib import UNREADABLE_RE, extraction_diagnosis, grade_of, parse_bib
 from .blocks import parse_blocks, rewrite_derived
-from .source import Source, context, locate, normalize, section_at
+from .source import Source, context, is_cjk, locate, normalize, section_at
 
 
 def printed_page(entry, pdf_page, total, src=None):
@@ -74,14 +74,27 @@ def derive_excerpt_file(path, bib, sources_cache):
                 if others:
                     d["他の文献で一致"] = ", ".join(others)
         if not src or quote:
-            reasons = human_check_reasons(grade, src, d["照合"], a, z)
+            reasons = human_check_reasons(grade, src, d["照合"], a, z, quote)
             if reasons:
                 d["要ヒューマンチェック"] = "、".join(reasons)
         bd[b["id"]] = d
     return hd, bd
 
 
-def human_check_reasons(grade, src, label, a, z):
+SHORT_WORDS, SHORT_CHARS = 3, 10  # 短い逐語の上限（欧文の語数、和文の字数。C20）
+
+
+def is_short_verbatim(quote):
+    """短い逐語か。短い逐語は抽出テキストのどこかに偶然当たりやすく、照合が一致しても所在を保証しない。
+
+    和文の字を一つでも含めば空白を除いた字数が 10 字以下、含まなければ空白で区切った語数が 3 語以下を短いとする。
+    """
+    if any(is_cjk(c) for c in quote):
+        return len(re.sub(r"\s", "", quote)) <= SHORT_CHARS
+    return len(quote.split()) <= SHORT_WORDS
+
+
+def human_check_reasons(grade, src, label, a, z, quote=""):
     """要ヒューマンチェックの理由（設計 §5.1）。当たるものをすべて挙げる。a, z は逐語の位置（見つからなければ None）。"""
     if src is None:
         return [f"照合不能（{grade}）"]
@@ -99,6 +112,8 @@ def human_check_reasons(grade, src, label, a, z):
             reasons.append(f"OCR の文字の層（PDF {src.page_of(a)}頁目）")
     if a is not None and UNREADABLE_RE.search(src.raw[a:z]):
         reasons.append("逐語の範囲に読めない字")
+    if a is not None and is_short_verbatim(quote):
+        reasons.append("逐語が短い")
     return reasons
 
 

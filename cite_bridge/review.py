@@ -140,7 +140,7 @@ def review_data(cids=None, images=None, include_done=False, all_orphans=False, c
                 e["location"] = printed_page(bib[key]["entry"], src.page_of(a), src.pages(), src) + " / " + sec
                 e["before"], whole, e["after"] = context(src, a, z)
                 e["sentence"] = whole or ""
-        reasons = "、".join(human_check_reasons(grade, src, e["match"], a, z))
+        reasons = "、".join(human_check_reasons(grade, src, e["match"], a, z, x["逐語"]))
         e.update(source_check_fields(x, {}, {"要ヒューマンチェック": reasons}))
         if e["needs_check"] and images and src:
             img = _page_image(key, bib, src, x["逐語"], images)

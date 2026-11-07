@@ -103,6 +103,42 @@ class HumanCheckTest(unittest.TestCase):
         self.run_bridge("derive")
         self.assertIn("@要ヒューマンチェック: 逐語の範囲に読めない字", self.read("bridge/excerpts/noisy2020.md"))
 
+    def test_short_verbatim_boundaries(self):  # C20。欧文 3 語以下、和文 10 字以下（空白を除く）
+        from cite_bridge.derive import is_short_verbatim
+        self.assertTrue(is_short_verbatim("the"))
+        self.assertTrue(is_short_verbatim("grids over lists"))
+        self.assertFalse(is_short_verbatim("prefer grids over lists"))
+        self.assertTrue(is_short_verbatim("しかしながら状況は改"))  # 10 字
+        self.assertFalse(is_short_verbatim("しかしながら状況は改善"))  # 11 字
+        self.assertTrue(is_short_verbatim("音声 は 不利 な Web"))  # 和文の字を含めば字数で数える（9 字）
+
+    def test_short_verbatim_needs_source_check(self):  # C20。照合が一致しても、短い逐語は所在を保証しない
+        self.write("bridge/excerpts/doe2020.md", excerpt("doe2020", "e1", "grids over lists")
+                   + "\n" + excerpt("doe2020", "e2", "prefer grids over lists").split("\n", 2)[2])
+        self.run_bridge("derive")
+        ex = self.read("bridge/excerpts/doe2020.md")
+        e1, e2 = ex.split("## e2")
+        self.assertIn("@照合: 一致", e1)
+        self.assertIn("@要ヒューマンチェック: 逐語が短い", e1)
+        self.assertNotIn("要ヒューマンチェック", e2)
+        code, out = self.run_bridge("check")
+        self.assertIn("doe2020#e1: 要ヒューマンチェック（逐語が短い）。原本での確認が無い", out)
+        self.assertEqual(self.run_bridge("confirm", "doe2020#e1", "--source", "--by", "tester")[0], 0)
+        self.assertNotIn("doe2020#e1: 要ヒューマンチェック", self.run_bridge("check")[1])
+
+    def test_names_are_compared_after_normalizing(self):  # C20。NFKC・大小文字・前後の空白
+        from cite_bridge.manuscript import same_name
+        self.assertTrue(same_name("Claude", "claude"))
+        self.assertTrue(same_name(" ｒｅｖｉｅｗｅｒ-Model ", "reviewer-model"))
+        self.assertFalse(same_name("reviewer-model", "reviewer-model2"))
+        # 書き手を大文字で書いた抜き書きでも、同じモデルの原本での確認は断る
+        self.set_approvers()
+        self.write("bridge/excerpts/ocr2020.md", excerpt("ocr2020", "e1", OCR_SENTENCE, writer="Reviewer-Model"))
+        self.run_bridge("derive")
+        code, out = self.run_bridge("confirm", "ocr2020#e1", "--source", "--by", "reviewer-model")
+        self.assertEqual(code, 1, out)
+        self.assertIn("書き手と同じモデル 'reviewer-model' の確認は数えない", out)
+
     # ---- §5.4・§5.2（記録と有効な確認）
 
     def test_confirm_source_clears_note_and_changed_verbatim_returns(self):  # §5.10 の 2

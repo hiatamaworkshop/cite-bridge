@@ -2,6 +2,7 @@
 """原稿の印・文・指紋、網羅、承認の状態の計算。"""
 import hashlib
 import re
+import unicodedata
 from . import config as cfg
 from .bib import resolve_keys
 from .config import RETURNED
@@ -227,9 +228,19 @@ def writer_of(value):
     return m.group(0) if m else ""
 
 
+def same_name(a, b):
+    """二つの名前が同じ者か。NFKC（全角と半角）、大文字と小文字、前後の空白の違いを無視して比べる（C20）。記録の文字は変えない。"""
+    def norm(s):
+        return unicodedata.normalize("NFKC", s or "").strip().casefold()
+    return norm(a) == norm(b)
+
+
 def self_check_problem(by, writer):
-    """書き手と同じ者が、モデル（承認者の一覧で model）として確かめる・承認する・受け入れることを断る理由（§5.8）。無ければ None。"""
-    if writer and by == writer and cfg.APPROVERS.get(by) == "model":
+    """書き手と同じ者が、モデル（承認者の一覧で model）として確かめる・承認する・受け入れることを断る理由（§5.8）。無ければ None。
+
+    書き手と確認者の名前は same_name で比べる（Claude と claude を同じ者とみなす）。
+    """
+    if writer and same_name(by, writer) and cfg.APPROVERS.get(by) == "model":
         return f"書き手と同じモデル '{by}' の確認は数えない"
     return None
 
