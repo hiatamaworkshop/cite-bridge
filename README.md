@@ -1,5 +1,7 @@
 # cite-bridge
 
+English: [README.en.md](README.en.md)（正本はこの日本語の版で、英語の版は訳である）
+
 論文の引用ごとに、原典の逐語と所在を錨として持たせ、その確認の状態を執筆のあいだ正しく保つ道具である。
 
 ## 何をする道具か
@@ -210,7 +212,8 @@ bridge.py classify --eval <測定の組.json> --variant <文面の案.toml> [--v
 | SPEC.md | ファイル形式の正本。欄、指紋、承認の状態、判断ファイル、マニフェスト、設定、版の方針 |
 | docs/getting-started.md | 始め方。例の一式（`examples/first-citation/`）で、準備の確認から一件の引用の承認と `check --strict` までを通す |
 
-設計は `docs/design-0.3.0.md` にある（0.3.0 で足した仕組みの設計）。
+この README と上の三つには、同じ場所に英語の版（`README.en.md`、`SPEC.en.md`、`SKILL.en.md`、`docs/getting-started.en.md`）がある。正本は日本語の版である。
+設計は `docs/design-0.3.0.md` にある（0.3.0 で足した仕組みの設計。日本語だけ）。
 
 ## 動かすのに要るもの
 
@@ -219,6 +222,14 @@ bridge.py classify --eval <測定の組.json> --variant <文面の案.toml> [--v
   試験で確かめた版は `pymupdf` 1.28.2 と 2.0 である（どちらも全試験が通った）。`pymupdf` が無いときは、PDF を作る試験だけを飛ばす。
 - 試験は `python -m unittest discover -s tests`。利用者のデータに依らず、一時フォルダに小さな一式を作って動かす。
   承認の HTML の JavaScript の試験には node を使う（無ければその試験だけ飛ばす）。
+
+## 言語
+
+- 文書の正本は日本語で、英語の版（`*.en.md`）は訳である。
+- 出力の文（`check` や `review` が出す文、承認の HTML の画面の文）は、いまは日本語だけである。道具は翻訳の仕組みを持たない。
+  別の言語にしたい人や言い方を替えたい人は、使う側で `cite_bridge/` の中の文を直す。出力の文は約束する範囲の外で（SPEC.md §11.1）、文の場所と文言は版が進むと変わりうる。
+- 欄の名前と値は英語の別名でも書ける（`verbatim:`、`strength: observation` など。SPEC.md §10）。道具が書く導く欄（`@` の行）の名前は、設定の `[output] language = "en"` で英語になる。
+- 英語の原稿では、設定の `sentence_end` を英語の文の終わりに替える（SKILL.md の「設定」）。
 
 ## 限界
 

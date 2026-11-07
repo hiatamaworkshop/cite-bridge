@@ -1,5 +1,7 @@
 # cite-bridge データ形式の仕様
 
+English: [SPEC.en.md](SPEC.en.md)（正本はこの日本語の版で、英語の版は訳である）
+
 この文書は、道具が読み書きするファイルの形式の正本である。実装（bridge.py と cite_bridge/）と食い違ったときは、この文書に合わせて実装か文書を直す。
 使い方と運用の作法は SKILL.md、設計は `docs/design-0.3.0.md` にある。
 
