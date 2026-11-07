@@ -112,9 +112,7 @@ def main():
     st.set_defaults(func=cmd_strip)
     args = ap.parse_args()
     cfg.CONFIG_USED = Path(args.config)
-    load_config(cfg.CONFIG_USED)
-    if args.citations:
-        cfg.CIT = Path(args.citations)
+    load_config(cfg.CONFIG_USED, args.citations)
     args.func(args)
 
 

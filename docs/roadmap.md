@@ -121,7 +121,15 @@
     - 実データ（読むだけ。thesis のフォルダを作業フォルダにして `python <cite-bridge>/bridge.py <cmd>`）: `check` は exit 0、ERROR 0 件、「引用のファイルが無い」の NOTE は 0 件（thesis の bridge/citations.md は有る）。`grade`、`coverage`、`classify --list`、`review --source-checks -o <一時フォルダの md>` も exit 0。checkpoint・apply・derive・extract・confirm は走らせていない。
     - `--citations` は全体の選択肢なので、サブコマンドの前に置く（`bridge.py --citations X check`）。試験もその形を使う。
     - 閉じた時点の確認（leader）: git diff を確かめ、`python -m pytest -q tests` は 145 passed。レビュアーは接続していなかったので、この項目はレビューを受けていない。
-- [ ] C14 --citations で写しを指したときの記録の置き場
+- [x] C14 --citations で写しを指したときの記録の置き場 (2026-11-08、設定で明示していない applied・candidates・excluded・judgments を --citations のフォルダに置く)
+  - 決めたこと（2026-11-08、利用者）: 4 つとも、設定で置き場を明示していなければ `--citations` で指した引用のファイルのフォルダに置く。判定の台帳も追わせる（引用の ID で引くので、原稿が複数あって共有すると同じ ID の判定が互いを古くする）。設定で明示した置き場は動かさない（台帳を写しと共有したいときは judgments を明示する）。
+  - 確かめた記録（2026-11-08）:
+    - cite_bridge/config.py の load_config が citations（--citations の値）を受け、引用のファイルを差し替えてから既定の置き場を決める。cli.py は設定を読んだ後に CIT だけを替えるのをやめ、値を load_config に渡す。
+    - SPEC.md と SPEC.en.md: §9 の表の bridge に judgments を足し（設定は前から読んでいたが表に無かった）、省いた置き場の既定と --citations のときの置き場、明示した置き場は動かないことを書いた。README.md と README.en.md の「最小の使い方」に --citations の段を足した（前は README に説明が無かった）。SKILL.md と SKILL.en.md の [bridge] の補足に judgments と --citations のときの置き場を足した。
+    - 版は上げていない。§7 の記録は §11.1 で固めない範囲で、欄・形式名・指紋・ファイルの状態は変わらない。
+    - 試験: tests/test_bridge.py の test_apply_to_copy_keeps_original_log（写しを指して apply すると記録は trial/applied.json に入り、bridge/applied.json は作られず、同じ判断ファイルを本物に当てても「適用済み」で断られない）と test_record_paths_follow_citations_unless_set（既定、--citations のとき、applied と judgments を明示したときの 4 つの置き場）。直す前のコードでは 2 つとも落ちることを確かめた。`python -m pytest -q tests`: 185 passed（前は 183）。
+    - 実データでの確認（読むだけ）: check は exit 1 で、ERROR は許してある「ms_dictate_word_web#e3: 導く欄が古い」だけ、NOTE 35、承認済 23。grade・coverage・classify --list・review --source-checks -o（一時フォルダ）が exit 0。原稿の設定は 4 つを明示しておらず、--citations を使わないので置き場は前と同じ。原稿のリポジトリの git status は空のまま。
+    - 閉じた時点の確認: チームを使わず、このセッションで実装した。レビューは受けていない。
 - [x] C15 引用のブロックの ID の重複を確認待ちにする (2026-11-06、重複は NOTE にして書き込みを断る)
   - 確かめた記録（2026-11-06）:
     - cite_bridge/check.py の run_check: 引用のブロックの loop で、同じ ID の二つ目以降に `notes` を足す（先の行は最初のブロックの行）。ERROR は増やしていない（CLAUDE.md の規則 4）。出力は既存の NOTE と同じ経路なので、行は `NOTE  <パス>:<行> <ID>: …` になり、NOTE の後に空白が二つ入る。
@@ -301,6 +309,7 @@ C13・C15・C11 を決定にし、終えた（2026-11-06）。C21〜C26 と C28 
 どれもデータの形（C27 で固める）と保証の約束（C16・C18・C20）を変えないので、後の決定で手戻りにならない。
 C16 と C18 を決定にした（2026-11-06）。保証の文をそろえる項目で、C27（データの形を固める）の前に置く。C16 は文書と試験だけ、C18 は版を 0.4.0 に上げる。C14・C20 は設計を決めてから。公開に向けた順は「公開に向けて」の段にある。
 C16 と C18 を終えた（2026-11-07）。C20 を決めて終えた（2026-11-07）。C27 を決めて終えた（2026-11-07）。C29 を決めて終えた（2026-11-07）。C30 を決めて終えた（2026-11-07）。C31 を決めて終えた（2026-11-07）。C32 を決めて終えた（2026-11-07）。公開に向けた順の案は C32 で終わる。C34 を決めて終えた（2026-11-07、0.4.1）。残る C33・C14 はどれも提案のまま。
+C14 を決めた（2026-11-08）。再現した不具合で、本物の記録を守るので C33 より先にする。C14 を終えた（2026-11-08）。残る C33 は提案のまま。
 
 
 ## 項目
@@ -308,18 +317,6 @@ C16 と C18 を終えた（2026-11-07）。C20 を決めて終えた（2026-11-0
 各項目の完了条件に共通する確かめ方:
 - 全体の試験: 道具のフォルダで `python -m pytest -q tests` がすべて通る (`tests/test_review_js.py` は node が要る)。
 - 実データでの確認: 利用者の原稿のリポジトリ (場所は CLAUDE.local.md) で、データを変えずに `check`、`grade`、`coverage`、`classify --list`、`review --source-checks -o <一時フォルダの md>` (C3 より前は `review -o <一時フォルダの md>`) が最後まで走る。derive・extract・confirm・apply は走らせない。check の ERROR は「導く欄が古い」だけでよい (導く欄が増えるため)。それ以外の ERROR は実装の誤りとして直す。NOTE は増えてよい。
-
-### C14. --citations で写しを指したときの記録の置き場
-状態: 提案
-
-`applied.json`・`candidates`・`excluded.json`・`judgments.jsonl` の既定の置き場は、設定を読むときの引用のファイルのフォルダで決まり、`--citations` で替えても追わない。写しで試した apply の記録が元の `applied.json` に入り、同じ判断ファイルを本物に当てると「適用済み」で断られる（2026-10-31 に再現）。
-
-決めること: `--citations` に追わせるのはどの置き場か（台帳は写しと共有したいかもしれない）。設定で置き場を明示したときは追わせないか。決めた形は SPEC §9 に書く。
-
-#### 完了条件
-- [ ] 決めた置き場が、`--citations` の引用のファイルのフォルダに従う
-- [ ] 写しを指して apply しても、元の `applied.json` が変わらない試験を足し、全体の試験が通る
-- [ ] SPEC §9 と README の `--citations` の説明が実装と合う
 
 ### C33. model の承認の理由と根拠を、人が閲覧できるようにする
 状態: 提案

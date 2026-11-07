@@ -411,7 +411,7 @@ A template is in the "設定" (Settings) section of SKILL.md. The table lists th
 |---|---|---|
 | bibliography | path, format, files_field, pdf_pattern, web_pattern | Path of the bibliography, how to read it (keyline / bibtex / csl-json), how to recognize PDFs and web sources |
 | sources | pdf_dir, text_dir, web_dir | Where originals, extracted text and web copies are kept |
-| bridge | excerpts, citations, checkpoints, applied, candidates, excluded | Where the data is kept |
+| bridge | excerpts, citations, checkpoints, applied, candidates, excluded, judgments | Where the data is kept |
 | manuscript | mark_pattern, mark_format, quote_patterns, not_quote_separator, sentence_end, paragraph | Rules for marks and sentences in the manuscript |
 | output | language | Language of the names of derived fields (ja / en) |
 | section_kinds | <kind> = [words] | Adds words for section kinds |
@@ -421,6 +421,10 @@ A template is in the "設定" (Settings) section of SKILL.md. The table lists th
 | hook | watch | Paths pre-commit watches besides those the settings point to |
 | classifier | provider, model, endpoint, max_chars, types | Classifier provider and limits (§6.4). Do not write the key (§6.4) |
 | checks (array) | type, version, for, question, labels, … | Adding and overriding question types (§6.4) |
+
+When applied, candidates, excluded or judgments in `bridge` is omitted, the tool keeps it as `applied.json`, `candidates/`, `excluded.json` or `judgments.jsonl` in the same folder as the citations file (citations).
+When `--citations` replaces the citations file, the omitted locations also move to that citations file's folder (records from a trial on a copy do not go into the original records).
+Locations set explicitly in the settings do not move. To share the classifier ledger with a copy, set judgments explicitly.
 
 The default of `repeat_pattern` is `[（(](?:同書[^（）()\n]*|同上|同|ibid\.?[^（）()\n]*|pp?\.\s?\d[^（）()\n]*)[）)]`.
 Parentheses that are only a page or "ibid." are not sources; they count as one item, a repetition of the preceding source. A parenthesis that matches both `pattern` and `repeat_pattern` counts on the `pattern` side.

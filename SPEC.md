@@ -389,7 +389,7 @@ SKILL.md の「設定」の節にひな形がある。表は鍵の一覧であ�
 |---|---|---|
 | bibliography | path, format, files_field, pdf_pattern, web_pattern | 書誌のパス、読み方（keyline / bibtex / csl-json）、PDF と Web の見分け方 |
 | sources | pdf_dir, text_dir, web_dir | 原本、抽出テキスト、Web の写しの置き場 |
-| bridge | excerpts, citations, checkpoints, applied, candidates, excluded | データの置き場 |
+| bridge | excerpts, citations, checkpoints, applied, candidates, excluded, judgments | データの置き場 |
 | manuscript | mark_pattern, mark_format, quote_patterns, not_quote_separator, sentence_end, paragraph | 原稿の印と文の規則 |
 | output | language | 導く欄の名前を書く言語（ja / en） |
 | section_kinds | <種類> = [語] | 節の種類の語を足す |
@@ -399,6 +399,10 @@ SKILL.md の「設定」の節にひな形がある。表は鍵の一覧であ�
 | hook | watch | pre-commit が監視する、設定が指す以外のパス |
 | classifier | provider, model, endpoint, max_chars, types | 分類器の提供元と上限（§6.4）。鍵は書かない（§6.4） |
 | checks（配列） | type, version, for, question, labels, … | 問いの型の追加と上書き（§6.4） |
+
+`bridge` の applied・candidates・excluded・judgments を省くと、引用のファイル（citations）と同じフォルダの `applied.json`・`candidates/`・`excluded.json`・`judgments.jsonl` に置く。
+`--citations` で引用のファイルを替えたときは、省いた置き場もその引用のファイルのフォルダに置く（写しで試した記録が元の記録に入らない）。
+設定で明示した置き場は替えない。判定の台帳を写しと共有するときは、judgments を明示する。
 
 `repeat_pattern` の既定は `[（(](?:同書[^（）()\n]*|同上|同|ibid\.?[^（）()\n]*|pp?\.\s?\d[^（）()\n]*)[）)]`。
 頁だけ・同書の括弧は出典でなく、前の出典の繰り返しとして一件に数える。`pattern` と `repeat_pattern` の両方に当たる括弧は、`pattern` の側で数える。

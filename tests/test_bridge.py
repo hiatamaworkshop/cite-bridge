@@ -1059,6 +1059,51 @@ class BridgeTest(unittest.TestCase):
         self.assertIn("より古い", out)
         self.assertIn("承認の理由: 新しい判断", self.read("bridge/citations.md"))
 
+    def test_apply_to_copy_keeps_original_log(self):
+        """--citations で写しを指して apply すると、適用の記録は写しのフォルダに入り、元の applied.json は作られない。
+        同じ判断ファイルを本物に当てても「適用済み」で断られない。"""
+        self.run_bridge("derive")
+        self._decisions("approve", "写しで試す")
+        (self.dir / "trial").mkdir()
+        self.write("trial/citations.md", self.read("bridge/citations.md"))
+        code, out = self.run_bridge("--citations", "trial/citations.md", "apply", "decisions.json")
+        self.assertEqual(code, 0, out)
+        self.assertIn("承認の理由: 写しで試す", self.read("trial/citations.md"))
+        self.assertTrue((self.dir / "trial/applied.json").exists())
+        self.assertFalse((self.dir / "bridge/applied.json").exists())
+        self.assertNotIn("承認の理由: 写しで試す", self.read("bridge/citations.md"))
+        code, out = self.run_bridge("apply", "decisions.json")
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("適用済み", out)
+        self.assertIn("承認の理由: 写しで試す", self.read("bridge/citations.md"))
+        self.assertTrue((self.dir / "bridge/applied.json").exists())
+
+    def _record_paths(self, *citations):
+        """設定を読んだ後の記録の置き場（applied・candidates・excluded・judgments）を返す。"""
+        import json
+        snippet = ("import json, sys\n"
+                   f"sys.path.insert(0, {str(BRIDGE.parent)!r})\n"
+                   "from cite_bridge import config as cfg\n"
+                   f"cfg.load_config(cfg.CONFIG_USED, *{list(citations)!r})\n"
+                   "print(json.dumps({k: getattr(cfg, k).as_posix() for k in ('CIT', 'APPLIED', 'CAND_DIR', 'EXCLUDED', 'JUDGMENTS')}))\n")
+        r = subprocess.run([sys.executable, "-X", "utf8", "-c", snippet], cwd=self.dir,
+                           capture_output=True, text=True, encoding="utf-8", env=self.clean_env())
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        return json.loads(r.stdout)
+
+    def test_record_paths_follow_citations_unless_set(self):
+        """設定で明示していない記録の置き場は --citations のフォルダに従い、明示した置き場は動かない。"""
+        self.assertEqual(self._record_paths(), {
+            "CIT": "bridge/citations.md", "APPLIED": "bridge/applied.json", "CAND_DIR": "bridge/candidates",
+            "EXCLUDED": "bridge/excluded.json", "JUDGMENTS": "bridge/judgments.jsonl"})
+        self.assertEqual(self._record_paths("trial/citations.md"), {
+            "CIT": "trial/citations.md", "APPLIED": "trial/applied.json", "CAND_DIR": "trial/candidates",
+            "EXCLUDED": "trial/excluded.json", "JUDGMENTS": "trial/judgments.jsonl"})
+        self.write("bridge/bridge.toml", CONFIG + 'judgments = "bridge/judgments.jsonl"\napplied = "logs/applied.json"\n')
+        self.assertEqual(self._record_paths("trial/citations.md"), {
+            "CIT": "trial/citations.md", "APPLIED": "logs/applied.json", "CAND_DIR": "trial/candidates",
+            "EXCLUDED": "trial/excluded.json", "JUDGMENTS": "bridge/judgments.jsonl"})
+
     def test_remark_is_kept_apart_from_approval(self):
         import json
         self.run_bridge("derive")

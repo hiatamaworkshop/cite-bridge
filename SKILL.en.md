@@ -168,8 +168,8 @@ language = "ja"                                  # language of the names of deri
 [hook]
 # watch = ["extra/dir"]                          # paths pre-commit watches besides those the settings point to
 ```
-([bridge] can also hold applied, candidates and excluded: the record of applied decisions files, the folder for candidate work, and the record of parentheses judged not to be citations;
-by default applied.json, candidates/ and excluded.json in the same folder as citations.)
+([bridge] can also hold applied, candidates, excluded and judgments: the record of applied decisions files, the folder for candidate work, the record of parentheses judged not to be citations, and the classifier ledger;
+by default applied.json, candidates/, excluded.json and judgments.jsonl in the same folder as citations. When --citations replaces the citations file, those not set explicitly are kept in its folder.)
 
 - In LaTeX, put the mark in a comment right after \cite (it does not affect typesetting), e.g. `\cite{doe2020}%c017`. The settings are
   `mark_pattern = '\\cite\{(?P<key>[^}]+)\}(?P<strip>%(?P<id>c\d+))'`, `paragraph = "blank"`, and the English sentence_end.

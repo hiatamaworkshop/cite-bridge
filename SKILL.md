@@ -165,8 +165,8 @@ language = "ja"                                  # 導く欄の名前を書く�
 [hook]
 # watch = ["extra/dir"]                          # pre-commit が監視する、設定が指す以外のパス
 ```
-（[bridge] には applied、candidates、excluded も置ける。適用した判断ファイルの記録、候補の作業のフォルダ、引用でないと判断した括弧の記録で、
-既定は citations と同じフォルダの applied.json、candidates/、excluded.json）
+（[bridge] には applied、candidates、excluded、judgments も置ける。適用した判断ファイルの記録、候補の作業のフォルダ、引用でないと判断した括弧の記録、分類器の判定の台帳で、
+既定は citations と同じフォルダの applied.json、candidates/、excluded.json、judgments.jsonl。--citations で引用のファイルを替えると、明示していないものはそのフォルダに置く）
 
 - LaTeX では印を \cite の直後のコメントに置く（組版に影響しない）。例 `\cite{doe2020}%c017`。設定は
   `mark_pattern = '\\cite\{(?P<key>[^}]+)\}(?P<strip>%(?P<id>c\d+))'`、`paragraph = "blank"`、英語の sentence_end。

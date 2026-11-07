@@ -29,7 +29,9 @@ COVER_RE = re.compile(r"[（(][^（）()\n]*?(?<!\d)(?:19|20)\d{2}[a-z]?(?![\d�
 REPEAT_RE = re.compile(r"[（(](?:同書[^（）()\n]*|同上|同|ibid\.?[^（）()\n]*|pp?\.\s?\d[^（）()\n]*)[）)]")
 
 
-def load_config(path):
+def load_config(path, citations=None):
+    """設定を読む。citations（--citations の値）を渡すと引用のファイルを差し替え、
+    設定で明示していない記録の置き場（applied・candidates・excluded・judgments）もそのフォルダに置く。"""
     import tomllib
     global BIB, EXC_DIR, CIT, TXT_DIR, PDF_DIR, WEB_DIR, BIB_FORMAT, PDF_RE, WEB_RE
     if not path.exists():
@@ -46,7 +48,7 @@ def load_config(path):
     TXT_DIR = Path(s.get("text_dir", PDF_DIR / "_txt"))
     WEB_DIR = Path(s.get("web_dir", PDF_DIR / "_web"))
     EXC_DIR = Path(r.get("excerpts", "bridge/excerpts"))
-    CIT = Path(r.get("citations", "bridge/citations.md"))
+    CIT = Path(citations) if citations else Path(r.get("citations", "bridge/citations.md"))
     global MARK_RE, QUOTE_RES, NOT_QUOTE_SEP, OUTPUT_LANG, KIND_WORDS, KIND_WORDS_MAP
     m = c.get("manuscript", {})
     if m.get("mark_pattern"):
