@@ -219,6 +219,24 @@ class BridgeTest(unittest.TestCase):
         self.assertIn("〔c002〕に対応するブロックが無い", out)
         self.assertIn("孤児のブロック", out)
 
+    def test_pointer_needs_only_a_bibliography_key(self):
+        """指示の引用で要るのは 文献 の key（書誌にあるもの）だけ。理由・記入・承認が無くても確認待ちにしない（SPEC §3.1）。"""
+        self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\nreviewer-model = "model"\n')
+        self.run_bridge("derive")
+        self.assertEqual(self.run_bridge("approve", "c001", "--by", "alice")[0], 0)
+        self.write("manuscript.md", self.read("manuscript.md") + "\nDoe らの研究がある（Doe, 2020）〔c002〕。\n")
+        self.write("bridge/citations.md", self.read("bridge/citations.md") + "\n## c002\n種類: 指示\n文献: doe2020\n")
+        code, out = self.run_bridge("check", "--strict")
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("c002", out)  # ERROR も NOTE も出ない
+        self.assertIn("引用: 主張 承認済 1 / 要再確認 0 / 未承認 0、指示 1", out)
+        self.assertEqual(self.run_bridge("checkpoint", "--by", "alice", "--label", "test")[0], 0)
+        # 書誌に無い key は、今の扱いのまま ERROR
+        self.write("bridge/citations.md", self.read("bridge/citations.md").replace("文献: doe2020", "文献: nokey"))
+        code, out = self.run_bridge("check")
+        self.assertEqual(code, 1, out)
+        self.assertIn("c002: 指示の引用は 文献 に書誌の key を書く", out)
+
     def test_english_field_names(self):
         en = EXCERPTS.replace("逐語", "verbatim").replace("強さ: 観察", "strength: observation") \
             .replace("強さ: 示唆", "strength: suggestion").replace("要約", "summary") \
