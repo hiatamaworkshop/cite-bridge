@@ -43,6 +43,21 @@
 
 git の pre-commit に検査を置くには、同梱の `hooks/pre-commit` を使う（SKILL.md の「hook」）。
 
+## AI に使わせるとき
+
+使う側のリポジトリの、エージェントが読む指示ファイルには、次の短いブロックだけを写す。作法の文書（SKILL.md）は写さずに指す。
+写すと、道具の版が進むたびに写しがずれるからである。置き先は AGENTS.md、CLAUDE.md、GEMINI.md など、使っているエージェントが読むものを使う人が選ぶ。
+パスは既定の置き場所（`tools/cite-bridge/`）と設定（`bridge/bridge.toml`）のものなので、替えていれば読み替える。
+
+```markdown
+## 引用（cite-bridge）
+
+- 読む文書: 引用・抜き書きを書く前に tools/cite-bridge/SKILL.md を読み、その作法に従う。ファイルの形は tools/cite-bridge/SPEC.md。
+- 確かめるコマンド: 書いたら `python tools/cite-bridge/bridge.py derive` と `python tools/cite-bridge/bridge.py check` を走らせ、ERROR を残さない。
+  提出前は `python tools/cite-bridge/bridge.py check --strict`。
+- 正本: 引用の確認の状態は、設定 bridge/bridge.toml が指す抜き書きと引用のファイルにある。`@` で始まる行は道具が書くので手で直さない。
+```
+
 ## 原本での確認（要ヒューマンチェック）
 
 照合が近似一致か照合不能の抜き書き、OCR の抽出や OCR の文字の層の抜き書き、逐語の範囲に読めない字がある抜き書き、短い逐語（欧文 3 語以下・和文 10 字以下。偶然当たりやすく所在を保証しない）の抜き書きは、機械では逐語の実在を保証できない。

@@ -85,6 +85,30 @@ class SpecTablesTest(unittest.TestCase):
         self.assertEqual(set(re.findall(r"cite-bridge-[a-z-]+/\d+", SPEC)), code)
 
 
+class ReadmeBlockTest(unittest.TestCase):
+    """README の「AI に使わせるとき」の写すブロックが、道具の今のファイルとコマンドを指す（C30）。"""
+
+    def block(self):
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        part = readme.split("## AI に使わせるとき", 1)[1]
+        return part.split("```markdown", 1)[1].split("```\n", 1)[0]
+
+    def test_paths_and_commands_exist(self):
+        text = self.block()
+        files = set(re.findall(r"tools/cite-bridge/([\w.]+\.md)", text))
+        self.assertEqual(files, {"SKILL.md", "SPEC.md"})
+        for name in files:
+            self.assertTrue((ROOT / name).is_file(), name)
+        commands = re.findall(r"python tools/cite-bridge/bridge\.py ([^`]+)`", text)
+        self.assertEqual(len(commands), 3)
+        import subprocess
+        for c in commands:
+            r = subprocess.run([sys.executable, "-X", "utf8", str(tb.BRIDGE), *c.split(), "--help"],
+                               capture_output=True, text=True, encoding="utf-8")
+            self.assertEqual(r.returncode, 0, c + r.stderr)
+        self.assertEqual([ln[:2] for ln in text.splitlines() if ln.startswith("- ")], ["- "] * 3)  # 三つだけ
+
+
 class SpecJsonTest(unittest.TestCase):
     """道具が書く JSON の鍵が、SPEC の例にある。"""
     setUp = tb.BridgeTest.setUp
