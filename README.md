@@ -191,7 +191,7 @@ bridge.py classify --eval <測定の組.json> --variant <文面の案.toml> [--v
 
 | 文書 | 内容 |
 |---|---|
-| SKILL.md | 使い方と運用の作法。コマンドの一覧、AI が守ること（Claude Code のスキルとしての入口を兼ねる） |
+| SKILL.md | 使い方と運用の作法。コマンドの一覧、AI が守ること。普通の Markdown で、頭の name と description はエージェントの skill として置くときの入口 |
 | SPEC.md | ファイル形式の正本。欄、指紋、承認の状態、判断ファイル、マニフェスト、設定、版の方針 |
 
 設計は `docs/design-0.3.0.md` にある（0.3.0 で足した仕組みの設計）。

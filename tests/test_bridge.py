@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """cite-bridge の試験。論文のデータに依らず、一時フォルダに小さな試験用の一式を作って動かす。
 
-実行:  python -m unittest discover -s .claude/skills/cite-bridge/tests
+実行:  python -m pytest -q tests（道具のフォルダで）。使う側のリポジトリからは python -m unittest discover -s tools/cite-bridge/tests
 """
 import json
 import os
@@ -601,6 +601,36 @@ class BridgeTest(unittest.TestCase):
         self.git("checkout", "--", "bridge/citations.md")
         self.git("add", "bridge/excerpts/doe2020.md")
         self.assertEqual(self.run_bridge("precommit")[0], 0)
+
+    @unittest.skipUnless(shutil.which("sh"), "sh が無い")
+    def test_hook_finds_the_tool(self):
+        """hook は CITE_BRIDGE、既定の tools/cite-bridge/、前の既定の .claude/skills/cite-bridge/ の順に道具を探す（C29）。"""
+        hook = BRIDGE.parent / "hooks" / "pre-commit"
+
+        def run(**env):
+            e = self.clean_env()
+            e.pop("CITE_BRIDGE", None)
+            e.update(env)
+            r = subprocess.run(["sh", str(hook)], cwd=self.dir, capture_output=True, text=True, encoding="utf-8", env=e)
+            return r.returncode, r.stdout + r.stderr
+
+        def fake(path, name):
+            self.write_new(path, f"import sys\nprint('{name}', sys.argv[1])\n")
+
+        code, out = run()  # どこにも無ければ、既定の場所の名前で警告して飛ばす
+        self.assertEqual(code, 0, out)
+        self.assertIn("tools/cite-bridge/bridge.py が無いので検査を飛ばした", out)
+        fake(".claude/skills/cite-bridge/bridge.py", "old")
+        self.assertIn("old precommit", run()[1])
+        fake("tools/cite-bridge/bridge.py", "new")
+        self.assertIn("new precommit", run()[1])
+        fake("elsewhere/bridge.py", "env")
+        self.assertIn("env precommit", run(CITE_BRIDGE="elsewhere/bridge.py")[1])
+
+    def write_new(self, name, text):
+        p = self.dir / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf-8", newline="\n")
 
     def test_ocr_text_is_marked(self):
         self.write("refs/_txt/yamada2002.txt", "<!-- ocr\nengine: test\n-->\n" + JA_PAPER)

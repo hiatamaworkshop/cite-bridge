@@ -7,7 +7,8 @@ description: 引用ごとに錨（原典の逐語と、道具が導いた所在�
 
 道具の概要は `README.md`。ファイルの形式（欄、指紋、判断ファイル、マニフェスト等）の正本は `SPEC.md`。この文書は使い方と運用の作法である。
 設計は `docs/design-0.3.0.md` にある。
-使う側のリポジトリでは `.claude/skills/cite-bridge/` に置く（submodule）。以下のコマンド例はこの置き場所を前提にしている。
+使う側のリポジトリでは、道具を `tools/cite-bridge/` に置く（submodule）。以下のコマンド例はこの置き場所を前提にしている。別の場所に置いたときはパスを読み替え、hook には環境変数 `CITE_BRIDGE` で場所を教える（「hook」の節）。
+この文書は普通の Markdown で、どのエージェントも人も読める。頭の name と description は、エージェントの skill として置くとき（例: `.claude/skills/cite-bridge/`）の入口で、それは置き方の一つである。
 
 ## 保証と持ち主
 
@@ -118,7 +119,7 @@ check を走らせ、整合の崩れ（ERROR）があるときだけコミット
 - 入れ方。道具に同梱の `hooks/pre-commit`（sh の数行）を、使うリポジトリの `.githooks/pre-commit` に置き、
   `git config core.hooksPath .githooks` で有効にする（clone し直したら設定し直す）。
   hook は sh で動くので、`.gitattributes` で `.githooks/* text eol=lf` にして改行変換を止める。
-- 道具の場所は環境変数 `CITE_BRIDGE`（bridge.py のパス）で替える。既定は `.claude/skills/cite-bridge/bridge.py`。
+- 道具の場所は環境変数 `CITE_BRIDGE`（bridge.py のパス）で替える。既定は `tools/cite-bridge/bridge.py` で、そこに無ければ前の既定の `.claude/skills/cite-bridge/bridge.py` を見る。
   無ければ警告して検査を飛ばす（コミットは止めない）。
 - 設定以外のパスも監視したいときは `[hook] watch = ["…"]`。
 
@@ -176,35 +177,35 @@ language = "ja"                                  # 導く欄の名前を書く�
 リポジトリの根で実行する。
 
 ```
-python .claude/skills/cite-bridge/bridge.py derive          # 導く欄を書き直す
-python .claude/skills/cite-bridge/bridge.py check           # 整合の崩れがあれば exit 1
-python .claude/skills/cite-bridge/bridge.py check --strict  # 確認待ちが残っていても exit 1（提出前）
-python .claude/skills/cite-bridge/bridge.py grade --keys-from <key を含む md>
-python .claude/skills/cite-bridge/bridge.py review [c001 ...] [--images DIR] [-o 出力.md]  # 確認用の一覧（省くと確認待ちすべて）
-python .claude/skills/cite-bridge/bridge.py review --json --all [--images DIR]          # 外の表示へ渡す JSON（承認済と指示も含める）
-python .claude/skills/cite-bridge/bridge.py review --html -o preview/cite_review.html     # 承認の HTML（人が見て判断する画面）
-python .claude/skills/cite-bridge/bridge.py apply <判断ファイル.json> [--dry-run]          # 承認の HTML が保存した判断を書き込む
-python .claude/skills/cite-bridge/bridge.py apply --latest [--from DIR] [--dry-run]       # ダウンロード（既定）の最新の判断ファイルを使う
-python .claude/skills/cite-bridge/bridge.py coverage                                     # 印の無い文にある出典らしき括弧の一覧
-python .claude/skills/cite-bridge/bridge.py propose [--section 2.2] [--lines 80-120] [--limit 15] [--add-key ITEM=KEY]  # 印の無い出典の作業票
-python .claude/skills/cite-bridge/bridge.py propose [--key smith2020 ...] [--checkable]  # key の候補に当たる出典だけ／機械で照合できる格の第一候補の出典だけ（repeat は --checkable で外れる）
-python .claude/skills/cite-bridge/bridge.py sentences <key> [--grep 語 ...] [--range 40-50]   # 原典を作業票と同じ番号の文で引く
-python .claude/skills/cite-bridge/bridge.py propose --load bridge/candidates/drafts.json     # 書き手の下書きを検査して候補にする
-python .claude/skills/cite-bridge/bridge.py approve c001 --by 人 [--note 理由]
-python .claude/skills/cite-bridge/bridge.py approve c001 --by 人 --send-back --note 理由   # 差し戻し
-python .claude/skills/cite-bridge/bridge.py confirm smith2020#e2 --by 人            # 要約の確認
-python .claude/skills/cite-bridge/bridge.py confirm smith2020#e2 --source --by 人 [--result 違う] [--page "p.49 §4・3"] --note "…"  # 原本での確認（要ヒューマンチェック）
-python .claude/skills/cite-bridge/bridge.py review --source-checks [--json] [--images DIR] [-o 出力]  # 原本での確認が残る抜き書きの一覧（--json は外の AI への依頼）
-python .claude/skills/cite-bridge/bridge.py --citations <別の引用ファイル> check   # 原稿が複数あるとき、写しで試すとき
-python .claude/skills/cite-bridge/bridge.py extract [<key> ...] [--force]  # 原本の PDF から抽出テキストを作る（pymupdf。頭書きつき）
-python .claude/skills/cite-bridge/bridge.py extract [<key> ...] --header-only  # 頭書きの無い古い抽出テキストに頭書きを足す（本文は変えない）
-python .claude/skills/cite-bridge/bridge.py snapshot <key> [<URL>]       # Web 資料の写し（既定は書誌の行の URL）
-python .claude/skills/cite-bridge/bridge.py snapshot <key> --rebuild     # 保存した生の HTML から本文を作り直す（取り直さない）
-python .claude/skills/cite-bridge/bridge.py strip <原稿> <出力>            # 印を外した写しを作る
-python .claude/skills/cite-bridge/bridge.py checkpoint [--label 中間提出] [--by 人]   # check --strict を通った地点をマニフェストで残す（道具の版つき）。承認者の一覧があるときは --by（human）が要る
-python .claude/skills/cite-bridge/bridge.py precommit                       # git の pre-commit から呼ぶ（hook 節）
-python .claude/skills/cite-bridge/bridge.py classify [--send] [--list [--all]] [--cids c001 ...] [--limit N]   # 分類器による検査（README「分類器」。--send が無ければ送らない）
-python .claude/skills/cite-bridge/bridge.py classify --eval <組.json> --variant <案.toml> [--types 型 …] [--reps 2] [--send]   # 文面の測定（台帳に書かない）
+python tools/cite-bridge/bridge.py derive          # 導く欄を書き直す
+python tools/cite-bridge/bridge.py check           # 整合の崩れがあれば exit 1
+python tools/cite-bridge/bridge.py check --strict  # 確認待ちが残っていても exit 1（提出前）
+python tools/cite-bridge/bridge.py grade --keys-from <key を含む md>
+python tools/cite-bridge/bridge.py review [c001 ...] [--images DIR] [-o 出力.md]  # 確認用の一覧（省くと確認待ちすべて）
+python tools/cite-bridge/bridge.py review --json --all [--images DIR]          # 外の表示へ渡す JSON（承認済と指示も含める）
+python tools/cite-bridge/bridge.py review --html -o preview/cite_review.html     # 承認の HTML（人が見て判断する画面）
+python tools/cite-bridge/bridge.py apply <判断ファイル.json> [--dry-run]          # 承認の HTML が保存した判断を書き込む
+python tools/cite-bridge/bridge.py apply --latest [--from DIR] [--dry-run]       # ダウンロード（既定）の最新の判断ファイルを使う
+python tools/cite-bridge/bridge.py coverage                                     # 印の無い文にある出典らしき括弧の一覧
+python tools/cite-bridge/bridge.py propose [--section 2.2] [--lines 80-120] [--limit 15] [--add-key ITEM=KEY]  # 印の無い出典の作業票
+python tools/cite-bridge/bridge.py propose [--key smith2020 ...] [--checkable]  # key の候補に当たる出典だけ／機械で照合できる格の第一候補の出典だけ（repeat は --checkable で外れる）
+python tools/cite-bridge/bridge.py sentences <key> [--grep 語 ...] [--range 40-50]   # 原典を作業票と同じ番号の文で引く
+python tools/cite-bridge/bridge.py propose --load bridge/candidates/drafts.json     # 書き手の下書きを検査して候補にする
+python tools/cite-bridge/bridge.py approve c001 --by 人 [--note 理由]
+python tools/cite-bridge/bridge.py approve c001 --by 人 --send-back --note 理由   # 差し戻し
+python tools/cite-bridge/bridge.py confirm smith2020#e2 --by 人            # 要約の確認
+python tools/cite-bridge/bridge.py confirm smith2020#e2 --source --by 人 [--result 違う] [--page "p.49 §4・3"] --note "…"  # 原本での確認（要ヒューマンチェック）
+python tools/cite-bridge/bridge.py review --source-checks [--json] [--images DIR] [-o 出力]  # 原本での確認が残る抜き書きの一覧（--json は外の AI への依頼）
+python tools/cite-bridge/bridge.py --citations <別の引用ファイル> check   # 原稿が複数あるとき、写しで試すとき
+python tools/cite-bridge/bridge.py extract [<key> ...] [--force]  # 原本の PDF から抽出テキストを作る（pymupdf。頭書きつき）
+python tools/cite-bridge/bridge.py extract [<key> ...] --header-only  # 頭書きの無い古い抽出テキストに頭書きを足す（本文は変えない）
+python tools/cite-bridge/bridge.py snapshot <key> [<URL>]       # Web 資料の写し（既定は書誌の行の URL）
+python tools/cite-bridge/bridge.py snapshot <key> --rebuild     # 保存した生の HTML から本文を作り直す（取り直さない）
+python tools/cite-bridge/bridge.py strip <原稿> <出力>            # 印を外した写しを作る
+python tools/cite-bridge/bridge.py checkpoint [--label 中間提出] [--by 人]   # check --strict を通った地点をマニフェストで残す（道具の版つき）。承認者の一覧があるときは --by（human）が要る
+python tools/cite-bridge/bridge.py precommit                       # git の pre-commit から呼ぶ（hook 節）
+python tools/cite-bridge/bridge.py classify [--send] [--list [--all]] [--cids c001 ...] [--limit N]   # 分類器による検査（README「分類器」。--send が無ければ送らない）
+python tools/cite-bridge/bridge.py classify --eval <組.json> --variant <案.toml> [--types 型 …] [--reps 2] [--send]   # 文面の測定（台帳に書かない）
 ```
 
 - snapshot は生の HTML を `<web_dir>/<key>.html`（追跡しない）に、本文を `<key>.txt`（追跡する）に保存する。本文の頭書きに
@@ -285,7 +286,7 @@ python .claude/skills/cite-bridge/bridge.py classify --eval <組.json> --variant
 
 ## 試験
 
-`python -m unittest discover -s .claude/skills/cite-bridge/tests`。利用者のデータに依らず、一時フォルダに小さな一式を作って動かす
+`python -m unittest discover -s tools/cite-bridge/tests`。利用者のデータに依らず、一時フォルダに小さな一式を作って動かす
 （照合と所在、節の種類、含む文、導く欄の古さ、和文の小書きの仮名、承認と再確認、引用でない句、孤児、英語の欄名、三つの書誌の形式、
 strip、印の形の設定、URL の PDF の写し、LaTeX の \cite と印の key、checkpoint、OCR の印、承認の理由と根拠、差し戻し、
 要約の確認、欄の中の参照、review（md と JSON と HTML）、apply（書き込みと指紋の食い違いの拒否）、折りたたみの見出しと作り直し、
