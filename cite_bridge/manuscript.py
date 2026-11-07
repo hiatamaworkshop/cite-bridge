@@ -255,6 +255,17 @@ def model_approval_problem(by):
     return None
 
 
+def uncounted_approval(state, approver, f):
+    """approval_state が承認済とした引用の承認を、承認済に数えない理由。数えるなら None。
+
+    書き手と同じモデルの承認（§5.8）と、承認者の一覧で model の者の承認（§3.2）を数えない。
+    check と review（md・JSON・承認の HTML）が同じに数えるために共通に使う（C34）。f は引用の欄。
+    """
+    if state != "承認済":
+        return None
+    return self_check_problem(approver, writer_of(f.get("記入"))) or model_approval_problem(approver)
+
+
 SOURCE_CHECK_RE = re.compile(r"^(\S+) (\d{4}-\d{2}-\d{2}) (一致|違う)(.*)$")
 
 

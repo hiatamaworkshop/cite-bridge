@@ -22,6 +22,7 @@ from .manuscript import (
     sentence_at,
     source_check_state,
     summary_fingerprint,
+    uncounted_approval,
     unmark,
     verbatim_fingerprint,
     writer_of,
@@ -166,6 +167,9 @@ def review_data(cids=None, images=None, include_done=False, all_orphans=False, c
         if f.get("種類") == "主張":
             state, extra = approval_state(f, b.get("records", {}), fingerprint(sent),
                                           evidence_hash(refs, excerpt_fields, f.get("人の読み", "")))
+            uncounted = uncounted_approval(state, extra, f)  # check と同じに数える（§3.2、C34）
+            if uncounted:
+                state, extra = "未承認", f"承認を数えない（{uncounted}）"
         else:
             state, extra = "指示", f.get("文献", "")
         evidence = [ev_of(r) for r in refs]

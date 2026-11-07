@@ -19,12 +19,12 @@ from .manuscript import (
     mark_keys,
     manuscript_marks,
     mask_comments,
-    model_approval_problem,
     refs_in,
     self_check_problem,
     sentence_at,
     source_check_state,
     summary_fingerprint,
+    uncounted_approval,
     writer_of,
 )
 from .propose import load_candidates
@@ -134,7 +134,8 @@ def run_check():
             for shown, cands in refs_in(f.get(name, ""), [key]):
                 if not any(c in excerpts for c in cands):
                     errors.append(f"{w}: {name}が指す抜き書き '{shown}' が無い")
-    infos.append("抜き書きの要約の確認: " + " / ".join(f"{k} {v}" for k, v in sorted(summary_checked.items())))
+    if summary_checked:  # 抜き書きが無ければ、後ろの空いた行を出さない
+        infos.append("抜き書きの要約の確認: " + " / ".join(f"{k} {v}" for k, v in sorted(summary_checked.items())))
     infos.append(f"要ヒューマンチェック: 印のある抜き書き {marked} 件のうち、確認済 {done}"
                  f"（人 {by_kind['human']}、モデル {by_kind['model']}）、残り {marked - done}（一覧は review --source-checks）")
 
@@ -238,11 +239,9 @@ def run_check():
                 if same and not any(normalize(q, "alnum")[0] in normalize(p, "alnum")[0] for p in same):
                     errors.append(f"{w}: 本文の引用「{q[:30]}…」が抜き書きの逐語に無い")
             state, extra = approval_state(f, b.get("records", {}), fp, evidence_hash(refs, excerpts, f.get("人の読み", "")))
-            if state == "承認済" and self_check_problem(extra, writer_of(f.get("記入"))):  # §5.8。書き手と同じモデルの承認は数えない
-                notes.append(f"{w}: 承認を数えない（{self_check_problem(extra, writer_of(f.get('記入')))}）")
-                state = "未承認"
-            elif state == "承認済" and model_approval_problem(extra):  # §3.2。model の承認は確認待ち（C18）
-                notes.append(f"{w}: 承認を数えない（{model_approval_problem(extra)}）")
+            uncounted = uncounted_approval(state, extra, f)  # §5.8 と §3.2。書き手と同じモデルと model の承認は確認待ち（C18）
+            if uncounted:
+                notes.append(f"{w}: 承認を数えない（{uncounted}）")
                 state = "未承認"
             if not again:
                 counts[state] = counts.get(state, 0) + 1

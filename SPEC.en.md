@@ -5,7 +5,7 @@ Japanese original: [SPEC.md](SPEC.md). This English version is a translation; th
 This document is the authoritative definition of the formats of the files the tool reads and writes. Where it disagrees with the implementation (bridge.py and cite_bridge/), fix the implementation or this document so that they agree.
 How to use and run the tool is in SKILL.md; the design is in `docs/design-0.3.0.md` (Japanese only).
 
-- Format version: 0.4.0 (`TOOL_VERSION` in cite_bridge/config.py). It is recorded in the manifest. What is frozen, how changes are made, and migration steps are in §11.
+- Format version: 0.4.1 (`TOOL_VERSION` in cite_bridge/config.py). It is recorded in the manifest. What is frozen, how changes are made, and migration steps are in §11.
 - Character encoding is UTF-8; line endings are LF.
 - Japanese field names and values are canonical; English aliases are also accepted (§10). Internally everything is normalized to Japanese.
   In this translation, field names and values are given in Japanese with the English alias in parentheses, e.g. 逐語 (verbatim).
@@ -177,6 +177,7 @@ They apply to claim citations. There are five: 未承認 / 承認済 / 要再確
   (an old approval without an evidence record looks only at the sentence). When the settings have an approvers list, the approver must also be human in that list.
   An approval by someone listed as model is kept in the record but counted as not approved, and check reports a pending NOTE 「承認を数えない」 (approval not counted). Whether the source supports the claim is guaranteed by a person's approval.
   Without a list the kind is unknown, so the approver's name does not matter. Checks against the original (§2.1) and summary checks accept a model checker separate from the writer (outside this rule).
+  review (md, JSON) and the approval HTML count approvals in the same way as check. A citation whose approval is not counted (an approval by someone listed as model, or by the same model as the writer, condition 3 of §2.1) gets the state 未承認 (not approved), with 「承認を数えない（<reason>）」 (approval not counted) as the detail, and is in the default pending list.
 - 要再確認 (needs recheck): the sentence or the evidence changed after approval.
 - 差し戻し (returned): the fingerprint and evidence at the return equal the current ones (the writer has not fixed it yet). If they differ, the state is 「差し戻し後に直された」 (fixed after return), waiting for approval.
 
@@ -382,7 +383,7 @@ Written by `checkpoint` at a point that has passed `check --strict`. When there 
 
 ```json
 {"format": "cite-bridge-manifest/1",
- "tool": {"name": "cite-bridge", "version": "0.4.0", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
+ "tool": {"name": "cite-bridge", "version": "0.4.1", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
  "checkpoint": "<UTC 時刻>", "label": "",
  "git": {"head": "<HEAD>", "uncommitted": ["…"]},
  "files": {"config": {"path", "sha256"}, "bibliography": {…}, "manuscript": {…}, "citations": {…},
@@ -495,13 +496,15 @@ Formats that are not frozen (worksheets, drafts, candidates, eval sets and resul
   Excerpts with short verbatim text get the human-check mark after derive, and `check --strict` stops while they have no check against the original.
   Records and approvals by a model checker whose name differs from the writer's only in letter case or full-width and half-width forms are no longer counted.
   From this version, the scope of §11.1 is frozen, and changes follow the steps of §11.2.
+- 0.4.1 made review (md, JSON) and the approval HTML count approvals in the same way as check (§3.2). A citation whose approval is not counted changes from approved to not approved (with the reason as the detail) and appears in the default pending list.
+  Fields, format names, fingerprints and the state of files do not change, so no migration steps are needed. External viewers that read `state` in review's JSON receive such a citation as not approved instead of approved.
 
 ### Migration steps for 0.4.0
 
 1. Run `check` and look at citations with the NOTE 「承認を数えない（model … の承認は記録に残るが、承認済には人（human）の承認が要る）」 (approval not counted: the approval by model … stays in the record, but approval needs a human).
    If there are none, step 2 is not needed.
 2. For those citations, a person looks at the material with `review <ID>` and approves again with `approve <ID> --by <human name>`. To see them in the approval HTML, use `review --html --all -o <file>`
-   (these citations are not in review's default pending list, so point to them by ID or with `--all`).
+   (in 0.4.0 these citations are not in review's default pending list, so point to them by ID or with `--all`; from 0.4.1 they appear in the default pending list as not approved).
    The model's approval stays in the record until a human approval overwrites it.
 3. Make sure the kinds in the approvers list (human / model) match reality. If a person is listed as model, fix the list.
 4. Run `derive`. Excerpts with short verbatim text get the human-check reason 「逐語が短い」 (before derive, check reports 「導く欄が古い」, derived fields outdated, for those excerpts).

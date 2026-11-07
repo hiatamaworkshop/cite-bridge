@@ -481,6 +481,34 @@ class BridgeTest(unittest.TestCase):
         self.assertIn("引用: 主張 承認済 1 / 要再確認 0 / 未承認 0、指示 0", out)
         self.assertEqual(self._check_result()["approvers"], {"alice": 1})
 
+    def test_model_approval_is_pending_in_review(self):
+        """model だけが承認した引用は、review の md・JSON・承認の HTML でも、既定の確認待ちに未承認として出る（C34）。"""
+        import json
+        self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\nreviewer-model = "model"\n')
+        self.run_bridge("derive")
+        self.assertEqual(self.run_bridge("confirm", "doe2020#e1", "--by", "alice")[0], 0)  # 要約の確認で確認待ちに残らないようにする
+        self.assertEqual(self.run_bridge("approve", "c001", "--by", "reviewer-model")[0], 0)
+        reason = "承認を数えない（model 'reviewer-model' の承認は記録に残るが、承認済には人（human）の承認が要る）"
+        cits = json.loads(self.run_bridge("review", "--json")[1])["citations"]
+        self.assertEqual([(c["id"], c["state"], c["state_detail"]) for c in cits], [("c001", "未承認", reason)])
+        self.assertIn(f"## c001　未承認（{reason}）", self.run_bridge("review")[1])
+        self.assertEqual(self.run_bridge("review", "--html", "-o", "r.html")[0], 0)
+        html = self.read("r.html")
+        self.assertIn('id="c001" data-id="c001" data-done="0"', html)
+        self.assertIn("未承認（承認を数えない（model &#x27;reviewer-model&#x27;", html)
+        # 人が承認すると、既定の確認待ちから外れる
+        self.assertEqual(self.run_bridge("approve", "c001", "--by", "alice")[0], 0)
+        self.assertEqual(json.loads(self.run_bridge("review", "--json")[1])["citations"], [])
+        c = json.loads(self.run_bridge("review", "--json", "--all")[1])["citations"][0]
+        self.assertEqual((c["state"], c["state_detail"]), ("承認済", "alice"))
+
+    def test_check_has_no_empty_summary_line(self):
+        """抜き書きが無いとき、check は後ろの空いた「抜き書きの要約の確認」の行を出さない。"""
+        self.write("bridge/excerpts/doe2020.md", "# doe2020\n")
+        self.write("bridge/citations.md", "# 引用\n対象: manuscript.md\n")
+        code, out = self.run_bridge("check")
+        self.assertNotIn("抜き書きの要約の確認", out)
+
     def test_approval_without_approver_list_is_unchanged(self):
         """承認者の一覧が無いときは種類が分からないので、名前に依らず今のまま承認済に数える。"""
         self.run_bridge("derive")
