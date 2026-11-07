@@ -5,6 +5,7 @@
 - [README.md](README.md) — 何をする道具か、使い方
 - [SPEC.md](SPEC.md) — データ形式の正本
 - [SKILL.md](SKILL.md) — 道具を使う AI の作法
+- [docs/getting-started.md](docs/getting-started.md) — 始め方の案内 (例の一式 `examples/first-citation/` を使う。試験 `tests/test_getting_started.py` が案内のとおりに通す)
 - [docs/roadmap.md](docs/roadmap.md) — 開いている項目 (`### C<n>.`)。依頼で `C<n>` を指されたら、その節の `#### 完了条件` を満たして終える
 - [docs/design-0.3.0.md](docs/design-0.3.0.md) — 0.3.0 の設計 (各節の見出しに項目の番号)
 

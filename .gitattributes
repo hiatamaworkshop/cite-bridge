@@ -1,3 +1,5 @@
 # hook は sh で動くので、Windows の改行変換をかけない
 hooks/* text eol=lf
 .githooks/* text eol=lf
+# 始め方の案内の例の一式は、書いてあるとおりの出力になるよう LF のまま置く
+examples/** text eol=lf

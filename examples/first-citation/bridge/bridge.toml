@@ -1,0 +1,14 @@
+# 始め方の案内（docs/getting-started.md）の例の設定。パスは、この一式を写したフォルダからの相対
+[bibliography]
+path = "bib.md"
+format = "keyline"
+pdf_pattern = 'PDF: `?([^`]+?\.pdf)'
+[sources]
+pdf_dir = "refs"
+text_dir = "refs/_txt"
+web_dir = "refs/_web"
+[bridge]
+excerpts = "bridge/excerpts"
+citations = "bridge/citations.md"
+[approvers]
+hanako = "human"

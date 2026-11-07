@@ -31,7 +31,7 @@
 
 ## 最小の使い方
 
-リポジトリの根で実行する。
+リポジトリの根で実行する。初めてなら、例の一式で一件の引用を最後まで通す `docs/getting-started.md` から始める。
 
 1. 設定を置く。ひな形は SKILL.md の「設定」にある。書誌は keyline、BibTeX、CSL-JSON を読める。
 2. 原本の PDF から抽出テキストを作る。`bridge.py extract`（頭書きつき。頭書きの無い古い抽出は `extract --header-only` で足す）。Web 資料は `bridge.py snapshot <key>`。
@@ -208,6 +208,7 @@ bridge.py classify --eval <測定の組.json> --variant <文面の案.toml> [--v
 |---|---|
 | SKILL.md | 使い方と運用の作法。コマンドの一覧、AI が守ること。普通の Markdown で、頭の name と description はエージェントの skill として置くときの入口 |
 | SPEC.md | ファイル形式の正本。欄、指紋、承認の状態、判断ファイル、マニフェスト、設定、版の方針 |
+| docs/getting-started.md | 始め方。例の一式（`examples/first-citation/`）で、準備の確認から一件の引用の承認と `check --strict` までを通す |
 
 設計は `docs/design-0.3.0.md` にある（0.3.0 で足した仕組みの設計）。
 

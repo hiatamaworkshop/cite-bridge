@@ -1,0 +1,11 @@
+Typing and Speaking: A Small Study
+Abstract We compared typing and speaking for short notes.
+1 Introduction
+People write short notes every day. Many of them now speak to their phones.
+2 Method
+Twelve participants wrote ten notes by typing and ten notes by speaking.
+3 Results
+Speaking was faster than typing, but participants corrected more words after speaking.
+4 Discussion
+The speed of speaking did not remove the cost of correction.
+References
