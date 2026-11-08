@@ -108,7 +108,7 @@ Rules for delegating.
 1. A person may delegate human-check requests to an external AI. The person decides whether to delegate, and the person lists the delegated AI as `model:<family>` in the approvers list.
 2. The delegated AI receives the request JSON and writes a decisions file under its own name. The person passes it to `apply`.
 3. An AI of the same family as the writer AI (the model that wrote the excerpt) cannot record a check against the original for that excerpt. An AI whose family is unknown cannot either.
-4. Who checked is kept in the checker of each record and in the manifest's counts per kind of checker. The final submission (`checkpoint --by <person>`) is made by a person.
+4. Who checked is kept in the checker of each record and in the manifest's `decided_by` (the number of judgments per kind of the one who judged). The final submission (`checkpoint --by <person>`) is made by a person.
 5. The tool does not call external AIs. It only writes out the request JSON and receives the decisions file.
 
 ## Checks and approval
@@ -137,6 +137,16 @@ Rules for delegating.
 - Besides the judgment, the approval HTML has a 「指摘」 (remarks) field. It is for notes on the manuscript; apply adds it to the citation block's 「指摘」 (it is not part of the approval fingerprint).
   You may write only a remark and leave the judgment on hold. Write remarks on the manuscript in this field, not in the approval reason.
 - An external viewer (a diff review, for example) can read review --json and show the state on the marks in the text. The dependency is one way, viewer → bridge; the bridge does not know the viewer.
+
+## Disclosing the use of AI
+
+When a paper discloses its use of AI, use the manifest of the submission point (`bridge/checkpoints/<UTC time>.json`, written by `checkpoint`; its shape is in SPEC.md §8) as the material.
+
+- `counted` in `approvals` (citation approvals), `source_checks` (checks against the original) and `summary_checks` (summary checks) of `decided_by` gives the number of judgments per person (`human`) and per model family (`model:<family>`).
+  For example: "Of the 40 approved citations, 32 were approved by the author and 8 by a model of a different family from the writer (model:openai)."
+- `uncounted` is the number of judgments not counted for reasons such as not being independent of the writer. It is written at a point that passed `check --strict`, so it is usually empty.
+- `by` is the person who submitted, limited to human when there is an approvers list. Who wrote the excerpts and citations is not counted in the manifest; see 記入 (written_by) in the excerpt and citation files.
+- `tool` is the version of the tool that checked, and `files` the fingerprints of the files checked; they show which state of the manuscript the disclosed numbers belong to.
 
 ## Sources without a mark
 

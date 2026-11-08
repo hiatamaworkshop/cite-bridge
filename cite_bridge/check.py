@@ -11,6 +11,9 @@ from .derive import derive_excerpts
 from .judge import count_judgments, load_ledger, read_ledger, units_from_data
 from .manuscript import (
     approval_state,
+    approver_key,
+    independence_code,
+    uncounted_code,
     approver_label,
     coverage_of,
     evidence_hash,
@@ -51,6 +54,11 @@ def run_check():
         notes.append(f"{cfg.BIB.as_posix()}:{loc} {k}: 書誌の key の重複（先は {ref}）")
     marked, done, by_kind = 0, 0, {"human": 0, "model": 0}  # 要ヒューマンチェックの印と確認（§5.3 の 4・5）
     approvers, grades, used = {}, {}, set()
+    # 誰が判断したかの内訳（マニフェストの decided_by。§8、C43）。数えたものは判断した者の種類ごと、数えなかったものは理由ごと
+    decided = {k: {"counted": {}, "uncounted": {}} for k in ("approvals", "source_checks", "summary_checks")}
+
+    def tally(kind, part, key):
+        decided[kind][part][key] = decided[kind][part].get(key, 0) + 1
     cache = {}
     res = derive_excerpts(bib, cache)
     excerpts = {}
@@ -98,6 +106,11 @@ def run_check():
             st = d.get("照合", "")
             checker, problem = source_check_state(f, b.get("records", {}), f.get("逐語", ""), writer_of(f.get("記入")))
             confirmed = not problem  # 有効な原本での確認（§5.2 の条件1〜5）
+            if f.get("原本での確認") and checker:
+                if confirmed:
+                    tally("source_checks", "counted", approver_key(checker))
+                elif independence_code(checker, [writer_of(f.get("記入"))]):
+                    tally("source_checks", "uncounted", independence_code(checker, [writer_of(f.get("記入"))]))
             reason = d.get("要ヒューマンチェック", "")
             if st == "不一致" and not confirmed:
                 errors.append(f"{w}: 逐語が抽出テキストに無い" + (f"（他の文献で一致: {d['他の文献で一致']}）" if d.get("他の文献で一致") else ""))
@@ -123,8 +136,10 @@ def run_check():
                 elif independence_problem(name, [writer_of(f.get("記入"))]):  # §2.1 の条件 3。書き手と独立でない model の確認は数えない（C41）
                     notes.append(f"{w}: 要約の確認を数えない（{independence_problem(name, [writer_of(f.get('記入'))])}）")
                     summary_checked["未確認"] = summary_checked.get("未確認", 0) + 1
+                    tally("summary_checks", "uncounted", independence_code(name, [writer_of(f.get("記入"))]))
                 else:
                     summary_checked[name] = summary_checked.get(name, 0) + 1
+                    tally("summary_checks", "counted", approver_key(name))
             else:
                 summary_checked["未確認"] = summary_checked.get("未確認", 0) + 1
 
@@ -244,6 +259,8 @@ def run_check():
             if uncounted:
                 notes.append(f"{w}: 承認を数えない（{uncounted}）")
                 state = "未承認"
+                if not again:
+                    tally("approvals", "uncounted", uncounted_code(extra, f, excerpts))
             if not again:
                 counts[state] = counts.get(state, 0) + 1
             if state == "未承認":
@@ -257,6 +274,7 @@ def run_check():
             else:
                 if not again:
                     approvers[extra] = approvers.get(extra, 0) + 1
+                    tally("approvals", "counted", approver_key(extra))
                 if cfg.APPROVERS and extra not in cfg.APPROVERS:
                     notes.append(f"{w}: 承認者 '{extra}' は承認者の一覧に無い")
             for r in refs:
@@ -296,7 +314,7 @@ def run_check():
         summary[st] = summary.get(st, 0) + 1
     return {"errors": errors, "notes": notes, "infos": infos, "excerpt_states": summary, "excerpts": len(states),
             "source_checks": {"marked": marked, "done": done, "by_kind": by_kind, "pending": marked - done},
-            "citations": counts, "approvers": approvers, "coverage": coverage,
+            "citations": counts, "approvers": approvers, "coverage": coverage, "decided_by": decided,
             "approver_kinds": {k: sum(v for n, v in approvers.items() if cfg.APPROVERS.get(n, "不明") == k)
                                for k in sorted({cfg.APPROVERS.get(n, "不明") for n in approvers})}, "summary_checks": summary_checked, "grades": grades, "texts": sorted(used),
             "manuscript": str(target) if target else None}

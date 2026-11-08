@@ -370,6 +370,7 @@ status は pending / accepted / rejected。decided は、受け入れたとき�
  "excerpts": {"total": 0, "match": {}, "grade": {}},
  "citations": {}, "approvers": {}, "approver_kinds": {}, "coverage": {}, "summary_checks": {},
  "source_checks": {}, "by": "<提出者 | null>",
+ "decided_by": {"approvals": {"counted": {}, "uncounted": {}}, "source_checks": {…}, "summary_checks": {…}},
  "classifier": null}
 ```
 
@@ -377,6 +378,11 @@ status は pending / accepted / rejected。decided は、受け入れたとき�
 `parens`（括弧の数。出典ごとに分けた括弧は一つに数える）、`excluded`（引用でないと記録した数）。
 `source_checks` は §5.1 の確認の集計で、`marked`（印のある抜き書き）、`done`（確認済）、`by_kind`（確認者の種類ごと）、`pending`（残り）。
 `by` は `checkpoint --by` の名前で、無ければ null。
+`decided_by` は、誰が判断したかの内訳である。`approvals`（引用の承認のうち、今の状態が承認済のもの）、`source_checks`（原本での確認の記録。要ヒューマンチェックの印に依らない）、`summary_checks`（要約の確認）のそれぞれが、`counted` と `uncounted` を持つ。
+`counted` は数えた判断の数を、判断した者の種類ごとに数える。キーは `human`、`model:<系統>`、`model`（系統の無い model）、`unlisted`（一覧に無い者と、一覧が無いとき）。
+`uncounted` は、判断した者が理由で数えなかった判断の数を、理由ごとに数える。キーは `same_writer`（書き手と同じ）、`same_family`（書き手と同じ系統）、`no_family`（判断した model に系統が無い）、
+`unknown_writer`（書き手が分からない、一覧に無い、または系統が無い）、`model_not_counted`（引用の承認で、`approval.count_model` が false）。
+指紋が古くなった記録など、判断した者に依らない理由で有効でない記録は、どちらにも入れない。マニフェストは `check --strict` を通った地点で書くので、`uncounted` は通常は空である。
 
 `tool` は、どの版の検査で通ったかを残す。sha256 は、道具のソース（bridge.py と cite_bridge/ の下の .py・.html・.js）の相対パスと内容の sha256 を、パスの順に並べてもう一度 sha256 にかけたもの。別のリポジトリから道具を使っても、使う側から版が分かる。`classifier` は、分類器を設定せず台帳も無ければ null。あれば `{provider, model, types:[{type, version, spec}], judgments, flagged, note}`（§6.4）。
 
@@ -486,6 +492,7 @@ SKILL.md の「設定」の節にひな形がある。表は鍵の一覧であ�
 - 0.5.0 で、model の確認者・承認者が書き手と独立かを、名前に加えて系統で見るようにした（§2.1 の条件 3）。承認者の一覧の種類に `model:<系統>` を書ける（§9）。
   承認では、引用の書き手に加えて根拠の抜き書きの書き手とも比べる。系統の無い model、一覧に無い書き手、書き手と同じ系統の model の記録は数えず、道具は書く前に断る。
   一覧が無いときと、human の確認者・承認者は変わらない。欄・形式名・指紋は変わらないが、一覧に model の者がいると、原本での確認と要約の確認の数え方が変わる（下の移行の手順）。
+  マニフェストに、誰が判断したかの内訳 `decided_by` の欄を足した（§8）。形式名は `/1` のままである。
   あわせて、設定の `approval.count_model`（既定 false）を足した。true にすると、書き手と独立な model の引用の承認を承認済に数える（§3.2）。review の JSON に `approved_by` の欄を足した。既定では引用の承認の数え方は変わらない。
 
 ### 0.5.0 の移行の手順

@@ -334,6 +334,57 @@ class HumanCheckTest(unittest.TestCase):
         self.assertIn("'hiatama' の承認が今と合うので、model 'other-o' の承認で書き換えない", out)
         self.assertIn("引用: 主張 承認済 1（人 1） /", self.run_bridge("check")[1])
 
+    # ---- C43（マニフェストの decided_by）
+
+    def decided_by(self):
+        """一時フォルダの一式で run_check を走らせ、decided_by を返す（数えない記録があると checkpoint は書かれないため）。"""
+        code = ("import json, sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]);"
+                "from cite_bridge import config as cfg; cfg.load_config(Path('bridge/bridge.toml'));"
+                "from cite_bridge.check import run_check; print(json.dumps(run_check()['decided_by']))")
+        r = subprocess.run([sys.executable, "-X", "utf8", "-c", code, str(tb.BRIDGE.parent)], cwd=self.dir,
+                           capture_output=True, text=True, encoding="utf-8", env=tb.BridgeTest.clean_env())
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout)
+
+    def test_decided_by_counts_who_judged(self):
+        from cite_bridge.manuscript import summary_fingerprint
+        self.set_count_model("true")  # c001 の書き手は hiatama、根拠 ocr2020#e1 の書き手は writer-a
+        self.write("manuscript.md", self.read("manuscript.md") + "\n二つ目の文である。〔c002〕\n")
+        self.write("bridge/citations.md", self.read("bridge/citations.md")
+                   + "\n## c002\n種類: 主張\n抜き書き: ocr2020#e1\n理由: 試験\n原文との差: 一致\n記入: hiatama\n承認: 未\n")
+        self.assertEqual(self.run_bridge("confirm", "ocr2020#e1", "--source", "--by", "other-o")[0], 0)
+        self.assertEqual(self.run_bridge("confirm", "ocr2020#e1", "--by", "hiatama")[0], 0)
+        self.assertEqual(self.run_bridge("approve", "c001", "--by", "other-o")[0], 0)
+        self.assertEqual(self.run_bridge("approve", "c002", "--by", "hiatama")[0], 0)
+        cit = self.read("bridge/citations.md")
+        i = cit.index("## c002")
+        self.write("bridge/citations.md", cit[:i] + cit[i:].replace("承認: hiatama", "承認: alias-a"))  # 同じ系統の手書きの承認
+        # 一覧に無い書き手（test）の抜き書きへの、手書きの要約の確認
+        noisy = self.read("bridge/excerpts/noisy2020.md")
+        fields = {"逐語": NOISY_SENTENCE, "強さ": "観察", "要約": "要約。", "言っていないこと": "なし。"}
+        self.write("bridge/excerpts/noisy2020.md", noisy.rstrip("\n")
+                   + f"\n要約の確認: alias-a {TODAY}\n@要約の確認時の指紋: {summary_fingerprint(fields)}\n")
+        self.run_bridge("derive")
+        self.assertEqual(self.decided_by(), {
+            "approvals": {"counted": {"model:openai": 1}, "uncounted": {"same_family": 1}},
+            "source_checks": {"counted": {"model:openai": 1}, "uncounted": {}},
+            "summary_checks": {"counted": {"human": 1}, "uncounted": {"unknown_writer": 1}}})
+        self.write("bridge/bridge.toml", tb.CONFIG + self.FAMILIES + "[approval]\ncount_model = false\n")
+        self.assertEqual(self.decided_by()["approvals"],
+                         {"counted": {}, "uncounted": {"model_not_counted": 1, "same_family": 1}})
+
+    def test_checkpoint_writes_decided_by(self):
+        self.write("bridge/bridge.toml", tb.CONFIG + APPROVERS)
+        self.write("bridge/excerpts/ocr2020.md", excerpt("ocr2020", "e1", OCR_SENTENCE, writer="hiatama"))
+        self.write("bridge/excerpts/noisy2020.md", "# noisy2020\n")
+        self.run_bridge("derive")
+        self.assertEqual(self.run_bridge("confirm", "ocr2020#e1", "--source", "--by", "hiatama")[0], 0)
+        code, out = self.run_bridge("checkpoint", "--by", "hiatama")
+        self.assertEqual(code, 0, out)
+        manifest = json.loads(next((self.dir / "bridge/checkpoints").glob("*.json")).read_text(encoding="utf-8"))
+        self.assertEqual(manifest["decided_by"]["source_checks"], {"counted": {"human": 1}, "uncounted": {}})
+        self.assertEqual(self.run_bridge("checkpoint", "--by", "reviewer-model")[0], 1)  # 提出は今と同じに人だけ
+
     def test_count_model_must_be_boolean(self):
         self.write("bridge/bridge.toml", tb.CONFIG + '[approval]\ncount_model = "yes"\n')
         code, out = self.run_bridge("check")

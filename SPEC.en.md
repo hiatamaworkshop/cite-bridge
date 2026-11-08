@@ -390,6 +390,7 @@ Written by `checkpoint` at a point that has passed `check --strict`. When there 
  "excerpts": {"total": 0, "match": {}, "grade": {}},
  "citations": {}, "approvers": {}, "approver_kinds": {}, "coverage": {}, "summary_checks": {},
  "source_checks": {}, "by": "<提出者 | null>",
+ "decided_by": {"approvals": {"counted": {}, "uncounted": {}}, "source_checks": {…}, "summary_checks": {…}},
  "classifier": null}
 ```
 
@@ -399,6 +400,11 @@ Written by `checkpoint` at a point that has passed `check --strict`. When there 
 `parens` (number of parentheses; a parenthesis split into several sources counts as one), `excluded` (number recorded as not citations).
 `source_checks` is the tally of the checks of §5.1: `marked` (excerpts with the human-check mark), `done` (checked), `by_kind` (per kind of checker), `pending` (remaining).
 `by` is the name given to `checkpoint --by`, or null.
+`decided_by` is the breakdown of who judged. Each of `approvals` (citation approvals whose current state is approved), `source_checks` (records of checks against the original, regardless of the human-check mark) and `summary_checks` (summary checks) has `counted` and `uncounted`.
+`counted` counts the judgments that were counted, per kind of the one who judged. The keys are `human`, `model:<family>`, `model` (a model without a family) and `unlisted` (someone not in the list, or when there is no list).
+`uncounted` counts the judgments not counted because of who judged, per reason. The keys are `same_writer` (the same as the writer), `same_family` (the same family as the writer), `no_family` (the judging model has no family),
+`unknown_writer` (the writer is unknown, not in the list, or has no family) and `model_not_counted` (a citation approval while `approval.count_model` is false).
+Records that are not valid for reasons that do not depend on who judged, such as a stale fingerprint, go in neither. The manifest is written at a point that passed `check --strict`, so `uncounted` is usually empty.
 
 `tool` records which version of the check was passed. sha256 is the sha256 taken over the relative paths and content sha256s of the tool's source (bridge.py and the .py, .html and .js files under cite_bridge/), listed in path order. Even when the tool is used from another repository, the version is known on the user's side. `classifier` is null when no classifier is configured and there is no ledger. Otherwise it is `{provider, model, types:[{type, version, spec}], judgments, flagged, note}` (§6.4).
 
@@ -508,6 +514,7 @@ Formats that are not frozen (worksheets, drafts, candidates, eval sets and resul
 - 0.5.0 checks whether a model checker or approver is independent of the writer by family as well as by name (condition 3 of §2.1). The kind in the approvers list can be `model:<family>` (§9).
   For an approval, the approver is compared with the writers of the evidence excerpts as well as the writer of the citation. Records by a model without a family, by a writer not in the list, or by a model of the same family as the writer are not counted, and the tool refuses to write them.
   Nothing changes without a list, or for human checkers and approvers. Fields, format names and fingerprints do not change, but when the list has models, the counting of checks against the original and summary checks changes (the migration steps below).
+  It adds the field `decided_by`, the breakdown of who judged, to the manifest (§8). The format name stays `/1`.
   It also adds the setting `approval.count_model` (default false). When true, an approval of a citation by a model independent of the writer counts as approved (§3.2). It adds the field `approved_by` to review's JSON. By default the counting of citation approvals does not change.
 
 ### Migration steps for 0.5.0

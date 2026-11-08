@@ -249,6 +249,31 @@ def approver_family(by):
     return next((v for k, v in cfg.APPROVER_FAMILIES.items() if same_name(k, by)), None)
 
 
+def _independence(by, writers):
+    """(理由のコード, 理由の文)。独立なら (None, None)。コードはマニフェストの decided_by が使う（§8、C43）。"""
+    if approver_kind(by) != "model":
+        return None, None
+    names = list(dict.fromkeys(w for w in writers if w))
+    if not names:
+        return "unknown_writer", f"書き手が分からないので、model '{by}' が書き手と独立か分からない"
+    if any(same_name(by, w) for w in names):
+        return "same_writer", f"書き手と同じモデル '{by}' の確認は数えない"
+    fam = approver_family(by)
+    if not fam:
+        return "no_family", f"model '{by}' の系統が承認者の一覧に無いので、書き手と独立か分からない（model:<系統> と書く）"
+    for w in names:
+        kind = approver_kind(w)
+        if kind is None:
+            return "unknown_writer", f"書き手 '{w}' が承認者の一覧に無いので、model '{by}' と独立か分からない"
+        if kind == "model":
+            wfam = approver_family(w)
+            if not wfam:
+                return "unknown_writer", f"書き手 '{w}' の系統が承認者の一覧に無いので、model '{by}' と独立か分からない"
+            if same_name(wfam, fam):
+                return "same_family", f"書き手 '{w}' と同じ系統（{fam}）の model '{by}' の確認は数えない"
+    return None, None
+
+
 def independence_problem(by, writers):
     """model の by が、書き手（writers は名前の並び）と独立でない理由。独立なら、または by が model でなければ None（§2.1 の条件 3、C41）。
 
@@ -257,27 +282,23 @@ def independence_problem(by, writers):
     書き手が一覧に無い、または by か model の書き手に系統が無いときは、独立か分からないので独立としない。
     human の書き手とは常に独立とする。human の by は問わない（人は最終の責任者で、一人で書く場合を想定する）。
     """
-    if approver_kind(by) != "model":
-        return None
-    names = list(dict.fromkeys(w for w in writers if w))
-    if not names:
-        return f"書き手が分からないので、model '{by}' が書き手と独立か分からない"
-    if any(same_name(by, w) for w in names):
-        return f"書き手と同じモデル '{by}' の確認は数えない"
-    fam = approver_family(by)
-    if not fam:
-        return f"model '{by}' の系統が承認者の一覧に無いので、書き手と独立か分からない（model:<系統> と書く）"
-    for w in names:
-        kind = approver_kind(w)
-        if kind is None:
-            return f"書き手 '{w}' が承認者の一覧に無いので、model '{by}' と独立か分からない"
-        if kind == "model":
-            wfam = approver_family(w)
-            if not wfam:
-                return f"書き手 '{w}' の系統が承認者の一覧に無いので、model '{by}' と独立か分からない"
-            if same_name(wfam, fam):
-                return f"書き手 '{w}' と同じ系統（{fam}）の model '{by}' の確認は数えない"
-    return None
+    return _independence(by, writers)[1]
+
+
+def independence_code(by, writers):
+    """independence_problem の理由のコード（same_writer / same_family / no_family / unknown_writer）。独立なら None。"""
+    return _independence(by, writers)[0]
+
+
+def approver_key(by):
+    """マニフェストの decided_by で数えるときの、判断した者の種類（C43）。human / model:<系統> / model / unlisted（一覧に無い、一覧が無い）。"""
+    kind = approver_kind(by) if cfg.APPROVERS else None
+    if kind == "human":
+        return "human"
+    if kind == "model":
+        fam = approver_family(by)
+        return f"model:{fam}" if fam else "model"
+    return "unlisted"
 
 
 def citation_writers(f, excerpts):
@@ -316,6 +337,12 @@ def uncounted_reason(approver, f, excerpts):
     f は引用の欄、excerpts は {key#eN: 抜き書きの欄}（根拠の書き手を引く）。
     """
     return independence_problem(approver, citation_writers(f, excerpts)) or model_approval_problem(approver)
+
+
+def uncounted_code(approver, f, excerpts):
+    """uncounted_reason の理由のコード。独立でなければ independence_code、model の承認を数えない設定なら model_not_counted。数えるなら None（C43）。"""
+    return (independence_code(approver, citation_writers(f, excerpts))
+            or ("model_not_counted" if model_approval_problem(approver) else None))
 
 
 def uncounted_approval(state, approver, f, excerpts):

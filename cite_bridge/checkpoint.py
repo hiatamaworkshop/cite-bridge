@@ -63,6 +63,7 @@ def cmd_checkpoint(args):
         "coverage": r["coverage"],
         "summary_checks": r["summary_checks"],
         "source_checks": r["source_checks"],
+        "decided_by": r["decided_by"],  # 誰が判断したかの内訳。論文の AI の使用の開示に使う（§8、C43）
         "by": by,
         "classifier": manifest_record(units),  # 分類器を使っていなければ None
     }
