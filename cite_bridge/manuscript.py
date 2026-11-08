@@ -242,14 +242,48 @@ def approver_kind(by):
     return next((v for k, v in cfg.APPROVERS.items() if same_name(k, by)), None)
 
 
-def self_check_problem(by, writer):
-    """書き手と同じ者が、モデル（承認者の一覧で model）として確かめる・承認する・受け入れることを断る理由（§5.8）。無ければ None。
+def approver_family(by):
+    """承認者の一覧での by の系統（`model:<系統>` の系統）。名前は same_name で引く。書いていなければ None。"""
+    if by in cfg.APPROVER_FAMILIES:
+        return cfg.APPROVER_FAMILIES[by]
+    return next((v for k, v in cfg.APPROVER_FAMILIES.items() if same_name(k, by)), None)
 
-    書き手と確認者の名前は same_name で比べる（Claude と claude を同じ者とみなす）。
+
+def independence_problem(by, writers):
+    """model の by が、書き手（writers は名前の並び）と独立でない理由。独立なら、または by が model でなければ None（§2.1 の条件 3、C41）。
+
+    確かめる・承認する・候補を受け入れるのすべてで、この一つの規則を使う。名前は same_name で比べる。
+    独立なのは、どの書き手とも名前が違い、一覧で引いた書き手の系統とも違うときだけ。
+    書き手が一覧に無い、または by か model の書き手に系統が無いときは、独立か分からないので独立としない。
+    human の書き手とは常に独立とする。human の by は問わない（人は最終の責任者で、一人で書く場合を想定する）。
     """
-    if writer and same_name(by, writer) and approver_kind(by) == "model":
+    if approver_kind(by) != "model":
+        return None
+    names = list(dict.fromkeys(w for w in writers if w))
+    if not names:
+        return f"書き手が分からないので、model '{by}' が書き手と独立か分からない"
+    if any(same_name(by, w) for w in names):
         return f"書き手と同じモデル '{by}' の確認は数えない"
+    fam = approver_family(by)
+    if not fam:
+        return f"model '{by}' の系統が承認者の一覧に無いので、書き手と独立か分からない（model:<系統> と書く）"
+    for w in names:
+        kind = approver_kind(w)
+        if kind is None:
+            return f"書き手 '{w}' が承認者の一覧に無いので、model '{by}' と独立か分からない"
+        if kind == "model":
+            wfam = approver_family(w)
+            if not wfam:
+                return f"書き手 '{w}' の系統が承認者の一覧に無いので、model '{by}' と独立か分からない"
+            if same_name(wfam, fam):
+                return f"書き手 '{w}' と同じ系統（{fam}）の model '{by}' の確認は数えない"
     return None
+
+
+def citation_writers(f, excerpts):
+    """引用の承認で独立を見る書き手。引用の「記入」と、根拠の抜き書き（excerpts は {key#eN: 欄}）の「記入」の先頭の語（C41）。"""
+    refs = [r.strip() for r in f.get("抜き書き", "").split(",") if r.strip()]
+    return [writer_of(f.get("記入"))] + [writer_of(excerpts[r].get("記入")) for r in refs if r in excerpts]
 
 
 def model_approval_problem(by):
@@ -262,20 +296,23 @@ def model_approval_problem(by):
     return None
 
 
-def uncounted_reason(approver, f):
-    """approver の引用の承認を数えない理由。数えるなら None。状態を問わない（review の model の承認の記録も使う）。f は引用の欄。"""
-    return self_check_problem(approver, writer_of(f.get("記入"))) or model_approval_problem(approver)
+def uncounted_reason(approver, f, excerpts):
+    """approver の引用の承認を数えない理由。数えるなら None。状態を問わない（review の model の承認の記録も使う）。
+
+    f は引用の欄、excerpts は {key#eN: 抜き書きの欄}（根拠の書き手を引く）。
+    """
+    return independence_problem(approver, citation_writers(f, excerpts)) or model_approval_problem(approver)
 
 
-def uncounted_approval(state, approver, f):
+def uncounted_approval(state, approver, f, excerpts):
     """approval_state が承認済とした引用の承認を、承認済に数えない理由。数えるなら None。
 
-    書き手と同じモデルの承認（§5.8）と、承認者の一覧で model の者の承認（§3.2）を数えない。
-    check と review（md・JSON・承認の HTML）が同じに数えるために共通に使う（C34）。f は引用の欄。
+    書き手と独立でない model の承認（§2.1 の条件 3、C41）と、承認者の一覧で model の者の承認（§3.2）を数えない。
+    check と review（md・JSON・承認の HTML）が同じに数えるために共通に使う（C34）。
     """
     if state != "承認済":
         return None
-    return uncounted_reason(approver, f)
+    return uncounted_reason(approver, f, excerpts)
 
 
 SOURCE_CHECK_RE = re.compile(r"^(\S+) (\d{4}-\d{2}-\d{2}) (一致|違う)(.*)$")
@@ -303,7 +340,7 @@ def source_check_state(f, rec, verbatim, writer):
     checker, result = parsed[0], parsed[1]
     if (cfg.APPROVERS and checker not in cfg.APPROVERS) or (not cfg.APPROVERS and checker == "確認者不明"):
         return checker, f"確認者 '{checker}' が承認者の一覧に無い"
-    problem = self_check_problem(checker, writer)
+    problem = independence_problem(checker, [writer])
     if problem:
         return checker, problem
     if rec.get("原本での確認時の指紋") != verbatim_fingerprint(verbatim):

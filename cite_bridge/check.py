@@ -20,7 +20,7 @@ from .manuscript import (
     manuscript_marks,
     mask_comments,
     refs_in,
-    self_check_problem,
+    independence_problem,
     sentence_at,
     source_check_state,
     summary_fingerprint,
@@ -119,8 +119,8 @@ def run_check():
                 name = f["要約の確認"].split()[0]
                 if b.get("records", {}).get("要約の確認時の指紋") != summary_fingerprint(f):
                     notes.append(f"{w}: 要約の確認の後に欄が変わった。確認し直す")
-                elif self_check_problem(name, writer_of(f.get("記入"))):  # §5.8。書き手と同じモデルの確認は数えない
-                    notes.append(f"{w}: 要約の確認を数えない（{self_check_problem(name, writer_of(f.get('記入')))}）")
+                elif independence_problem(name, [writer_of(f.get("記入"))]):  # §2.1 の条件 3。書き手と独立でない model の確認は数えない（C41）
+                    notes.append(f"{w}: 要約の確認を数えない（{independence_problem(name, [writer_of(f.get('記入'))])}）")
                     summary_checked["未確認"] = summary_checked.get("未確認", 0) + 1
                 else:
                     summary_checked[name] = summary_checked.get(name, 0) + 1
@@ -239,7 +239,7 @@ def run_check():
                 if same and not any(normalize(q, "alnum")[0] in normalize(p, "alnum")[0] for p in same):
                     errors.append(f"{w}: 本文の引用「{q[:30]}…」が抜き書きの逐語に無い")
             state, extra = approval_state(f, b.get("records", {}), fp, evidence_hash(refs, excerpts, f.get("人の読み", "")))
-            uncounted = uncounted_approval(state, extra, f)  # §5.8 と §3.2。書き手と同じモデルと model の承認は確認待ち（C18）
+            uncounted = uncounted_approval(state, extra, f, excerpts)  # §2.1 の条件 3 と §3.2。書き手と独立でない model と model の承認は確認待ち（C18、C41）
             if uncounted:
                 notes.append(f"{w}: 承認を数えない（{uncounted}）")
                 state = "未承認"

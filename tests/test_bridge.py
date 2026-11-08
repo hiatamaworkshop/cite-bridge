@@ -221,7 +221,7 @@ class BridgeTest(unittest.TestCase):
 
     def test_pointer_needs_only_a_bibliography_key(self):
         """指示の引用で要るのは 文献 の key（書誌にあるもの）だけ。理由・記入・承認が無くても確認待ちにしない（SPEC §3.1）。"""
-        self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\nreviewer-model = "model"\n')
+        self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\ntest = "human"\nreviewer-model = "model:other"\n')
         self.run_bridge("derive")
         self.assertEqual(self.run_bridge("approve", "c001", "--by", "alice")[0], 0)
         self.write("manuscript.md", self.read("manuscript.md") + "\nDoe らの研究がある（Doe, 2020）〔c002〕。\n")
@@ -441,7 +441,7 @@ class BridgeTest(unittest.TestCase):
 
     def test_duplicate_block_is_left_out_of_the_counts(self):
         """二つ目からのブロックは、集計（INFO の「引用: 主張 …」）と承認者の数に入らず、ID ごとに一度だけ数える。その欄の ERROR と ID の NOTE は出る。"""
-        self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\nreviewer-model = "model"\n')
+        self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\ntest = "human"\nreviewer-model = "model:other"\n')
         self.run_bridge("derive")
         self.assertEqual(self.run_bridge("approve", "c001", "--by", "alice")[0], 0)
         self.assertIn("引用: 主張 承認済 1 / 要再確認 0 / 未承認 0、指示 0", self.run_bridge("check")[1])
@@ -467,7 +467,7 @@ class BridgeTest(unittest.TestCase):
 
     def test_model_approval_is_kept_but_pending(self):
         """承認者の一覧で model の者の承認は記録に残るが、承認済に数えず確認待ちにする（SPEC §3.2）。人が承認すると通る。"""
-        self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\nreviewer-model = "model"\n')
+        self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\ntest = "human"\nreviewer-model = "model:other"\n')
         self.run_bridge("derive")
         self.assertEqual(self.run_bridge("approve", "c001", "--by", "reviewer-model")[0], 0)  # 書き手（test）と違うので書ける
         self.assertIn("承認: reviewer-model", self.read("bridge/citations.md"))
@@ -490,7 +490,7 @@ class BridgeTest(unittest.TestCase):
     def test_model_approval_is_pending_in_review(self):
         """model だけが承認した引用は、review の md・JSON・承認の HTML でも、既定の確認待ちに未承認として出る（C34）。"""
         import json
-        self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\nreviewer-model = "model"\n')
+        self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\ntest = "human"\nreviewer-model = "model:other"\n')
         self.run_bridge("derive")
         self.assertEqual(self.run_bridge("confirm", "doe2020#e1", "--by", "alice")[0], 0)  # 要約の確認で確認待ちに残らないようにする
         self.assertEqual(self.run_bridge("approve", "c001", "--by", "reviewer-model")[0], 0)
@@ -511,7 +511,7 @@ class BridgeTest(unittest.TestCase):
     def test_model_approval_record_is_shown(self):
         """model の承認の理由と、承認したときの本文と根拠が今と合うかが、review の JSON・md・承認の HTML に出る（C33）。"""
         import json
-        self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\nreviewer-model = "model"\n')
+        self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\ntest = "human"\nreviewer-model = "model:other"\n')
         self.run_bridge("derive")
         self.assertEqual(self.run_bridge("approve", "c001", "--by", "reviewer-model", "--note", "逐語が本文の数を支える")[0], 0)
         why = "model 'reviewer-model' の承認は記録に残るが、承認済には人（human）の承認が要る"
@@ -545,7 +545,7 @@ class BridgeTest(unittest.TestCase):
 
     def test_model_approval_does_not_replace_counted_human_approval(self):
         """今数えている人の承認がある引用には、model の者の承認を書かずに断る。要再確認になれば書ける（C35）。"""
-        self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\nreviewer-model = "model"\n')
+        self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\ntest = "human"\nreviewer-model = "model:other"\n')
         self.run_bridge("derive")
         self.assertEqual(self.run_bridge("approve", "c001", "--by", "alice")[0], 0)
         before = self.read("bridge/citations.md")
@@ -561,7 +561,7 @@ class BridgeTest(unittest.TestCase):
 
     def test_approver_kind_ignores_case(self):
         """承認者の一覧の種類は、名前の大文字と小文字の違いを無視して引く（C20、C35）。手で書いた別の綴りの model の承認も数えない。"""
-        self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\nReviewer-Model = "model"\n')
+        self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\ntest = "human"\nReviewer-Model = "model:other"\n')
         self.run_bridge("derive")
         self.assertEqual(self.run_bridge("approve", "c001", "--by", "Reviewer-Model")[0], 0)
         self.write("bridge/citations.md", self.read("bridge/citations.md").replace("承認: Reviewer-Model", "承認: reviewer-model"))
@@ -572,7 +572,7 @@ class BridgeTest(unittest.TestCase):
     def test_model_approval_without_fingerprint_says_no_record(self):
         """承認時の指紋が無い model の承認は、本文を「記録が無い」と見せる（何と比べたかが分からない。C35）。"""
         import json
-        self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\nreviewer-model = "model"\n')
+        self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\ntest = "human"\nreviewer-model = "model:other"\n')
         self.run_bridge("derive")
         self.assertEqual(self.run_bridge("approve", "c001", "--by", "reviewer-model")[0], 0)
         cit = "\n".join(ln for ln in self.read("bridge/citations.md").splitlines() if not ln.startswith("@承認時の指紋"))
@@ -1058,7 +1058,7 @@ class BridgeTest(unittest.TestCase):
 
     def test_human_reading_is_its_own_field(self):
         """人の読みは独立の欄。人が書き、この引用の抜き書きを根拠として ID で指し、直すと承認が古くなる。"""
-        self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\nreviewer-model = "model"\n')
+        self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\ntest = "human"\nreviewer-model = "model:other"\n')
         self.run_bridge("derive")
         self.assertEqual(self.run_bridge("approve", "c001", "--by", "alice")[0], 0)
         self.assertEqual(self.run_bridge("check")[0], 0)
@@ -1091,7 +1091,7 @@ class BridgeTest(unittest.TestCase):
         self.assertIn("e1 から読める", self.run_bridge("review", "--json", "--all")[1])
 
     def test_approvers_registry(self):
-        self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\nreviewer-model = "model"\n')
+        self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\ntest = "human"\nreviewer-model = "model:other"\n')
         self.run_bridge("derive")
         code, out = self.run_bridge("approve", "c001", "--by", "人")
         self.assertEqual(code, 1)

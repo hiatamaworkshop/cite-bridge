@@ -16,7 +16,8 @@ from .manuscript import (
     fingerprint,
     manuscript_marks,
     mask_comments,
-    self_check_problem,
+    citation_writers,
+    independence_problem,
     sentence_at,
     summary_fingerprint,
     uncounted_approval,
@@ -107,8 +108,10 @@ def write_approval(cid, by, note=None, send_back=False, seen=None, dry=False):
         return False, f"{cid}: 判断した後に{'本文' if seen[0] != fp else '根拠'}が変わった。書かなかった（review を作り直して見直す）"
     if f.get("種類") != "主張":
         return False, f"{cid}: 主張の引用ではない"
-    if self_check_problem(by, writer_of(f.get("記入"))):
-        return False, f"{cid}: " + self_check_problem(by, writer_of(f.get("記入")))
+    excerpts = load_excerpt_fields()
+    problem = independence_problem(by, citation_writers(f, excerpts))  # 書き手と独立でない model の承認は書く前に断る（C41）
+    if problem:
+        return False, f"{cid}: " + problem
     # 同じ者・同じ理由で、指紋も変わらず承認済みなら書き直さない（承認の HTML はブラウザに残った前の判断も判断ファイルに含める）
     rec = next((b.get("records", {}) for b in parse_blocks(cfg.CIT)[1] if b["id"] == cid), {})
     if (not send_back and approval_state(f, rec, fp, ev)[0] == "承認済" and (f.get("承認") or "").split()[:1] == [by]
@@ -116,7 +119,7 @@ def write_approval(cid, by, note=None, send_back=False, seen=None, dry=False):
         return True, f"{cid}: 承認は記録済み（同じ判断）"
     if not send_back and model_approval_problem(by):  # 今数えている人の承認を、数えない承認で消さない（C35）
         state, head = approval_state(f, rec, fp, ev)
-        if state == "承認済" and not uncounted_approval(state, head, f):
+        if state == "承認済" and not uncounted_approval(state, head, f, excerpts):
             return False, f"{cid}: '{head}' の承認が今と合うので、model '{by}' の承認で書き換えない"
     today = datetime.date.today().isoformat()
     if send_back:
@@ -164,8 +167,9 @@ def write_confirm(eid, by, note=None, seen=None, dry=False, pending=None):
         b = same[0] if same else None
         if b is None:
             break
-        if self_check_problem(by, writer_of(b["fields"].get("記入"))):
-            return False, f"{eid}: " + self_check_problem(by, writer_of(b["fields"].get("記入")))
+        problem = independence_problem(by, [writer_of(b["fields"].get("記入"))])  # C41
+        if problem:
+            return False, f"{eid}: " + problem
         sfp = summary_fingerprint(b["fields"])
         if seen and seen != sfp:
             return False, f"{eid}: 確かめた後に要約か逐語が変わった。書かなかった"
@@ -201,8 +205,9 @@ def write_source_check(eid, by, result="一致", page=None, note=None, seen=None
         b = same[0] if same else None
         if b is None:
             break
-        if self_check_problem(by, writer_of(b["fields"].get("記入"))):
-            return False, f"{eid}: " + self_check_problem(by, writer_of(b["fields"].get("記入")))
+        problem = independence_problem(by, [writer_of(b["fields"].get("記入"))])  # C41
+        if problem:
+            return False, f"{eid}: " + problem
         vfp = verbatim_fingerprint(b["fields"].get("逐語", ""))
         if seen and seen != vfp:
             return False, f"{eid}: 確かめた後に逐語が変わった。書かなかった"

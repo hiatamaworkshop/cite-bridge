@@ -16,7 +16,7 @@ from .manuscript import (
     load_excluded,
     mark_keys,
     mask_comments,
-    self_check_problem,
+    independence_problem,
     sentence_bounds,
     summary_fingerprint,
     unmark,
@@ -382,8 +382,9 @@ def apply_candidate(item, action, by, note, cfp, dry=False, pending=None):
         return False, f"{item}: 判断を待つ候補が無い"
     if candidate_fp(c) != cfp:
         return False, f"{item}: 判断した後に候補が変わった。書かなかった（review を作り直して見直す）"
-    if action == "accept" and self_check_problem(by, writer_of(c.get("記入"))):  # §5.8。書き込みの前に断る
-        return False, f"{item}: " + self_check_problem(by, writer_of(c.get("記入")))
+    problem = independence_problem(by, [writer_of(c.get("記入"))]) if action == "accept" else None  # §2.1 の条件 3。書き込みの前に断る（C41）
+    if problem:
+        return False, f"{item}: " + problem
     target = _manuscript()
     raw = target.read_bytes().decode("utf-8")  # 改行を変えずに書き戻すため、改行の変換をせずに読む
     _, cit_blocks = parse_blocks(cfg.CIT)

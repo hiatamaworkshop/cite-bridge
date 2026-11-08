@@ -5,7 +5,7 @@ Japanese original: [SPEC.md](SPEC.md). This English version is a translation; th
 This document is the authoritative definition of the formats of the files the tool reads and writes. Where it disagrees with the implementation (bridge.py and cite_bridge/), fix the implementation or this document so that they agree.
 How to use and run the tool is in SKILL.md.
 
-- Format version: 0.4.2 (`TOOL_VERSION` in cite_bridge/config.py). It is recorded in the manifest. What is frozen, how changes are made, and migration steps are in §11.
+- Format version: 0.5.0 (`TOOL_VERSION` in cite_bridge/config.py). It is recorded in the manifest. What is frozen, how changes are made, and migration steps are in §11.
 - Character encoding is UTF-8; line endings are LF.
 - Japanese field names and values are canonical; English aliases are also accepted (§10). Internally everything is normalized to Japanese.
   In this translation, field names and values are given in Japanese with the English alias in parentheses, e.g. 逐語 (verbatim).
@@ -61,9 +61,16 @@ Form of the 原本での確認 (source_check) value:
 - A record is valid only when all five of the following hold.
   1. The value fits the form: the first word is the checker, then the date, then the result.
   2. If there is an approvers list, the checker is in it. If there is none, the checker is not 「確認者不明」 (unknown checker).
-  3. If the checker's kind is model, the checker differs from the writer of the excerpt. The writer is the first word of the 記入 (written_by) value, up to a space or a full-width or half-width parenthesis.
-     Names are compared after NFKC normalization of full-width and half-width forms, ignoring letter case, and without leading and trailing spaces (`Claude` and `claude` are the same; the recorded characters are not changed).
-     The same comparison is used when refusing approvals (§3.2) and candidate acceptance (§6.3) by the same model as the writer. A human checker may be the writer (a human is finally responsible, and a single author is expected).
+  3. If the checker's kind is model, the checker is independent of the writer of the excerpt. The writer is the first word of the 記入 (written_by) value, up to a space or a full-width or half-width parenthesis.
+     The checker is independent only when all three of the following hold.
+     - The checker's name differs from the writer's.
+     - The checker has a family (`model:<family>` in the approvers list; §9).
+     - The writer is in the approvers list. If the writer is a model, the writer also has a family, and it differs from the checker's family.
+     When the writer is unknown, not in the list, or has no family, independence cannot be told, so the checker is not independent. A human writer is independent of any family.
+     Names and families are compared after NFKC normalization of full-width and half-width forms, ignoring letter case, and without leading and trailing spaces (`Claude` and `claude` are the same; the recorded characters are not changed).
+     The same rule applies to summary checks, approvals (§3.2) and candidate acceptance (§6.3). For an approval, the approver is compared with every writer of the citation and of its evidence excerpts.
+     The tool refuses to write a model's record that fails this rule. A record written by hand is not counted, and check reports the reason as a pending NOTE.
+     A human checker may be the writer (a human is finally responsible, and a single author is expected).
   4. `@原本での確認時の指紋` (source_check_fingerprint, §2.3) equals the current fingerprint of the verbatim text (§4).
   5. The result is `一致`.
 - Free-text records from 0.2.0 and earlier fit neither the form nor the fingerprint and are not valid. The tool does not rewrite old records. Check again and record again.
@@ -176,8 +183,8 @@ They apply to claim citations. There are five: 未承認 / 承認済 / 要再確
 - 承認済 (approved): the fingerprint at approval equals the fingerprint of the current sentence, and the evidence fingerprint at approval equals the current evidence fingerprint
   (an old approval without an evidence record looks only at the sentence). When the settings have an approvers list, the approver must also be human in that list.
   An approval by someone listed as model is kept in the record but counted as not approved, and check reports a pending NOTE 「承認を数えない」 (approval not counted). Whether the source supports the claim is guaranteed by a person's approval.
-  Without a list the kind is unknown, so the approver's name does not matter. Checks against the original (§2.1) and summary checks accept a model checker separate from the writer (outside this rule).
-  review (md, JSON) and the approval HTML count approvals in the same way as check. A citation whose approval is not counted (an approval by someone listed as model, or by the same model as the writer, condition 3 of §2.1) gets the state 未承認 (not approved), with 「承認を数えない（<reason>）」 (approval not counted) as the detail, and is in the default pending list.
+  Without a list the kind is unknown, so the approver's name does not matter. Checks against the original (§2.1) and summary checks accept a model checker independent of the writer (outside this rule).
+  review (md, JSON) and the approval HTML count approvals in the same way as check. A citation whose approval is not counted (an approval by someone listed as model, or by a model not independent of the writer, condition 3 of §2.1) gets the state 未承認 (not approved), with 「承認を数えない（<reason>）」 (approval not counted) as the detail, and is in the default pending list.
   A citation whose approval is not counted has the field `model_approval` in review's JSON (null for a counted approval, not approved and sent back). Its contents are `{by, date, note, why, text, evidence, approved_text}`:
   who approved and when, the approval reason, why it is not counted, whether the text and evidence at approval match the current ones (合う matches / 変わった changed / 記録が無い no record), and `@承認時の本文` (approved_text) only when the text changed. It is also present when the text changed afterwards and the citation became 要再確認 (needs recheck).
   When the kind is looked up in the list, differences of full-width and half-width, and of upper and lower case, in the name are ignored.
@@ -284,7 +291,7 @@ the copied verbatim text does not match in the source, or a required field is em
 status is pending / accepted / rejected. decided is `{by, date, cid}` on acceptance (the ID of the accepted citation) and `{by, date, reason}` on rejection.
 
 Accepting writes the new excerpts and citation, records the approval and the summary check at the same time, and puts a mark in the manuscript sentence.
-It is refused if the sentence fingerprint has changed. A rejection (reject) needs a reason, and the next worksheet marks that item with `rejected_before`.
+It is refused if the sentence fingerprint has changed. It is also refused if the one accepting is a model not independent of the candidate's writer (condition 3 of §2.1). A rejection (reject) needs a reason, and the next worksheet marks that item with `rejected_before`.
 
 ## 6.4 Classifier check
 
@@ -373,7 +380,7 @@ Written by `checkpoint` at a point that has passed `check --strict`. When there 
 
 ```json
 {"format": "cite-bridge-manifest/1",
- "tool": {"name": "cite-bridge", "version": "0.4.2", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
+ "tool": {"name": "cite-bridge", "version": "0.5.0", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
  "checkpoint": "<UTC 時刻>", "label": "",
  "git": {"head": "<HEAD>", "uncommitted": ["…"]},
  "files": {"config": {"path", "sha256"}, "bibliography": {…}, "manuscript": {…}, "citations": {…},
@@ -406,7 +413,7 @@ A template is in the "設定" (Settings) section of SKILL.md. The table lists th
 | output | language | Language of the names of derived fields (ja / en) |
 | section_kinds | <kind> = [words] | Adds words for section kinds |
 | detect | common_words | Adds frequent words used to see whether an extraction is readable |
-| approvers | <name> = human / model | Who can approve, and their kind. If omitted, names are not checked. Only approvals by human approvers count as approved for citations (§3.2) |
+| approvers | <name> = human / model / model:<family> | Who can approve, and their kind. For a model, write its family (the provider and so on, e.g. `model:anthropic`), used to see independence from the writer (condition 3 of §2.1). List the writers of excerpts and citations too. If omitted, names are not checked. Only approvals by human approvers count as approved for citations (§3.2) |
 | coverage | pattern, repeat_pattern | Regular expression for parentheses that look like sources (default: parentheses containing a year), and for parentheses that are only a page or "ibid." (default below) |
 | hook | watch | Paths pre-commit watches besides those the settings point to |
 | classifier | provider, model, endpoint, max_chars, types | Classifier provider and limits (§6.4). Do not write the key (docs/classifier.md) |
@@ -495,6 +502,17 @@ Formats that are not frozen (worksheets, drafts, candidates, eval sets and resul
   Fields, format names, fingerprints and the state of files do not change, so no migration steps are needed. External viewers that read `state` in review's JSON receive such a citation as not approved instead of approved.
 - 0.4.2 looks up the kind in the approvers list ignoring differences of upper and lower case and of full-width and half-width in the name (§3.2). An approval by a name that differs only in spelling from someone listed as model is no longer counted as approved, and `check --strict` and `checkpoint` stop.
   It also refuses to write an approval by someone listed as model for a citation with a human approval that is counted now, and writes `@承認時の本文` (approved_text) on one line. Fields, format names, fingerprints and the state of files do not change, so no migration steps are needed.
+- 0.5.0 checks whether a model checker or approver is independent of the writer by family as well as by name (condition 3 of §2.1). The kind in the approvers list can be `model:<family>` (§9).
+  For an approval, the approver is compared with the writers of the evidence excerpts as well as the writer of the citation. Records by a model without a family, by a writer not in the list, or by a model of the same family as the writer are not counted, and the tool refuses to write them.
+  Nothing changes without a list, or for human checkers and approvers. Fields, format names and fingerprints do not change, but when the list has models, the counting of checks against the original and summary checks changes (the migration steps below).
+
+### Migration steps for 0.5.0
+
+If there is no approvers list, no steps are needed.
+
+1. Write a family for each model in the list (`"claude-opus-5-5" = "model:anthropic"`). Write models from the same provider as the same family.
+2. List the writers of excerpts and citations (the first word of 記入, written_by). A person as human, a model as `model:<family>`. Records written with a generic name such as `AI` are listed under that name if you know which model it was; if not, a person redoes the check.
+3. Run `check` and look at the records with a NOTE saying independence cannot be told, or the same family. Redo those records with `confirm` (`--source`) or `approve`, by a model of a family different from the writer's or by a person.
 
 ### Migration steps for 0.4.0
 

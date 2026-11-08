@@ -6,7 +6,7 @@ import sys
 
 
 TOOL_NAME = "cite-bridge"
-TOOL_VERSION = "0.4.2"  # 形式（欄・判断ファイル・マニフェスト）を変えたら副版を上げる（SPEC §11.2）。数え方の直しでも上げる。マニフェストに記録する
+TOOL_VERSION = "0.5.0"  # 形式（欄・判断ファイル・マニフェスト）を変えたら副版を上げる（SPEC §11.2）。数え方の直しでも上げる。マニフェストに記録する
 
 # 設定（bridge.toml）から main で埋める
 CONFIG = Path("bridge/bridge.toml")
@@ -23,6 +23,7 @@ JUDGMENTS = None     # 分類器の判定の台帳（bridge.judgments）。追�
 CLASSIFIER = {}     # [classifier]。提供元・モデル・上限・文面の上書き。鍵は書かない（環境変数）
 CHECKS_USER = []    # [[checks]]。問いの型の追加と上書き（既定の型は judge.DEFAULT_CHECKS）
 APPROVERS = {}      # 承認者の一覧 {名前: human / model}。空なら名前を問わない（approvers）
+APPROVER_FAMILIES = {}  # model の系統 {名前: 系統}。一覧に `model:<系統>` と書いた者だけ（C41）
 # 出典らしき括弧（著者と年など）。印の無い文にあるものを「印の無い出典」として数える（coverage.pattern で替える）
 COVER_RE = re.compile(r"[（(][^（）()\n]*?(?<!\d)(?:19|20)\d{2}[a-z]?(?![\d年月日-])[^（）()\n]*[）)]")
 # 頁だけ・同書の括弧（coverage.repeat_pattern で替える）。出典ではなく前の出典の繰り返しとして一件に数える
@@ -61,16 +62,19 @@ def load_config(path, citations=None):
         SENT_END_RE = re.compile(m["sentence_end"])
     PARAGRAPH = m.get("paragraph", PARAGRAPH)
     CKPT_DIR = Path(r.get("checkpoints", "bridge/checkpoints"))
-    global APPLIED, APPROVERS, COVER_RE, REPEAT_RE, CAND_DIR, EXCLUDED, MARK_FORMAT
+    global APPLIED, APPROVERS, APPROVER_FAMILIES, COVER_RE, REPEAT_RE, CAND_DIR, EXCLUDED, MARK_FORMAT
     APPLIED = Path(r.get("applied", CIT.parent / "applied.json"))
     CAND_DIR = Path(r.get("candidates", CIT.parent / "candidates"))
     EXCLUDED = Path(r.get("excluded", CIT.parent / "excluded.json"))
     # 候補を受け入れたときに原稿へ置く印の形。印の正規表現を替えたときは、こちらも設定しないと印を書けない
     MARK_FORMAT = m.get("mark_format", None if m.get("mark_pattern") else "〔{id}〕")
-    APPROVERS = {str(k): str(v) for k, v in c.get("approvers", {}).items()}
-    bad = {k: v for k, v in APPROVERS.items() if v not in ("human", "model")}
+    raw = {str(k): str(v).strip() for k, v in c.get("approvers", {}).items()}
+    bad = {k: v for k, v in raw.items() if v not in ("human", "model") and not re.fullmatch(r"model:\S+", v)}
     if bad:
-        sys.exit(f"approvers の種類は human か model（{bad}）")
+        sys.exit(f"approvers の種類は human、model、model:<系統>（{bad}）")
+    # model:<系統> は種類 model と系統に分ける。系統は書き手と承認者・確認者の独立を見るのに使う（C41）
+    APPROVERS = {k: v.split(":", 1)[0] for k, v in raw.items()}
+    APPROVER_FAMILIES = {k: v.split(":", 1)[1] for k, v in raw.items() if ":" in v}
     if c.get("coverage", {}).get("pattern"):
         COVER_RE = re.compile(c["coverage"]["pattern"])
     if c.get("coverage", {}).get("repeat_pattern"):

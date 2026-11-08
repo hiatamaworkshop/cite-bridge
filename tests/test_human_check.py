@@ -228,6 +228,74 @@ class HumanCheckTest(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("SKIP qtest001: 書き手と同じモデル 'reviewer-model' の確認は数えない", out)
 
+    # ---- C41（書き手と確認者・承認者の独立を系統で見る）
+
+    FAMILIES = ('[approvers]\nhiatama = "human"\nwriter-a = "model:anthropic"\nalias-a = "model:Anthropic"\n'
+                'nofam = "model"\nother-o = "model:openai"\n')
+
+    def set_families(self, writer):
+        self.write("bridge/bridge.toml", tb.CONFIG + self.FAMILIES)
+        self.write("bridge/excerpts/ocr2020.md", excerpt("ocr2020", "e1", OCR_SENTENCE, writer=writer))
+        self.run_bridge("derive")
+
+    def test_same_family_alias_is_not_independent(self):
+        self.set_families("writer-a")
+        for args in (("--source",), ()):  # 原本での確認と要約の確認
+            code, out = self.run_bridge("confirm", "ocr2020#e1", *args, "--by", "alias-a")
+            self.assertEqual(code, 1, out)
+            self.assertIn("書き手 'writer-a' と同じ系統（Anthropic）の model 'alias-a' の確認は数えない", out)
+        # 手で書かれた記録も数えない
+        self.ocr_record(f"alias-a {TODAY} 一致", writer="writer-a")
+        self.run_bridge("derive")
+        code, out = self.run_bridge("check")
+        self.assertIn("同じ系統（Anthropic）の model 'alias-a' の確認は数えない", out)
+        self.assertNotIn("確認済 1", out)
+
+    def test_model_without_family_is_not_independent(self):
+        self.set_families("hiatama")
+        code, out = self.run_bridge("confirm", "ocr2020#e1", "--source", "--by", "nofam")
+        self.assertEqual(code, 1, out)
+        self.assertIn("model 'nofam' の系統が承認者の一覧に無いので、書き手と独立か分からない", out)
+
+    def test_writer_not_in_list_is_not_independent(self):
+        self.set_families("stranger")
+        code, out = self.run_bridge("confirm", "ocr2020#e1", "--source", "--by", "other-o")
+        self.assertEqual(code, 1, out)
+        self.assertIn("書き手 'stranger' が承認者の一覧に無いので、model 'other-o' と独立か分からない", out)
+        self.write("bridge/bridge.toml", tb.CONFIG + self.FAMILIES.replace('nofam = "model"', 'stranger = "model"'))
+        code, out = self.run_bridge("confirm", "ocr2020#e1", "--source", "--by", "other-o")
+        self.assertIn("書き手 'stranger' の系統が承認者の一覧に無いので", out)
+
+    def test_other_family_and_human_are_independent(self):
+        self.set_families("writer-a")
+        self.assertEqual(self.run_bridge("confirm", "ocr2020#e1", "--source", "--by", "other-o")[0], 0)
+        code, out = self.run_bridge("check")
+        self.assertIn("確認済 1（人 0、モデル 1）", out)
+        self.assertEqual(self.run_bridge("confirm", "ocr2020#e1", "--source", "--by", "hiatama")[0], 0)  # 人は書き手を問わない
+        self.assertIn("確認済 1（人 1、モデル 0）", self.run_bridge("check")[1])
+        self.set_families("hiatama")  # 書き手が人なら、系統のある model は独立
+        self.assertEqual(self.run_bridge("confirm", "ocr2020#e1", "--source", "--by", "alias-a")[0], 0)
+
+    def test_citation_approval_looks_at_evidence_writers(self):
+        self.set_families("writer-a")  # 根拠の抜き書きの書き手が writer-a
+        self.write("manuscript.md", MANUSCRIPT.replace("for the test.", "for the test.〔c001〕"))
+        self.write("bridge/citations.md", CITATIONS_HEAD + "\n## c001\n種類: 主張\n抜き書き: ocr2020#e1\n理由: 試験\n"
+                   "原文との差: 一致\n記入: hiatama\n承認: 未\n")
+        code, out = self.run_bridge("approve", "c001", "--by", "alias-a")
+        self.assertEqual(code, 1, out)
+        self.assertIn("書き手 'writer-a' と同じ系統（Anthropic）の model 'alias-a' の確認は数えない", out)
+        self.assertEqual(self.run_bridge("approve", "c001", "--by", "hiatama")[0], 0)
+        self.write("bridge/citations.md", self.read("bridge/citations.md").replace("承認: hiatama", "承認: alias-a"))
+        code, out = self.run_bridge("check")
+        self.assertIn("承認を数えない（書き手 'writer-a' と同じ系統（Anthropic）の model 'alias-a' の確認は数えない）", out)
+
+    def test_approver_kind_must_be_known_form(self):
+        for bad in ('robot', 'model:', 'human:x'):
+            self.write("bridge/bridge.toml", tb.CONFIG + f'[approvers]\nx = "{bad}"\n')
+            code, out = self.run_bridge("check")
+            self.assertNotEqual(code, 0, bad)
+            self.assertIn("approvers の種類は human、model、model:<系統>", out)
+
     # ---- §5.4 の 2（判断ファイル）
 
     def test_apply_writes_source_checks_and_skips_changed_verbatim(self):  # §5.10 の 5

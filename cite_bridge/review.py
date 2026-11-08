@@ -86,7 +86,7 @@ def needs_review(it):
     return it["state"] != "承認済" or not summaries_confirmed(it["evidence"]) or any(unconfirmed_source(e) for e in it["evidence"])
 
 
-def model_approval_of(f, rec, fp, ev):
+def model_approval_of(f, rec, fp, ev, excerpts):
     """model の承認（一覧で model の者と、書き手と同じモデルの承認）の記録を、人が読む形にする（C33）。model の承認でなければ None。
 
     承認したときの本文と根拠が今と合うかは、approval_state と同じに記録の指紋で比べる。根拠は指紋しか残らないので、合うかだけを出す。
@@ -95,7 +95,7 @@ def model_approval_of(f, rec, fp, ev):
     if not words or words[0] in ("未", cfg.RETURNED, "returned"):
         return None
     by = words[0]
-    why = uncounted_reason(by, f)
+    why = uncounted_reason(by, f, excerpts)
     if not why:
         return None
     # 指紋の記録が無い承認（手で書いたもの等）は、何と比べたかが分からないので「記録が無い」（C35）
@@ -188,8 +188,8 @@ def review_data(cids=None, images=None, include_done=False, all_orphans=False, c
         if f.get("種類") == "主張":
             fp_now, ev_now = fingerprint(sent), evidence_hash(refs, excerpt_fields, f.get("人の読み", ""))
             state, extra = approval_state(f, b.get("records", {}), fp_now, ev_now)
-            mappr = model_approval_of(f, b.get("records", {}), fp_now, ev_now)
-            uncounted = uncounted_approval(state, extra, f)  # check と同じに数える（§3.2、C34）
+            mappr = model_approval_of(f, b.get("records", {}), fp_now, ev_now, excerpt_fields)
+            uncounted = uncounted_approval(state, extra, f, excerpt_fields)  # check と同じに数える（§3.2、C34）
             if uncounted:
                 state, extra = "未承認", f"承認を数えない（{uncounted}）"
         else:

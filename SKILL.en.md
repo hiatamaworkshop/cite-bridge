@@ -16,7 +16,7 @@ To use this English version as a skill, put it in place of SKILL.md.
 
 - The existence and location of the anchor are guaranteed by this script (matching against the extracted text).
 - Whether the source supports the claim is guaranteed by a person's approval. Who approved is recorded. An approval by someone listed as model in the approvers list stays in the record but
-  is not counted as approved and stays pending (the "approvers list" paragraph below). Checks against the original and summary checks can be delegated to a model other than the writer.
+  is not counted as approved and stays pending (the "approvers list" paragraph below). Checks against the original and summary checks can be delegated to a model of a different family from the writer (checks by a model of the same family are not counted).
 - That a check has not gone stale is guaranteed by the sentence fingerprint. If the sentence changes after approval, the citation returns to needing recheck.
 
 ## Written fields and derived fields
@@ -100,14 +100,14 @@ The mark stays regardless of records; whether the check is done is decided by th
 - The material to check is `review --source-checks` (md; attach page images with `--images DIR`). To hand it to an external AI, use `review --source-checks --json -o request.json` (format `cite-bridge-source-checks/1`).
 - Record it with `confirm <key#eN> --source --by <name> [--result 一致|違う] [--page "p.49 §4・3"] [--note …]`. When the result is 違う (differs), put the characters of the original in --note.
   When an external AI has answered, write the `source_checks` of its decisions file with `apply` (only those whose verbatim fingerprint matches the current one are written).
-- A record is valid when the checker is in the approvers list, a model checker differs from the writer of the excerpt (names are compared ignoring full-width and half-width forms, letter case, and leading and trailing spaces), the verbatim fingerprint matches the current one, and the result is 一致 (matches).
+- A record is valid when the checker is in the approvers list, a model checker is independent of the writer of the excerpt (the names differ, the list has its family, and the writer is in the list with a different family; condition 3 of SPEC.md §2.1), the verbatim fingerprint matches the current one, and the result is 一致 (matches).
 - Editing the verbatim text invalidates the record. The writer edits it; the tool does not. Verbatim text reported as differing is also fixed by the writer and checked again.
 
 Rules for delegating.
 
-1. A person may delegate human-check requests to an external AI. The person decides whether to delegate, and the person lists the delegated AI as model in the approvers list.
+1. A person may delegate human-check requests to an external AI. The person decides whether to delegate, and the person lists the delegated AI as `model:<family>` in the approvers list.
 2. The delegated AI receives the request JSON and writes a decisions file under its own name. The person passes it to `apply`.
-3. The writer AI (the model that wrote the excerpt) cannot record a check against the original for its own excerpts.
+3. An AI of the same family as the writer AI (the model that wrote the excerpt) cannot record a check against the original for that excerpt. An AI whose family is unknown cannot either.
 4. Who checked is kept in the checker of each record and in the manifest's counts per kind of checker. The final submission (`checkpoint --by <person>`) is made by a person.
 5. The tool does not call external AIs. It only writes out the request JSON and receives the decisions file.
 
@@ -203,8 +203,9 @@ language = "ja"                                  # language of the names of deri
 # 結果 = ["ergebnisse"]
 [detect]
 # common_words = ["der", "die", "und"]            # add frequent words used to see whether an extraction is readable (default: English)
-[approvers]                                      # who can approve and their kind (human / model); if omitted, names are not checked
+[approvers]                                      # who can approve and their kind (human / model:<family>); if omitted, names are not checked
 # alice = "human"
+# claude-opus-5-5 = "model:anthropic"            # for a model, write its family (provider). List the writers of excerpts and citations too
 [coverage]
 # pattern = '…'                                  # parentheses that look like sources (default: parentheses containing a year); counted in sentences without a mark
 # repeat_pattern = '…'                           # parentheses that are only a page or ibid. (defaults include 「（同書…）」「（同）」「（p.49）」); not sources, counted as one repetition of the preceding source
@@ -273,6 +274,6 @@ python tools/cite-bridge/bridge.py classify --eval <set.json> --variant <variant
 - In candidate drafts, if the source and the sentence diverge, write them as they diverge (set the difference from the original to extrapolation, and give the reason in the interpretation and in what it does not say). Do not bend the reading toward the sentence.
 - When asking a person to check, show review's output. Even when you assemble material by hand, do not fill in surrounding sentences. For OCR layers, show the page image.
 - Do not edit derived fields by hand. If something is wrong, fix the verbatim text or the extracted text and run derive.
-- The writer AI does not record checks against the original, summary checks or approvals for the excerpts and citations it wrote (the tool also refuses model checkers who are the writer).
+- The writer AI does not record checks against the original, summary checks or approvals for the excerpts and citations it wrote (the tool also refuses model checkers not independent of the writer).
 - Do not write the source_check field by hand (go through `confirm --source` or `apply`; it needs a fingerprint).
 - It is a person who decides whether to delegate to an external AI and who lists that AI in the approvers list.
