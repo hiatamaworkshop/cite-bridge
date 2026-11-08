@@ -289,6 +289,57 @@ class HumanCheckTest(unittest.TestCase):
         code, out = self.run_bridge("check")
         self.assertIn("承認を数えない（書き手 'writer-a' と同じ系統（Anthropic）の model 'alias-a' の確認は数えない）", out)
 
+    # ---- C42（model の承認を数えるかを設定で選ぶ）
+
+    def set_count_model(self, value):
+        """書き手が人（引用）と writer-a（根拠の抜き書き）の c001 を置き、approval.count_model を value にする。"""
+        self.set_families("writer-a")
+        self.write("bridge/bridge.toml", tb.CONFIG + self.FAMILIES + f"[approval]\ncount_model = {value}\n")
+        self.write("manuscript.md", MANUSCRIPT.replace("for the test.", "for the test.〔c001〕"))
+        self.write("bridge/citations.md", CITATIONS_HEAD + "\n## c001\n種類: 主張\n抜き書き: ocr2020#e1\n理由: 試験\n"
+                   "原文との差: 一致\n記入: hiatama\n承認: 未\n")
+
+    def test_count_model_false_keeps_model_approval_pending(self):
+        self.set_count_model("false")
+        self.assertEqual(self.run_bridge("approve", "c001", "--by", "other-o")[0], 0)
+        code, out = self.run_bridge("check")
+        self.assertIn("承認を数えない（model 'other-o' の承認は記録に残るが、承認済には人（human）の承認が要る）", out)
+        self.assertIn("引用: 主張 承認済 0 /", out)
+
+    def test_count_model_true_counts_independent_model(self):
+        self.set_count_model("true")
+        self.assertEqual(self.run_bridge("approve", "c001", "--by", "other-o")[0], 0)
+        code, out = self.run_bridge("check")
+        self.assertNotIn("承認を数えない", out)
+        self.assertIn("引用: 主張 承認済 1（model openai 1） /", out)
+        c = json.loads(self.run_bridge("review", "--json", "--all")[1])["citations"][0]
+        self.assertEqual((c["state"], c["approved_by"], c["model_approval"]),
+                         ("承認済", {"by": "other-o", "kind": "model", "family": "openai"}, None))
+        self.assertIn("## c001　承認済（other-o・model openai）", self.run_bridge("review", "--all")[1])
+
+    def test_count_model_true_still_refuses_same_family(self):
+        self.set_count_model("true")
+        self.assertEqual(self.run_bridge("approve", "c001", "--by", "alias-a")[0], 1)  # 根拠の書き手 writer-a と同じ系統
+        self.assertEqual(self.run_bridge("approve", "c001", "--by", "hiatama")[0], 0)
+        self.write("bridge/citations.md", self.read("bridge/citations.md").replace("承認: hiatama", "承認: alias-a"))
+        code, out = self.run_bridge("check")
+        self.assertIn("承認を数えない（書き手 'writer-a' と同じ系統（Anthropic）の model 'alias-a' の確認は数えない）", out)
+        self.assertIn("引用: 主張 承認済 0 /", out)
+
+    def test_count_model_true_does_not_replace_human_approval(self):
+        self.set_count_model("true")
+        self.assertEqual(self.run_bridge("approve", "c001", "--by", "hiatama")[0], 0)
+        code, out = self.run_bridge("approve", "c001", "--by", "other-o")
+        self.assertEqual(code, 1, out)
+        self.assertIn("'hiatama' の承認が今と合うので、model 'other-o' の承認で書き換えない", out)
+        self.assertIn("引用: 主張 承認済 1（人 1） /", self.run_bridge("check")[1])
+
+    def test_count_model_must_be_boolean(self):
+        self.write("bridge/bridge.toml", tb.CONFIG + '[approval]\ncount_model = "yes"\n')
+        code, out = self.run_bridge("check")
+        self.assertNotEqual(code, 0)
+        self.assertIn("approval.count_model は true か false", out)
+
     def test_approver_kind_must_be_known_form(self):
         for bad in ('robot', 'model:', 'human:x'):
             self.write("bridge/bridge.toml", tb.CONFIG + f'[approvers]\nx = "{bad}"\n')

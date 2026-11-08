@@ -287,13 +287,27 @@ def citation_writers(f, excerpts):
 
 
 def model_approval_problem(by):
-    """承認者の一覧で model の者の、引用の承認を承認済に数えない理由（§3.2）。主張を原典が支えているかは人の承認が保証する。
+    """承認者の一覧で model の者の、引用の承認を承認済に数えない理由（§3.2）。設定の approval.count_model が true なら None（C42）。
 
     承認は記録として残す。一覧が無いときは種類が分からないので、今の扱いのまま（None）。原本での確認と要約の確認には使わない。
+    count_model が true でも、書き手と独立でない model の承認は independence_problem が数えない。
     """
-    if approver_kind(by) == "model":
+    if approver_kind(by) == "model" and not cfg.COUNT_MODEL:
         return f"model '{by}' の承認は記録に残るが、承認済には人（human）の承認が要る"
     return None
+
+
+def approver_label(by):
+    """承認者の種類の見出し。人 / model <系統> / model / 一覧に無い（C42）。一覧が無ければ None。"""
+    if not cfg.APPROVERS:
+        return None
+    kind = approver_kind(by)
+    if kind == "human":
+        return "人"
+    if kind == "model":
+        fam = approver_family(by)
+        return f"model {fam}" if fam else "model"
+    return "一覧に無い"
 
 
 def uncounted_reason(approver, f, excerpts):

@@ -15,8 +15,9 @@ Instead, it does three things every time.
 2. It records what the person confirmed, tied to fingerprints of the sentence and the evidence (`approve`, `apply`).
 3. If the sentence or the evidence changes later, it flags the citation for recheck (`check`).
 
-cite-bridge guarantees only that the anchor (the verbatim text) exists in the source, and where. Whether the source supports the claim is guaranteed by a person's approval.
-That is why it is not called a verification tool. It leaves the judgment of support to a person, and gives that person the same material in the same form every time.
+cite-bridge guarantees only that the anchor (the verbatim text) exists in the source, and where. Whether the source supports the claim rests on the judgment of whoever approved it.
+cite-bridge records who approved and their kind (a person, or a model of which family), and does not count approvals not independent of the writer. By default only a person's approval counts, so a person's approval guarantees it (whether a model's approval also counts is chosen with the setting `count_model`).
+That is why it is not called a verification tool. The tool does not judge support; instead it gives whoever judges the same material in the same form every time, and keeps whose judgment it was.
 
 cite-bridge promises two things: the shape of the data (the fields of excerpts and citations, fingerprints, decisions files and so on; SPEC.md §11.1) and the guarantee above. It does not promise commands or features. When the shape of the data changes, the version goes up, migration steps are written, and the old shape is still read until the next version (SPEC.md §11.2).
 

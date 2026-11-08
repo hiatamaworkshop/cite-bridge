@@ -11,6 +11,7 @@ from .derive import derive_excerpts
 from .judge import count_judgments, load_ledger, read_ledger, units_from_data
 from .manuscript import (
     approval_state,
+    approver_label,
     coverage_of,
     evidence_hash,
     fingerprint,
@@ -279,7 +280,12 @@ def run_check():
         if pend:
             infos.append(f"候補: 人の判断を待つもの {pend} 件（review --html）")
         returned = counts.get("差し戻し", 0) + counts.get("差し戻し後に直された", 0)
-        infos.append(f"引用: 主張 承認済 {counts['承認済']} / 要再確認 {counts['要再確認']} / 未承認 {counts['未承認']}"
+        by_label = {}  # model の承認も数えるときは、承認済を承認者の種類ごとに分けて出す（C42）
+        for n, v in approvers.items():
+            by_label[approver_label(n)] = by_label.get(approver_label(n), 0) + v
+        kinds = ("（" + "、".join(f"{k} {v}" for k, v in sorted(by_label.items(), key=lambda kv: (kv[0] != "人", kv[0]))) + "）"
+                 if cfg.COUNT_MODEL and by_label and None not in by_label else "")
+        infos.append(f"引用: 主張 承認済 {counts['承認済']}{kinds} / 要再確認 {counts['要再確認']} / 未承認 {counts['未承認']}"
                      + (f" / 差し戻し {returned}" if returned else "") + f"、指示 {counts['指示']}")
     else:  # 引用のファイルが無いと、引用の検査は走らない。確認待ちにして、check --strict と checkpoint を止める（黙って通さない）
         counts, target, coverage = {}, None, {}

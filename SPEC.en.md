@@ -181,12 +181,14 @@ A reason, written_by and approval are not required. If written, they appear in t
 They apply to claim citations. There are five: 未承認 / 承認済 / 要再確認 / 差し戻し / 差し戻し後に直された (not approved / approved / needs recheck / returned / fixed after return). The tool decides them by comparing the records of §3.3 with the current fingerprints.
 
 - 承認済 (approved): the fingerprint at approval equals the fingerprint of the current sentence, and the evidence fingerprint at approval equals the current evidence fingerprint
-  (an old approval without an evidence record looks only at the sentence). When the settings have an approvers list, the approver must also be human in that list.
-  An approval by someone listed as model is kept in the record but counted as not approved, and check reports a pending NOTE 「承認を数えない」 (approval not counted). Whether the source supports the claim is guaranteed by a person's approval.
+  (an old approval without an evidence record looks only at the sentence). When the settings have an approvers list, the approver must also be human in that list (or, when the setting `approval.count_model` is true, a model independent of the writer).
+  An approval by someone listed as model is kept in the record; when `approval.count_model` is false (the default) it is counted as not approved, and check reports a pending NOTE 「承認を数えない」 (approval not counted). When it is true, an approval by a model independent of the writer (condition 3 of §2.1) counts as approved. Whether the source supports the claim rests on the judgment of whoever approved it (when false, a person's approval guarantees it).
   Without a list the kind is unknown, so the approver's name does not matter. Checks against the original (§2.1) and summary checks accept a model checker independent of the writer (outside this rule).
   review (md, JSON) and the approval HTML count approvals in the same way as check. A citation whose approval is not counted (an approval by someone listed as model, or by a model not independent of the writer, condition 3 of §2.1) gets the state 未承認 (not approved), with 「承認を数えない（<reason>）」 (approval not counted) as the detail, and is in the default pending list.
   A citation whose approval is not counted has the field `model_approval` in review's JSON (null for a counted approval, not approved and sent back). Its contents are `{by, date, note, why, text, evidence, approved_text}`:
   who approved and when, the approval reason, why it is not counted, whether the text and evidence at approval match the current ones (合う matches / 変わった changed / 記録が無い no record), and `@承認時の本文` (approved_text) only when the text changed. It is also present when the text changed afterwards and the citation became 要再確認 (needs recheck).
+  An approved citation has the field `approved_by` in review's JSON, `{by, kind, family}` (kind and family are null when not in the list; null for a citation that is not approved).
+  When `approval.count_model` is true, the approver's kind (a person / a model and its family) is shown in check's count of approved citations, and in the state in review's md and the approval HTML.
   When the kind is looked up in the list, differences of full-width and half-width, and of upper and lower case, in the name are ignored.
 - 要再確認 (needs recheck): the sentence or the evidence changed after approval.
 - 差し戻し (returned): the fingerprint and evidence at the return equal the current ones (the writer has not fixed it yet). If they differ, the state is 「差し戻し後に直された」 (fixed after return), waiting for approval.
@@ -413,7 +415,8 @@ A template is in the "設定" (Settings) section of SKILL.md. The table lists th
 | output | language | Language of the names of derived fields (ja / en) |
 | section_kinds | <kind> = [words] | Adds words for section kinds |
 | detect | common_words | Adds frequent words used to see whether an extraction is readable |
-| approvers | <name> = human / model / model:<family> | Who can approve, and their kind. For a model, write its family (the provider and so on, e.g. `model:anthropic`), used to see independence from the writer (condition 3 of §2.1). List the writers of excerpts and citations too. If omitted, names are not checked. Only approvals by human approvers count as approved for citations (§3.2) |
+| approvers | <name> = human / model / model:<family> | Who can approve, and their kind. For a model, write its family (the provider and so on, e.g. `model:anthropic`), used to see independence from the writer (condition 3 of §2.1). List the writers of excerpts and citations too. If omitted, names are not checked. Only approvals by human approvers count as approved for citations (approval.count_model also counts models; §3.2) |
+| approval | count_model | If true, an approval of a citation by a model independent of the writer counts as approved (default false; §3.2) |
 | coverage | pattern, repeat_pattern | Regular expression for parentheses that look like sources (default: parentheses containing a year), and for parentheses that are only a page or "ibid." (default below) |
 | hook | watch | Paths pre-commit watches besides those the settings point to |
 | classifier | provider, model, endpoint, max_chars, types | Classifier provider and limits (§6.4). Do not write the key (docs/classifier.md) |
@@ -505,6 +508,7 @@ Formats that are not frozen (worksheets, drafts, candidates, eval sets and resul
 - 0.5.0 checks whether a model checker or approver is independent of the writer by family as well as by name (condition 3 of §2.1). The kind in the approvers list can be `model:<family>` (§9).
   For an approval, the approver is compared with the writers of the evidence excerpts as well as the writer of the citation. Records by a model without a family, by a writer not in the list, or by a model of the same family as the writer are not counted, and the tool refuses to write them.
   Nothing changes without a list, or for human checkers and approvers. Fields, format names and fingerprints do not change, but when the list has models, the counting of checks against the original and summary checks changes (the migration steps below).
+  It also adds the setting `approval.count_model` (default false). When true, an approval of a citation by a model independent of the writer counts as approved (§3.2). It adds the field `approved_by` to review's JSON. By default the counting of citation approvals does not change.
 
 ### Migration steps for 0.5.0
 

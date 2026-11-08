@@ -15,8 +15,8 @@ To use this English version as a skill, put it in place of SKILL.md.
 ## Guarantees and owners
 
 - The existence and location of the anchor are guaranteed by this script (matching against the extracted text).
-- Whether the source supports the claim is guaranteed by a person's approval. Who approved is recorded. An approval by someone listed as model in the approvers list stays in the record but
-  is not counted as approved and stays pending (the "approvers list" paragraph below). Checks against the original and summary checks can be delegated to a model of a different family from the writer (checks by a model of the same family are not counted).
+- Whether the source supports the claim rests on the judgment of whoever approved it. Who approved is recorded (a person, or a model of which family). By default only a person's approval counts; an approval by someone listed as model in the approvers list stays in the record but
+  is not counted as approved and stays pending. With the setting `count_model = true`, an approval by a model independent of the writer also counts (the "approvers list" paragraph below). Checks against the original and summary checks can be delegated to a model of a different family from the writer (checks by a model of the same family are not counted).
 - That a check has not gone stale is guaranteed by the sentence fingerprint. If the sentence changes after approval, the citation returns to needing recheck.
 
 ## Written fields and derived fields
@@ -127,9 +127,11 @@ Rules for delegating.
 - With an approvers list (approvers), approvals, returns, summary checks and decisions files can be written only under names in the list. The approval HTML lets you choose from the list.
   check makes approvals by names not in the list pending, and the manifest also counts approvals per kind (human / model). The list prevents accidents such as typos and aliases,
   not malice (anyone can write a decisions file).
-- An approval of a citation by someone listed as model stays in the record but is not counted as approved, and appears in the pending list of review and the approval HTML as not approved (the full counting rules are in SPEC.md §3.2).
+- By default, an approval of a citation by someone listed as model stays in the record but is not counted as approved, and appears in the pending list of review and the approval HTML as not approved (the full counting rules are in SPEC.md §3.2).
   The model's approval reason and whether the text and evidence at approval match the current ones are shown there too, as material for the person's approval. Write the approval reason so that a person can read it and judge.
   An approval by someone listed as model cannot be written for a citation whose human approval matches the current text and evidence (it is refused).
+- With the setting `[approval] count_model = true`, an approval by a model independent of the writer (condition 3 of SPEC.md §2.1; compared with every writer of the citation and of its evidence excerpts) counts as approved.
+  An approval by a model that is not independent is still not counted. The approver's kind (a person / a model and its family) is shown in check's count of approved citations, and in the state in review and the approval HTML.
 - At the end of the approval HTML is a list of 「引用に使われていない抜き書き」 (excerpts not used by any citation; no citation uses them as evidence, and their summary has not been checked).
   They do not appear on citation cards, so this is where you compare the summary, what it does not say, and the strength with the original and mark them. Once a citation uses one, it is looked at again in that citation's approval.
 - Besides the judgment, the approval HTML has a 「指摘」 (remarks) field. It is for notes on the manuscript; apply adds it to the citation block's 「指摘」 (it is not part of the approval fingerprint).
@@ -206,6 +208,8 @@ language = "ja"                                  # language of the names of deri
 [approvers]                                      # who can approve and their kind (human / model:<family>); if omitted, names are not checked
 # alice = "human"
 # claude-opus-5-5 = "model:anthropic"            # for a model, write its family (provider). List the writers of excerpts and citations too
+[approval]
+# count_model = false                            # if true, approvals of citations by a model independent of the writer also count as approved
 [coverage]
 # pattern = '…'                                  # parentheses that look like sources (default: parentheses containing a year); counted in sentences without a mark
 # repeat_pattern = '…'                           # parentheses that are only a page or ibid. (defaults include 「（同書…）」「（同）」「（p.49）」); not sources, counted as one repetition of the preceding source
@@ -269,8 +273,9 @@ python tools/cite-bridge/bridge.py classify --eval <set.json> --variant <variant
 
 - Copy verbatim text from the extracted text or the original. Do not make it from memory or a summary.
 - Leave who wrote a judgment field in its written_by. Summaries and what-it-does-not-say written by an AI are candidates until a person has looked at them.
-- Approve (approve) only when a person tells you to. An AI does not approve citations it wrote. The same goes for returns and summary checks (confirm).
-  apply writes decisions files a person made in the approval HTML; an AI does not make decisions files. The same goes for accepting candidates: the AI writes only drafts.
+- Approve (approve) only when a person tells you to, or when a person has delegated approval (with `count_model = true`, to an AI listed as `model:<family>` in the approvers list and independent of the writer).
+  An AI does not approve citations written by itself or by an AI of the same family. The same goes for returns and summary checks (confirm).
+  apply writes decisions files. Decisions files are made by a person using the approval HTML, or by an AI a person delegated to that is independent of the writer. The same goes for accepting candidates: the writer AI writes only drafts.
 - In candidate drafts, if the source and the sentence diverge, write them as they diverge (set the difference from the original to extrapolation, and give the reason in the interpretation and in what it does not say). Do not bend the reading toward the sentence.
 - When asking a person to check, show review's output. Even when you assemble material by hand, do not fill in surrounding sentences. For OCR layers, show the page image.
 - Do not edit derived fields by hand. If something is wrong, fix the verbatim text or the extracted text and run derive.

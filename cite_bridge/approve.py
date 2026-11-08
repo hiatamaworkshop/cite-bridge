@@ -11,7 +11,7 @@ from .config import RETURNED, out_name
 from .derive import rederive_files
 from .manuscript import (
     approval_state,
-    model_approval_problem,
+    approver_kind,
     evidence_hash,
     fingerprint,
     manuscript_marks,
@@ -117,9 +117,9 @@ def write_approval(cid, by, note=None, send_back=False, seen=None, dry=False):
     if (not send_back and approval_state(f, rec, fp, ev)[0] == "承認済" and (f.get("承認") or "").split()[:1] == [by]
             and (note or "") == f.get("承認の理由", "")):
         return True, f"{cid}: 承認は記録済み（同じ判断）"
-    if not send_back and model_approval_problem(by):  # 今数えている人の承認を、数えない承認で消さない（C35）
+    if not send_back and approver_kind(by) == "model":  # 今数えている人の承認を、model の承認で消さない（C35。数えるときも同じ、C42）
         state, head = approval_state(f, rec, fp, ev)
-        if state == "承認済" and not uncounted_approval(state, head, f, excerpts):
+        if state == "承認済" and not uncounted_approval(state, head, f, excerpts) and approver_kind(head) != "model":
             return False, f"{cid}: '{head}' の承認が今と合うので、model '{by}' の承認で書き換えない"
     today = datetime.date.today().isoformat()
     if send_back:

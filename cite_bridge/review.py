@@ -12,6 +12,9 @@ from .check import run_check
 from .derive import derive_excerpts, human_check_reasons, printed_page
 from .manuscript import (
     approval_state,
+    approver_family,
+    approver_kind,
+    approver_label,
     coverage_items,
     evidence_hash,
     fingerprint,
@@ -210,7 +213,9 @@ def review_data(cids=None, images=None, include_done=False, all_orphans=False, c
                                              "差し戻しの理由", "指摘") if f.get(n)},
                 "errors": [e for e in checked["errors"] if tag in e],
                 "notes": [n for n in checked["notes"] if tag in n],
-                "evidence": evidence, "model_approval": mappr, "commands": {}}
+                "evidence": evidence, "model_approval": mappr, "commands": {},
+                # 承認済の承認者と種類（C42）。種類と系統は一覧に無ければ null
+                "approved_by": {"by": extra, "kind": approver_kind(extra), "family": approver_family(extra)} if state == "承認済" else None}
         if item["kind"] == "主張":
             item["commands"] = {
                 "approve": f'python {tool} approve {cid} --by {who} --note "…"',
@@ -347,6 +352,8 @@ def review_md(data):
            "前後の文は抽出テキストのままで、誤読を補っていない。", ""]
     for it in data["citations"]:
         st = it["state"] + (f"（{it['state_detail']}）" if it["state_detail"] and it["state"] not in ("承認済", "指示") else "")
+        if it.get("approved_by") and cfg.COUNT_MODEL:  # model の承認も数えるときは、誰の承認かを見出しに出す（C42）
+            st += f"（{it['approved_by']['by']}・{approver_label(it['approved_by']['by'])}）"
         out += [f"## {it['id']}　{st}", "", f"節: {it['section']}（原稿 {it['line']} 行）", "", "本文:", "",
                 f"> {it['sentence']}", ""]
         out += [f"- 整合の崩れ: {e}" for e in it["errors"]] + ([""] if it["errors"] else [])
@@ -519,6 +526,8 @@ def review_page(data):
         para = E(it["paragraph"]).replace(sent, f"<mark>{sent}</mark>", 1)
         f = it["fields"]
         detail = f'（{E(it["state_detail"])}）' if it["state_detail"] and it["state"] != "承認済" else ""
+        if it.get("approved_by") and cfg.COUNT_MODEL:  # C42
+            detail = f'（{E(it["approved_by"]["by"])}・{E(approver_label(it["approved_by"]["by"]))}）'
         h = [f'<article class="card s-{sev}" id="{cid}" data-id="{cid}" data-done="{int(not needs_review(it))}" tabindex="-1">',
              f'<header><b>〔{cid}〕</b><span class="st s-{sev}">{E(it["state"])}{detail}</span>'
              + (f'<span class="tag">{E(f["原文との差"])}</span>' if f.get("原文との差") else "")
