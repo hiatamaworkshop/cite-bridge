@@ -201,10 +201,10 @@ A fingerprint is the first 8 hex digits of the SHA-1 of a normalized string. Nor
 
 ### 4.1 Rules for human readings
 
-Human judgments (approval, return) are the person's authority, but a reading that goes into the sentence needs an excerpt as its anchor. A reading not in the words of the original is not moved into the sentence without an anchor.
+Human judgments (approval, return) are the person's authority, but a reading that goes into the sentence needs a supporting excerpt. A reading not in the words of the original is not moved into the sentence without showing its supporting excerpt.
 
 - The writer is a person. When the settings have an approvers list, the writer must be of kind human.
-- An anchor is required: the reading contains one or more IDs of the excerpts listed in this citation's `抜き書き` (excerpts) (`e6` or `key#e6`).
+- It points to a supporting excerpt: the reading contains one or more IDs of the excerpts listed in this citation's `抜き書き` (excerpts) (`e6` or `key#e6`).
   A reading that points to a nonexistent ID, or to an ID not among this citation's excerpts, is refused.
 - The reading is part of the evidence fingerprint. Editing it after approval returns the citation to needing recheck.
 
@@ -451,7 +451,7 @@ The table covers all written fields and record fields (frozen by §11.1) and som
 
 ### 11.1 What is promised
 
-The tool promises two things: the shape of the data, and the guarantee statement ("What the tool does" in the README). It does not promise commands or features.
+The tool promises two things: the shape of the data, and the guarantee statement ("What it does" in the README). It does not promise commands or features.
 Of the shape of the data, the following, which people and other tools read and write, is frozen.
 
 - The written fields (§2.1) and record fields (§2.3) of excerpts; `対象` (target) of the citations file, and the written fields (§3.1) and record fields (§3.3) of citations. Field names (including English aliases, §10), value vocabularies and meanings.

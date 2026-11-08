@@ -2,7 +2,7 @@
 
 English: [getting-started.en.md](getting-started.en.md)（正本はこの日本語の版で、英語の版は訳である）
 
-この案内は、一件の引用を、抜き書きから承認と `check --strict` まで通す道筋だけを書く。コマンドの全部は SKILL.md、ファイルの形は SPEC.md にある。
+この案内は、一件の引用を、抜き書きから承認と `check --strict` まで通す流れだけを書く。コマンドの全部は SKILL.md、ファイルの形は SPEC.md にある。
 例の一式（`examples/first-citation/`）を使う。原典は架空の短い研究で、PDF の代わりに抽出テキストを同梱している。
 
 コマンドは、使う側のリポジトリ（試すだけなら空のフォルダ）の根で打つ。道具は既定の置き場所 `tools/cite-bridge/` にあるものとする。

@@ -2,7 +2,7 @@
 
 Japanese original: [getting-started.md](getting-started.md). This English version is a translation; the Japanese version is authoritative, and where the two differ, follow it.
 
-This guide only covers the path that takes one citation from an excerpt to approval and `check --strict`. All commands are in SKILL.md (English: SKILL.en.md); file formats are in SPEC.md (English: SPEC.en.md).
+This guide only covers the steps that take one citation from an excerpt to approval and `check --strict`. All commands are in SKILL.md (English: SKILL.en.md); file formats are in SPEC.md (English: SPEC.en.md).
 It uses the example set (`examples/first-citation/`). The source is a short fictional study, and its extracted text is bundled instead of a PDF.
 
 Type the commands at the root of the repository where you use the tool (an empty folder is fine if you are only trying it). The tool is assumed to be at its default location, `tools/cite-bridge/`.

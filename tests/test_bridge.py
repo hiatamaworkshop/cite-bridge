@@ -1057,7 +1057,7 @@ class BridgeTest(unittest.TestCase):
         self.assertNotIn("〔c002〕", self.read("manuscript.md"))
 
     def test_human_reading_is_its_own_field(self):
-        """人の読みは独立の欄。人が書き、この引用の抜き書きへ錨を持ち、直すと承認が古くなる。"""
+        """人の読みは独立の欄。人が書き、この引用の抜き書きを根拠として ID で指し、直すと承認が古くなる。"""
         self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\nreviewer-model = "model"\n')
         self.run_bridge("derive")
         self.assertEqual(self.run_bridge("approve", "c001", "--by", "alice")[0], 0)
@@ -1073,10 +1073,10 @@ class BridgeTest(unittest.TestCase):
         code, out = with_reading("e1 の平均は条件を揃えた試験の値だと読める")
         self.assertEqual(code, 0, out)
         self.assertIn("承認の後に根拠が変わった", out)
-        # 錨が無い読みは断る
+        # 根拠の抜き書きを指さない読みは断る
         code, out = with_reading("条件を揃えた試験だと読める")
         self.assertEqual(code, 1)
-        self.assertIn("錨が要る", out)
+        self.assertIn("根拠の抜き書きを ID で示す", out)
         # 記入が無い、記入者が人でない、この引用の根拠に無い抜き書きを指す、のどれも断る
         self.assertIn("人の読みの記入", with_reading("e1 から読める", by="")[1])
         self.assertIn("人（approvers の human）でない", with_reading("e1 から読める", by="reviewer-model 2026-10-14")[1])

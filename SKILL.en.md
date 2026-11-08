@@ -80,7 +80,7 @@ Citations `bridge/citations.md` (one file per manuscript; put a mark 〔c001〕 
   The rules below on approval, human readings and the difference from the original are about claim citations (SPEC.md §3.1).
 - The approval states, and which fingerprints return a citation to needing recheck when they change, are in SPEC.md §3.2. A return keeps its reason in `差し戻しの理由` (returned_reason); when the writer fixes the sentence or the evidence, it waits for approval.
 - A human reading (when a person puts a reading not in the words of the original into the sentence) is written in fields separate from the writer's interpretation: `人の読み` (human_reading) and `人の読みの記入` (human_reading_by: the person and the date).
-  An AI cannot write it (an entry by someone not human in the approvers list is refused). Put an anchor in the reading with the ID of one of this citation's excerpts (`e6`, `key#e6`).
+  An AI cannot write it (an entry by someone not human in the approvers list is refused). Write in the reading the ID of one of this citation's excerpts (`e6`, `key#e6`) to show the supporting excerpt.
   The reading is part of the evidence fingerprint, so editing it after approval returns the citation to needing recheck (SPEC.md §4.1). Human judgments (approval, return) are separate.
 - The difference from the original is 一致／言い換え／限定つき一般化／外挿 (identical／paraphrase／qualified generalization／extrapolation). An extrapolation stays pending, and is resolved only when the sentence is qualified or rewritten as the writer's own claim.
 - A string inside quotation marks in the manuscript must be contained in the verbatim text of the excerpts it points to (quotations in another language are treated as translations and excluded).

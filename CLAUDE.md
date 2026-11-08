@@ -2,7 +2,7 @@
 
 ## 文書の地図
 
-- [README.md](README.md) — 何をする道具か、例、始め方の流れ、文書の地図
+- [README.md](README.md) — 何をする機能か、例、始め方の流れ、文書の地図
 - [SPEC.md](SPEC.md) — データ形式の正本
 - [SKILL.md](SKILL.md) — 道具を使う AI の作法
 - [docs/getting-started.md](docs/getting-started.md) — 始め方の案内 (例の一式 `examples/first-citation/` を使う。試験 `tests/test_getting_started.py` が案内のとおりに通す)

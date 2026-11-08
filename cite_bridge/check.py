@@ -206,7 +206,7 @@ def run_check():
             for name in ("理由", "原文との差", "記入"):
                 if not f.get(name):
                     errors.append(f"{w}: 欄 '{name}' が空")
-            # 人の読み：原文の語でない読みを、人が本文へ入れるときの欄。AI は書けず、この引用の抜き書きへ錨を持つ（§16.2 の 7）
+            # 人の読み：原文の語でない読みを、人が本文へ入れるときの欄。AI は書けず、この引用の抜き書きを根拠として ID で指す（§16.2 の 7）
             if f.get("人の読み"):
                 by = f.get("人の読みの記入", "").split()
                 if not by:
@@ -215,7 +215,7 @@ def run_check():
                     errors.append(f"{w}: 人の読みの記入者 '{by[0]}' は人（approvers の human）でない")
                 anchors = refs_in(f["人の読み"], ref_keys)
                 if not anchors:
-                    errors.append(f"{w}: 人の読みが抜き書きの ID（e6 や key#e6）を指していない。錨が要る")
+                    errors.append(f"{w}: 人の読みが抜き書きの ID（e6 や key#e6）を指していない。根拠の抜き書きを ID で示す")
                 for shown, cands in anchors:
                     if not any(c in excerpts for c in cands):
                         errors.append(f"{w}: 人の読みが指す抜き書き '{shown}' が無い")

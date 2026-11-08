@@ -2,7 +2,7 @@
 
 Japanese original: [classifier.md](classifier.md). This English version is a translation; the Japanese version is authoritative, and where the two differ, follow it.
 
-An external classifier (currently Jev) independently assigns again the closed vocabularies of the record (difference from the original, strength and so on), and a flag is raised where it disagrees with the record.
+An external classifier (currently Jev) independently fills in again the record's fields that take one of a fixed set of values (difference from the original, strength and so on), and a flag is raised where it disagrees with the record.
 It only raises flags; it does not change approval states. Confidence scores are not used in any rule. Without the setting, nothing changes.
 The shape of the judgment ledger and of types is in §6.4 of [SPEC.md](../SPEC.md).
 
