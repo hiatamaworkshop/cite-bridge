@@ -235,12 +235,19 @@ def same_name(a, b):
     return norm(a) == norm(b)
 
 
+def approver_kind(by):
+    """承認者の一覧での by の種類（human / model）。名前は same_name で引く（C20、C35）。一覧に無ければ None。"""
+    if by in cfg.APPROVERS:
+        return cfg.APPROVERS[by]
+    return next((v for k, v in cfg.APPROVERS.items() if same_name(k, by)), None)
+
+
 def self_check_problem(by, writer):
     """書き手と同じ者が、モデル（承認者の一覧で model）として確かめる・承認する・受け入れることを断る理由（§5.8）。無ければ None。
 
     書き手と確認者の名前は same_name で比べる（Claude と claude を同じ者とみなす）。
     """
-    if writer and same_name(by, writer) and cfg.APPROVERS.get(by) == "model":
+    if writer and same_name(by, writer) and approver_kind(by) == "model":
         return f"書き手と同じモデル '{by}' の確認は数えない"
     return None
 
@@ -250,9 +257,14 @@ def model_approval_problem(by):
 
     承認は記録として残す。一覧が無いときは種類が分からないので、今の扱いのまま（None）。原本での確認と要約の確認には使わない。
     """
-    if cfg.APPROVERS.get(by) == "model":
+    if approver_kind(by) == "model":
         return f"model '{by}' の承認は記録に残るが、承認済には人（human）の承認が要る"
     return None
+
+
+def uncounted_reason(approver, f):
+    """approver の引用の承認を数えない理由。数えるなら None。状態を問わない（review の model の承認の記録も使う）。f は引用の欄。"""
+    return self_check_problem(approver, writer_of(f.get("記入"))) or model_approval_problem(approver)
 
 
 def uncounted_approval(state, approver, f):
@@ -263,7 +275,7 @@ def uncounted_approval(state, approver, f):
     """
     if state != "承認済":
         return None
-    return self_check_problem(approver, writer_of(f.get("記入"))) or model_approval_problem(approver)
+    return uncounted_reason(approver, f)
 
 
 SOURCE_CHECK_RE = re.compile(r"^(\S+) (\d{4}-\d{2}-\d{2}) (一致|違う)(.*)$")

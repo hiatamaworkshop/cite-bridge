@@ -452,12 +452,12 @@ def apply_candidate(item, action, by, note, cfp, dry=False, pending=None):
     if new_eids:
         rederive_later(cfg.EXC_DIR / f"{c['key']}.md", pending)
     msgs = [f"候補を受け入れた: {item} → {cid}（{cur['line']} 行）"]
+    all_ok = True
     if c["kind"] == "主張":  # 受け入れは承認を兼ねる（§18.5 の A）。新しい抜き書きの要約の確認も同時に記録する
-        _, m = write_approval(cid, by, note or None)
-        msgs.append(m)
-        for e in new_eids:
-            msgs.append(write_confirm(e, by, pending=pending)[1])
+        results = [write_approval(cid, by, note or None)] + [write_confirm(e, by, pending=pending) for e in new_eids]
+        msgs += [m for _, m in results]
+        all_ok = all(ok for ok, _ in results)  # ブロックと印は書いたので候補は受け入れ済みにし、書けなかった記録は失敗として返す（C35）
     c["status"] = "accepted"
     c["decided"] = {"by": by, "date": today, "cid": cid}
     save_candidates(store)
-    return True, "／".join(msgs)
+    return all_ok, "／".join(msgs)

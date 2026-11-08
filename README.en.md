@@ -46,6 +46,7 @@ Run commands at the root of the repository. If you are new, start with `docs/get
 To run the check in git's pre-commit, use the bundled `hooks/pre-commit` (the "hook" section of SKILL.md).
 
 When there are several manuscripts, or to try on a copy, replace the citations file with `bridge.py --citations <citations file> <command>`. Records whose location is not set in the settings (`applied.json`, `candidates/`, `excluded.json`, `judgments.jsonl`) are also kept in the same folder as that citations file (SPEC.md §9).
+Only these change: the excerpts and the checkpoints stay the original ones, and the mark written when a candidate is accepted goes into the manuscript named by `対象` (target) in the citations file. To try on a copy, copy the manuscript too, and point `対象` in the copied citations file at it.
 
 ## Using it with an AI agent
 

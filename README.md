@@ -46,6 +46,7 @@ English: [README.en.md](README.en.md)（正本はこの日本語の版で、英�
 git の pre-commit に検査を置くには、同梱の `hooks/pre-commit` を使う（SKILL.md の「hook」）。
 
 原稿が複数あるときや写しで試すときは、`bridge.py --citations <引用のファイル> <コマンド>` で引用のファイルを替える。設定で置き場を明示していない記録（`applied.json`・`candidates/`・`excluded.json`・`judgments.jsonl`）も、その引用のファイルと同じフォルダに置く（SPEC.md §9）。
+替わるのはこれだけで、抜き書きとチェックポイントは元のものを使い、候補を受け入れたときの印は引用のファイルの `対象` が指す原稿に書く。写しで試すときは原稿も写して、写した引用のファイルの `対象` をそこへ向ける。
 
 ## AI に使わせるとき
 

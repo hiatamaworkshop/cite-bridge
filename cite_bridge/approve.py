@@ -11,6 +11,7 @@ from .config import RETURNED, out_name
 from .derive import rederive_files
 from .manuscript import (
     approval_state,
+    model_approval_problem,
     evidence_hash,
     fingerprint,
     manuscript_marks,
@@ -18,6 +19,7 @@ from .manuscript import (
     self_check_problem,
     sentence_at,
     summary_fingerprint,
+    uncounted_approval,
     verbatim_fingerprint,
     writer_of,
 )
@@ -112,6 +114,10 @@ def write_approval(cid, by, note=None, send_back=False, seen=None, dry=False):
     if (not send_back and approval_state(f, rec, fp, ev)[0] == "承認済" and (f.get("承認") or "").split()[:1] == [by]
             and (note or "") == f.get("承認の理由", "")):
         return True, f"{cid}: 承認は記録済み（同じ判断）"
+    if not send_back and model_approval_problem(by):  # 今数えている人の承認を、数えない承認で消さない（C35）
+        state, head = approval_state(f, rec, fp, ev)
+        if state == "承認済" and not uncounted_approval(state, head, f):
+            return False, f"{cid}: '{head}' の承認が今と合うので、model '{by}' の承認で書き換えない"
     today = datetime.date.today().isoformat()
     if send_back:
         if not note:
@@ -123,8 +129,9 @@ def write_approval(cid, by, note=None, send_back=False, seen=None, dry=False):
         new = [f"{out_name('承認')}: {by} {today}"]
         if note:
             new.append(f"{out_name('承認の理由')}: {note}")
+        one_line = re.sub(r"\s+", " ", sent)  # 記録は一行（paragraph = blank の文は改行を含む。C35）
         new += [f"@{out_name('承認時の指紋')}: {fp}", f"@{out_name('承認時の根拠')}: {ev}",
-                f"@{out_name('承認時の本文')}: {sent}"]
+                f"@{out_name('承認時の本文')}: {one_line}"]
         msg = f"承認を記録: {cid} {by} {today} 指紋={fp} 根拠={ev}"
     if dry:
         return True, f"{cid}: {'差し戻し' if send_back else '承認'}"
@@ -151,7 +158,10 @@ def write_confirm(eid, by, note=None, seen=None, dry=False, pending=None):
         head, blocks = parse_blocks(path)
         if head["title"] != key:
             continue
-        b = next((x for x in blocks if x["id"] == bid), None)
+        same = [x for x in blocks if x["id"] == bid]
+        if len(same) > 1:  # 同じ ID の二つ目以降の記録を消さないよう、どの書き込みも避ける（C15 の引用のブロックと同じ、C35）
+            return False, f"{eid}: {path.as_posix()} に {bid} のブロックがちょうど一つ無い（{len(same)} 個）"
+        b = same[0] if same else None
         if b is None:
             break
         if self_check_problem(by, writer_of(b["fields"].get("記入"))):
@@ -185,7 +195,10 @@ def write_source_check(eid, by, result="一致", page=None, note=None, seen=None
         head, blocks = parse_blocks(path)
         if head["title"] != key:
             continue
-        b = next((x for x in blocks if x["id"] == bid), None)
+        same = [x for x in blocks if x["id"] == bid]
+        if len(same) > 1:  # 同じ ID の二つ目以降の記録を消さないよう、どの書き込みも避ける（C15 の引用のブロックと同じ、C35）
+            return False, f"{eid}: {path.as_posix()} に {bid} のブロックがちょうど一つ無い（{len(same)} 個）"
+        b = same[0] if same else None
         if b is None:
             break
         if self_check_problem(by, writer_of(b["fields"].get("記入"))):

@@ -19,12 +19,11 @@ from .manuscript import (
     mark_keys,
     manuscript_marks,
     mask_comments,
-    model_approval_problem,
-    self_check_problem,
     sentence_at,
     source_check_state,
     summary_fingerprint,
     uncounted_approval,
+    uncounted_reason,
     unmark,
     verbatim_fingerprint,
     writer_of,
@@ -96,10 +95,11 @@ def model_approval_of(f, rec, fp, ev):
     if not words or words[0] in ("未", cfg.RETURNED, "returned"):
         return None
     by = words[0]
-    why = self_check_problem(by, writer_of(f.get("記入"))) or model_approval_problem(by)
+    why = uncounted_reason(by, f)
     if not why:
         return None
-    text = "合う" if rec.get("承認時の指紋") == fp else "変わった"
+    # 指紋の記録が無い承認（手で書いたもの等）は、何と比べたかが分からないので「記録が無い」（C35）
+    text = "記録が無い" if not rec.get("承認時の指紋") else ("合う" if rec["承認時の指紋"] == fp else "変わった")
     evidence = "記録が無い" if not rec.get("承認時の根拠") else ("合う" if rec["承認時の根拠"] == ev else "変わった")
     return {"by": by, "date": words[1] if len(words) > 1 else "", "note": f.get("承認の理由", ""), "why": why,
             "text": text, "evidence": evidence, "approved_text": rec.get("承認時の本文", "") if text == "変わった" else ""}
@@ -330,6 +330,7 @@ def classifier_line(c):
 
 
 MATCH_WORDS = {"合う": "今と合う", "変わった": "今と違う", "記録が無い": "記録が無い（根拠の指紋を残す前の承認）"}
+TEXT_MATCH_WORDS = {**MATCH_WORDS, "記録が無い": "記録が無い（承認時の指紋が無い）"}
 
 
 def model_approval_lines(m):
@@ -337,7 +338,7 @@ def model_approval_lines(m):
     rows = [("承認", f"{m['by']} {m['date']}".strip()), ("数えない理由", m["why"])]
     if m["note"]:
         rows.append(("承認の理由", m["note"]))
-    return rows + [("承認したときの本文", MATCH_WORDS[m["text"]]), ("承認したときの根拠", MATCH_WORDS[m["evidence"]])]
+    return rows + [("承認したときの本文", TEXT_MATCH_WORDS[m["text"]]), ("承認したときの根拠", MATCH_WORDS[m["evidence"]])]
 
 
 def review_md(data):

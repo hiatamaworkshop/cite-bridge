@@ -376,6 +376,12 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.run_bridge("approve", "c001", "--by", "tester")
         self.assertIn("@承認時の本文: Participants ``completed", self.read("bridge/citations.md"))
+        # 二行にまたがる文も、記録は一行で書く（続きの行がブロックの地の文にならない。C35）
+        lines = self.read("bridge/citations.md").splitlines()
+        rec = next(ln for ln in lines if ln.startswith("@承認時の本文:"))
+        self.assertIn("average'' according to Doe", rec)
+        self.assertFalse([ln for ln in lines if ln.startswith(("according to", "and this was fast"))])
+        self.assertEqual(self.run_bridge("check")[0], 0)
         # strip は印の ID だけを外し、\cite{key} は残す
         self.run_bridge("strip", "manuscript.tex", "out.tex")
         self.assertIn("\\cite{doe2020}\n", self.read("out.tex"))
@@ -536,6 +542,58 @@ class BridgeTest(unittest.TestCase):
         c = json.loads(self.run_bridge("review", "--json", "--all")[1])["citations"][0]
         self.assertIsNone(c["model_approval"])
         self.assertNotIn("model の承認", self.run_bridge("review", "--all")[1])
+
+    def test_model_approval_does_not_replace_counted_human_approval(self):
+        """今数えている人の承認がある引用には、model の者の承認を書かずに断る。要再確認になれば書ける（C35）。"""
+        self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\nreviewer-model = "model"\n')
+        self.run_bridge("derive")
+        self.assertEqual(self.run_bridge("approve", "c001", "--by", "alice")[0], 0)
+        before = self.read("bridge/citations.md")
+        code, out = self.run_bridge("approve", "c001", "--by", "reviewer-model", "--note", "支える")
+        self.assertNotEqual(code, 0)
+        self.assertIn("'alice' の承認が今と合うので、model 'reviewer-model' の承認で書き換えない", out)
+        self.assertEqual(self.read("bridge/citations.md"), before)
+        self.assertIn("承認済 1 / 要再確認 0 / 未承認 0", self.run_bridge("check")[1])
+        # 本文が変わって要再確認になった引用には、model の承認を書ける（人の承認の材料になる）
+        self.write("manuscript.md", self.read("manuscript.md").replace("Doe らの実験では", "Doe らの実験で"))
+        self.assertEqual(self.run_bridge("approve", "c001", "--by", "reviewer-model", "--note", "支える")[0], 0)
+        self.assertIn("承認: reviewer-model", self.read("bridge/citations.md"))
+
+    def test_approver_kind_ignores_case(self):
+        """承認者の一覧の種類は、名前の大文字と小文字の違いを無視して引く（C20、C35）。手で書いた別の綴りの model の承認も数えない。"""
+        self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\nReviewer-Model = "model"\n')
+        self.run_bridge("derive")
+        self.assertEqual(self.run_bridge("approve", "c001", "--by", "Reviewer-Model")[0], 0)
+        self.write("bridge/citations.md", self.read("bridge/citations.md").replace("承認: Reviewer-Model", "承認: reviewer-model"))
+        out = self.run_bridge("check")[1]
+        self.assertIn("承認済 0 / 要再確認 0 / 未承認 1", out)
+        self.assertIn("承認を数えない（model 'reviewer-model' の承認は記録に残るが", out)
+
+    def test_model_approval_without_fingerprint_says_no_record(self):
+        """承認時の指紋が無い model の承認は、本文を「記録が無い」と見せる（何と比べたかが分からない。C35）。"""
+        import json
+        self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\nreviewer-model = "model"\n')
+        self.run_bridge("derive")
+        self.assertEqual(self.run_bridge("approve", "c001", "--by", "reviewer-model")[0], 0)
+        cit = "\n".join(ln for ln in self.read("bridge/citations.md").splitlines() if not ln.startswith("@承認時の指紋"))
+        self.write("bridge/citations.md", cit + "\n")
+        m = json.loads(self.run_bridge("review", "--json")[1])["citations"][0]["model_approval"]
+        self.assertEqual((m["text"], m["approved_text"]), ("記録が無い", ""))
+        self.assertIn("- 承認したときの本文: 記録が無い（承認時の指紋が無い）", self.run_bridge("review")[1])
+
+    def test_confirm_refuses_duplicate_excerpt_id(self):
+        """抜き書きの ID が二つあると、要約の確認と原本での確認は書かずに断る。二つ目の記録を消さない（C15 と同じ、C35）。"""
+        self.run_bridge("derive")
+        self.write("bridge/excerpts/doe2020.md", self.read("bridge/excerpts/doe2020.md")
+                   + "\n## e2\n逐語: Grids were faster.\n強さ: 観察\n要約: 格子が速い。\n言っていないこと: なし。\n記入: test\n"
+                   + "要約の確認: keep 2026-10-01\n")
+        before = self.read("bridge/excerpts/doe2020.md")
+        for args in (("confirm", "doe2020#e2", "--by", "tester"), ("confirm", "doe2020#e2", "--source", "--by", "tester")):
+            code, out = self.run_bridge(*args)
+            self.assertNotEqual(code, 0, args)
+            self.assertIn("doe2020#e2: bridge/excerpts/doe2020.md に e2 のブロックがちょうど一つ無い（2 個）", out)
+            self.assertEqual(self.read("bridge/excerpts/doe2020.md"), before)
+        self.assertEqual(self.run_bridge("confirm", "doe2020#e1", "--by", "tester")[0], 0)  # 一つだけの ID は書ける
 
     def test_check_has_no_empty_summary_line(self):
         """抜き書きが無いとき、check は後ろの空いた「抜き書きの要約の確認」の行を出さない。"""
@@ -953,6 +1011,33 @@ class BridgeTest(unittest.TestCase):
         self.assertIn("承認済 1 / 要再確認 0 / 未承認 1", out)  # c002 は受け入れで承認済、c001 は未承認のまま
         self.assertIn("引用でないと判断したもの 1", out)
         self.assertNotIn("人の判断を待つもの", out)
+
+    def test_candidate_accept_reports_failed_record(self):
+        """候補を受け入れたとき、承認か要約の確認が書けなければ、apply は失敗として数える（C35）。"""
+        import json
+        ya, _ = self._propose()
+        n = ya["keys"][0]["passages"][0]["n"]
+        fields = {"強さ": "観察", "要約": "音声は状態を理解しにくい。", "言っていないこと": "入力の側の話ではない。"}
+        drafts = {"format": "cite-bridge-drafts/1", "items": [
+            {"item": ya["item"], "kind": "主張", "key": "yamada2002", "excerpts": [{"sentences": [n], "from": "音声は", **fields}],
+             "理由": "試験", "原文との差": "言い換え", "記入": "AI 2026-10-11"}]}
+        self.write("drafts.json", json.dumps(drafts, ensure_ascii=False))
+        self.assertEqual(self.run_bridge("propose", "--load", "drafts.json")[0], 0)
+        verbatim = json.loads(self.read("bridge/candidates/candidates.json"))["items"][ya["item"]]["excerpts"][0]["逐語"]
+        # 同じ逐語と要約の抜き書きが、同じ ID で二つある。受け入れはそれを使い、要約の確認は重なりで断られる
+        block = (f"## e1\n逐語: {verbatim}\n強さ: 観察\n要約: {fields['要約']}\n"
+                 f"言っていないこと: {fields['言っていないこと']}\n記入: test\n")
+        self.write("bridge/excerpts/yamada2002.md", "# yamada2002\n\n" + block + "\n" + block)
+        cfp = {c["id"]: c["cfp"] for c in json.loads(self.run_bridge("review", "--json")[1])["candidates"]}
+        dec = {"format": "cite-bridge-decisions/1", "manuscript": "manuscript.md", "by": "tester", "decisions": [], "confirms": [],
+               "candidates": [{"id": ya["item"], "action": "accept", "note": "", "cfp": cfp[ya["item"]]}]}
+        self.write("decisions.json", json.dumps(dec, ensure_ascii=False))
+        code, out = self.run_bridge("apply", "decisions.json")
+        self.assertEqual(code, 1, out)
+        self.assertIn("yamada2002#e1: bridge/excerpts/yamada2002.md に e1 のブロックがちょうど一つ無い（2 個）", out)
+        self.assertIn("書いた 0 件、書かなかった 1 件", out)
+        self.assertIn("〔c002〕", self.read("manuscript.md"))  # ブロックと印は書いたので、候補は受け入れ済み
+        self.assertEqual(json.loads(self.read("bridge/candidates/candidates.json"))["items"][ya["item"]]["status"], "accepted")
 
     def test_candidate_refused_when_sentence_changed(self):
         import json

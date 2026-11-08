@@ -169,7 +169,8 @@ language = "ja"                                  # language of the names of deri
 # watch = ["extra/dir"]                          # paths pre-commit watches besides those the settings point to
 ```
 ([bridge] can also hold applied, candidates, excluded and judgments: the record of applied decisions files, the folder for candidate work, the record of parentheses judged not to be citations, and the classifier ledger;
-by default applied.json, candidates/, excluded.json and judgments.jsonl in the same folder as citations. When --citations replaces the citations file, those not set explicitly are kept in its folder.)
+by default applied.json, candidates/, excluded.json and judgments.jsonl in the same folder as citations. When --citations replaces the citations file, those not set explicitly are kept in its folder.
+The excerpts and the checkpoints do not change, and the mark written when a candidate is accepted goes into the manuscript named by 対象 (target) in the citations file. To try on a copy, copy the manuscript too and point 対象 at it.)
 
 - In LaTeX, put the mark in a comment right after \cite (it does not affect typesetting), e.g. `\cite{doe2020}%c017`. The settings are
   `mark_pattern = '\\cite\{(?P<key>[^}]+)\}(?P<strip>%(?P<id>c\d+))'`, `paragraph = "blank"`, and the English sentence_end.
@@ -235,7 +236,7 @@ python tools/cite-bridge/bridge.py classify --eval <set.json> --variant <variant
 - Whether the source supports the claim is guaranteed by a person's approval. An approval of a citation by someone listed as model stays in the record, but check does not count it as approved
   and makes it pending with 「承認を数えない（model … の承認は記録に残るが、承認済には人（human）の承認が要る）」 (approval not counted; `check --strict` and `checkpoint` stop).
   Without a list the kind is unknown, so approvals count as approved regardless of the name. Checks against the original and summary checks accept a model checker separate from the writer (unchanged).
-  review and the approval HTML count in the same way, and show such a citation in the default pending list as not approved (with the 「承認を数えない」 reason as the detail). A person looks at it there and approves again. The model's approval reason and whether the text and evidence at approval match the current ones are shown there too, as material for the person's approval. Write the approval reason so that a person can read it and judge.
+  review and the approval HTML count in the same way, and show such a citation in the default pending list as not approved (with the 「承認を数えない」 reason as the detail). A person looks at it there and approves again. The model's approval reason and whether the text and evidence at approval match the current ones are shown there too, as material for the person's approval. Write the approval reason so that a person can read it and judge. An approval by someone listed as model cannot be written for a citation whose human approval matches the current text and evidence (it is refused).
 - At the end of the approval HTML is a list of 「引用に使われていない抜き書き」 (excerpts not used by any citation; no citation uses them as evidence, and their summary has not been checked).
   They do not appear on citation cards, so this is where you compare the summary, what it does not say, and the strength with the original and mark them. Once a citation uses one, it is looked at again in that citation's approval.
 - Besides the judgment, the approval HTML has a 「指摘」 (remarks) field. It is for notes on the manuscript; apply adds it to the citation block's 「指摘」 (it is not part of the approval fingerprint).

@@ -179,6 +179,8 @@ They apply to claim citations. There are five: 未承認 / 承認済 / 要再確
   Without a list the kind is unknown, so the approver's name does not matter. Checks against the original (§2.1) and summary checks accept a model checker separate from the writer (outside this rule).
   review (md, JSON) and the approval HTML count approvals in the same way as check. A citation whose approval is not counted (an approval by someone listed as model, or by the same model as the writer, condition 3 of §2.1) gets the state 未承認 (not approved), with 「承認を数えない（<reason>）」 (approval not counted) as the detail, and is in the default pending list.
   An approval that is not counted is shown as material for a person's approval: who approved and when, the approval reason, and whether the text and evidence at approval match the current ones (with `@承認時の本文` (approved_text) when the text differs) (`model_approval` in review's JSON, a section in the md, a dashed frame in the approval HTML). It is also shown when the text changed afterwards and the citation became 要再確認 (needs recheck).
+  For a citation with a human approval that is counted now (text and evidence match the current ones), the tool refuses to write an approval by someone listed as model (the human's approval record is not removed). It can write one for a citation that is 要再確認 (needs recheck), 差し戻し (sent back) or 未承認 (not approved).
+  When the kind is looked up in the list, differences of full-width and half-width, and of upper and lower case, in the name are ignored.
 - 要再確認 (needs recheck): the sentence or the evidence changed after approval.
 - 差し戻し (returned): the fingerprint and evidence at the return equal the current ones (the writer has not fixed it yet). If they differ, the state is 「差し戻し後に直された」 (fixed after return), waiting for approval.
 
@@ -424,8 +426,10 @@ A template is in the "設定" (Settings) section of SKILL.md. The table lists th
 | checks (array) | type, version, for, question, labels, … | Adding and overriding question types (§6.4) |
 
 When applied, candidates, excluded or judgments in `bridge` is omitted, the tool keeps it as `applied.json`, `candidates/`, `excluded.json` or `judgments.jsonl` in the same folder as the citations file (citations).
-When `--citations` replaces the citations file, the omitted locations also move to that citations file's folder (records from a trial on a copy do not go into the original records).
+When `--citations` replaces the citations file, the omitted locations also move to that citations file's folder (these four records from a trial on a copy do not go into the original ones).
 Locations set explicitly in the settings do not move. To share the classifier ledger with a copy, set judgments explicitly.
+`--citations` replaces only the citations file and these four locations. The excerpts (including the records of summary checks and checks against the original) and the checkpoints are the ones at the locations in the settings, and the mark written when a candidate is accepted goes into the manuscript named by `対象` (target) in the citations file.
+To try on a copy, copy the manuscript too, and point `対象` in the copied citations file at it.
 
 The default of `repeat_pattern` is `[（(](?:同書[^（）()\n]*|同上|同|ibid\.?[^（）()\n]*|pp?\.\s?\d[^（）()\n]*)[）)]`.
 Parentheses that are only a page or "ibid." are not sources; they count as one item, a repetition of the preceding source. A parenthesis that matches both `pattern` and `repeat_pattern` counts on the `pattern` side.
