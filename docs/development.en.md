@@ -39,6 +39,25 @@ The entry point is `bridge.py` (it only takes arguments and passes them to `cite
 - The Japanese version is authoritative. When you edit it, make the same change to the English version (`*.en.md`) in the same place. `tests/test_translations.py` does not check whether the translated sentences are right.
 - When you change the shape of the data (the scope of SPEC.md §11.1), follow the steps in SPEC.md §11.2 and raise `TOOL_VERSION` in `cite_bridge/config.py`.
 
+## Notes on how it works
+
+Not rules for users, but things that help before reading the code. The code is authoritative.
+
+- Matching is done only within the extracted text bound to the key (`<text_dir>/<name>.txt` with the same name as the PDF the bibliography points to, or else `<web_dir>/<key>.txt`). When nothing matches, matches in other sources are shown as hints.
+- Match levels: identical (only whitespace differs; spaces next to Japanese characters are treated as typesetting and ignored), matches after normalization (NFKC, quotation marks and dashes, small kana, end-of-line hyphens; it says so when punctuation also differs),
+  approximate (50% or more character overlap; the candidate location is shown), cannot be matched (no extraction, or a garbled one), no match.
+- Pages are counted from page breaks (`\f`) in the extracted text. When the bibliography has a page range that fits the PDF's page count, the printed page is also shown.
+- Extracted text is made with pymupdf (pdftotext garbled many Japanese PDFs).
+- Only headings whose numbers advance in order are taken as headings, and table-of-contents lines are excluded (it is an estimate).
+- The headers of copies and OCR (`<!-- … -->`) are excluded from surrounding sentences. In web copies, blank lines also separate sentences.
+- Besides h1 to h6, snapshot picks up collapsible headings (summary of details, Google help's a.zippy) as subheadings.
+  Alternative text of images (alt) is kept as `[図: …]` lines (so that content found only in figures, such as names of screen parts, falls within the verbatim text and matching).
+  Images in a paragraph that also has text (arrow icons in the middle of a sentence, logos at the head of an item) are not figures and are not output (they would cut the sentence and break verbatim matching).
+  When `--rebuild` rebuilds the copy, the date of retrieval and the hash stay and the date of rebuilding is added. The body's header holds the URL, the date of retrieval and the sha256 of the raw HTML.
+- Coverage marks are bound to sources in three passes. First, when the bibliography and the citation's keys are available, a mark is bound to the source in the same sentence whose key candidates include the citation's key (if the evidence spans two sources, one mark covers two sources).
+  Next, among the remaining sources, a mark is given to those whose directly following mark is not used yet (for several split sources, only one, from the front). Finally, unused marks are distributed from the front to the remaining sources without a mark.
+- The clause a worksheet parenthesis covers is the span between the source parentheses before and after it in the same sentence. Key candidates are guessed from the names and years in and just before the parenthesis.
+
 ## Design and items
 
 - The design is in [docs/design-0.3.0.md](design-0.3.0.md) (the design of the mechanisms added in 0.3.0; Japanese only).

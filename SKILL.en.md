@@ -7,8 +7,7 @@ description: Gives every citation an anchor (the verbatim text of the source and
 
 Japanese original: [SKILL.md](SKILL.md). This English version is a translation; the Japanese version is authoritative, and where the two differ, follow it.
 
-An overview of the tool is in `README.md`. The authoritative file formats (fields, fingerprints, decisions files, manifest, etc.) are in `SPEC.md`. This document is about how to use and run the tool.
-The design is in `docs/design-0.3.0.md` (Japanese only).
+This document gives the rules and commands for the people and AIs who use the tool. What the tool does is in `README.md`; the authoritative shape of the data (fields, fingerprints, decisions files, manifest, etc.) is in `SPEC.md`.
 In the repository where you use the tool, put the tool in `tools/cite-bridge/` (as a submodule). The command examples below assume this location. If you put it elsewhere, adjust the paths and tell the hook where it is with the environment variable `CITE_BRIDGE` (the "hook" section).
 This document is plain Markdown that any agent or person can read. The name and description at the top are the entry point when it is placed as an agent skill (e.g. `.claude/skills/cite-bridge/`), which is one way of placing it.
 To use this English version as a skill, put it in place of SKILL.md.
@@ -51,11 +50,14 @@ Excerpts `bridge/excerpts/<key>.md` (one file per source; the heading is the bib
 - If what it does not say, or an interpretation, rests on another passage of the original, make that passage an excerpt too and refer to it by ID (`e6` in the same source, `key#e6` in another source).
   Writing only "it is on the same page" without pointing to it is a route by which unverified claims slip in. check verifies that the referenced IDs exist.
 - Write the summary from the checked verbatim text, not from the extracted text. Do not fill in misreadings of the extracted text in the summary.
+- When the verbatim text is cut in the middle of a sentence, the derived field 「含む文」 (sentence) shows the whole sentence of the original. So as not to overlook qualifications outside the verbatim text
+  (「…が考えられる」, "without critical reflection", etc.), write the summary and what it does not say looking at it.
 - When a person has compared the summary, what it does not say, and the strength with the original, record it with `confirm` (`要約の確認`, summary_check, and the fingerprint at that time).
   If the fields change after the check, check reports 「確認し直す」 (check again). The number of unchecked items appears in check's INFO (--strict does not stop on it).
 - Copy the verbatim text exactly as in the original. Style rules (such as not using em dashes) do not apply to the verbatim field.
 - Write each field on one line.
-- Derived fields: 照合 (match), 所在 (location: page and section), 節の種類 (section kind), 前 (before), 後 (after). Under the source heading, the grade and the location of the extracted text.
+- Derived fields: 照合 (match), 所在 (location: page and section), 節の種類 (section kind), 前 (before), 後 (after), 含む文 (sentence). Under the source heading, the grade and the location of the extracted text.
+  If a section is derived wrongly, check the heading lines in the extracted text (heading detection is an estimate).
 
 Citations `bridge/citations.md` (one file per manuscript; put a mark 〔c001〕 after each citation in the manuscript)
 
@@ -76,9 +78,7 @@ Citations `bridge/citations.md` (one file per manuscript; put a mark 〔c001〕 
 - The kind is 指示 (pointer: it only names a work or mentions that it exists; write `文献: <key>`) or 主張 (claim: it states what the source says; it needs excerpts).
   A pointer needs only the `文献` (source) key, present in the bibliography; a reason, written_by and approval are not required (if written they appear in review, but their absence does not make it pending).
   The rules below on approval, human readings and the difference from the original are about claim citations (SPEC.md §3.1).
-- There are five approval states: 未承認／承認済／要再確認／差し戻し／差し戻し後に直された (not approved／approved／needs recheck／returned／fixed after return). An approval keeps the sentence fingerprint and the evidence fingerprint
-  (excerpt IDs and verbatim text), and if either changes the citation returns to needing recheck (an old approval without an evidence record looks only at the sentence).
-  A return keeps its reason in `差し戻しの理由` (returned_reason). When the writer fixes the sentence or the evidence, the state becomes 「差し戻し後に直された」 (fixed after return) and waits for approval.
+- The approval states, and which fingerprints return a citation to needing recheck when they change, are in SPEC.md §3.2. A return keeps its reason in `差し戻しの理由` (returned_reason); when the writer fixes the sentence or the evidence, it waits for approval.
 - A human reading (when a person puts a reading not in the words of the original into the sentence) is written in fields separate from the writer's interpretation: `人の読み` (human_reading) and `人の読みの記入` (human_reading_by: the person and the date).
   An AI cannot write it (an entry by someone not human in the approvers list is refused). Put an anchor in the reading with the ID of one of this citation's excerpts (`e6`, `key#e6`).
   The reading is part of the evidence fingerprint, so editing it after approval returns the citation to needing recheck (SPEC.md §4.1). Human judgments (approval, return) are separate.
@@ -101,7 +101,6 @@ The mark stays regardless of records; whether the check is done is decided by th
 - Record it with `confirm <key#eN> --source --by <name> [--result 一致|違う] [--page "p.49 §4・3"] [--note …]`. When the result is 違う (differs), put the characters of the original in --note.
   When an external AI has answered, write the `source_checks` of its decisions file with `apply` (only those whose verbatim fingerprint matches the current one are written).
 - A record is valid when the checker is in the approvers list, a model checker differs from the writer of the excerpt (names are compared ignoring full-width and half-width forms, letter case, and leading and trailing spaces), the verbatim fingerprint matches the current one, and the result is 一致 (matches).
-  Free-text records from 0.2.0 and earlier are not valid (check again and record again).
 - Editing the verbatim text invalidates the record. The writer edits it; the tool does not. Verbatim text reported as differing is also fixed by the writer and checked again.
 
 Rules for delegating.
@@ -111,6 +110,50 @@ Rules for delegating.
 3. The writer AI (the model that wrote the excerpt) cannot record a check against the original for its own excerpts.
 4. Who checked is kept in the checker of each record and in the manifest's counts per kind of checker. The final submission (`checkpoint --by <person>`) is made by a person.
 5. The tool does not call external AIs. It only writes out the request JSON and receives the decisions file.
+
+## Checks and approval
+
+- The pending list includes, besides not approved, needing recheck and returned citations, approved citations whose evidence summary has not been checked (the summary-check field exists only on the citation cards).
+- review lays out, in this order: the sentence, the verbatim text of the evidence, location, match, check against the original, surrounding sentences, the AI's candidates (summary, what it does not say), the citation's fields, and the commands for the judgment.
+  The verbatim text is read first so that the AI's candidates do not pull the judgment. Surrounding sentences are as in the extracted text, without filling in misreadings.
+  For approximate, impossible or OCR evidence it says 「頁の画像で読む」 (read on the page image), and with --images the relevant PDF page is rendered as PNG.
+  review's md output is kept as material to hand to an AI, and for situations where the HTML cannot be opened.
+- The page where a person looks and decides is the approval HTML made by review --html (a single file that opens on its own, with page images embedded).
+  On each citation's card a person enters hold, approve or return with a reason, and a mark that the summary was checked. Input is kept temporarily in the browser and finally saved as a decisions file (JSON).
+  The HTML writes nothing. When the decisions file is passed to apply, it compares the fingerprints at the time the HTML was made (sentence, evidence, summary) with the current ones,
+  and writes only those that match, with the same functions as approve and confirm. Those that do not match are reported and not written (this prevents approving what was not seen).
+- A decisions file is written out with all decisions each time it is saved, so applying an old file later rolls decisions back. apply records the applied files
+  in applied.json and refuses the same file and files saved before the last applied one (only on purpose, with --allow-older).
+- With an approvers list (approvers), approvals, returns, summary checks and decisions files can be written only under names in the list. The approval HTML lets you choose from the list.
+  check makes approvals by names not in the list pending, and the manifest also counts approvals per kind (human / model). The list prevents accidents such as typos and aliases,
+  not malice (anyone can write a decisions file).
+- An approval of a citation by someone listed as model stays in the record but is not counted as approved, and appears in the pending list of review and the approval HTML as not approved (the full counting rules are in SPEC.md §3.2).
+  The model's approval reason and whether the text and evidence at approval match the current ones are shown there too, as material for the person's approval. Write the approval reason so that a person can read it and judge.
+  An approval by someone listed as model cannot be written for a citation whose human approval matches the current text and evidence (it is refused).
+- At the end of the approval HTML is a list of 「引用に使われていない抜き書き」 (excerpts not used by any citation; no citation uses them as evidence, and their summary has not been checked).
+  They do not appear on citation cards, so this is where you compare the summary, what it does not say, and the strength with the original and mark them. Once a citation uses one, it is looked at again in that citation's approval.
+- Besides the judgment, the approval HTML has a 「指摘」 (remarks) field. It is for notes on the manuscript; apply adds it to the citation block's 「指摘」 (it is not part of the approval fingerprint).
+  You may write only a remark and leave the judgment on hold. Write remarks on the manuscript in this field, not in the approval reason.
+- An external viewer (a diff review, for example) can read review --json and show the state on the marks in the text. The dependency is one way, viewer → bridge; the bridge does not know the viewer.
+
+## Sources without a mark
+
+- In the 「網羅」 (coverage) line, check gives the number of source-like items in the manuscript (with the number of parentheses) that have no mark. This tool checks nothing about citations without a mark.
+  「確認待ち 0」 (0 pending) and checkpoint are about the state of marked citations, not a check of all citations in the manuscript. List them with coverage.
+  The pattern is a lower-bound guide to counting; sources not in parentheses are not counted. Coverage is counted per source (the inside of a parenthesis is split at 「;」 and 「；」), and parentheses that are only a page or ibid. count as one repetition of the preceding source.
+- Sources without a mark become candidates, and a person accepts them. The roles: the tool picks up, narrows, checks and writes; the writer AI chooses and writes the interpretation fields;
+  a person accepts.
+  1. propose makes a worksheet (`candidates/work.md` and `work.json`) per parenthesis of sources without a mark. It shows the clause the parenthesis covers, key candidates from the bibliography,
+     existing excerpts of the same source, and the top sentences of the source (with numbers n).
+  2. The writer writes drafts in `candidates/drafts.json` (format `cite-bridge-drafts/1`; the shape is in SPEC.md §6.2). An excerpt either points to an existing one
+     or points to a range of the source by the worksheet's sentence numbers. If the passage is not among the top sentences, look up the source with sentences (ranking does not work between Japanese clauses and an English source).
+  3. propose --load checks them and puts only those that pass in `candidates/candidates.json`. The tool copies the verbatim text from the source (the writer's text does not go into the verbatim text).
+  4. Candidate cards (with a dashed left border) appear in the approval HTML in the order of the manuscript lines. Judgments are hold, accept, or reject (a reason is required).
+  5. apply writes accepted candidates. For a claim, it writes the excerpt and the citation block, puts a mark right after the parenthesis in the manuscript, and records the approval and the summary check of the new excerpt
+     (acceptance counts as approval). For a pointer, the citation block and the mark. For not a citation, it records it in excluded.json and removes it from the coverage count.
+     If the candidate or the manuscript sentence changed after the candidate was made, nothing is written. A rejection stays in the candidates with its reason, and appears in the next propose worksheet.
+- Narrowing propose: `--key <key>` (repeatable) puts in the worksheet only sources whose key candidates (the top 3 and --add-key) include that key.
+  `--checkable` keeps only sources whose first key candidate has a machine-checkable grade (PDF extracted, web copy saved). Repeat items drop out with `--checkable`. Narrowing happens before cutting with --limit.
 
 ## hook
 
@@ -214,95 +257,12 @@ python tools/cite-bridge/bridge.py classify [--send] [--list [--all]] [--cids c0
 python tools/cite-bridge/bridge.py classify --eval <set.json> --variant <variant.toml> [--types type …] [--reps 2] [--send]   # wording measurement (not written to the ledger)
 ```
 
-- snapshot saves the raw HTML to `<web_dir>/<key>.html` (not tracked) and the body to `<key>.txt` (tracked). The body's header holds
-  the URL, the date of retrieval and the sha256 of the raw HTML. The location becomes 「Web 写し（取得日） / 見出し」 (web copy (date of retrieval) / heading). Even if the page is updated, the copy stays
-  as it was when retrieved. When it is retrieved again, the date changes and the match is derived again.
-
-- The pending list includes, besides not approved, needing recheck and returned citations, approved citations whose evidence summary has not been checked (the summary-check field exists only on the citation cards).
-- review lays out, in this order: the sentence, the verbatim text of the evidence, location, match, check against the original, surrounding sentences, the AI's candidates (summary, what it does not say), the citation's fields, and the commands for the judgment.
-  The verbatim text is read first so that the AI's candidates do not pull the judgment. Surrounding sentences are as in the extracted text, without filling in misreadings.
-  For approximate, impossible or OCR evidence it says 「頁の画像で読む」 (read on the page image), and with --images the relevant PDF page is rendered as PNG.
-- The page where a person looks and decides is the approval HTML made by review --html (a single file that opens on its own, with page images embedded).
-  Each citation's card shows the sentence (the whole paragraph can be opened), the verbatim text of the evidence, location, page image, surrounding sentences, the AI's candidates and the citation's fields,
-  and takes hold, approve or return with a reason, and a mark that the summary was checked. Input is kept temporarily in the browser and finally saved as a decisions file (JSON).
-  The HTML has no server and writes nothing. When the decisions file is passed to apply, it compares the fingerprints at the time the HTML was made (sentence, evidence, summary) with the current ones,
-  and writes only those that match, with the same functions as approve and confirm. Those that do not match are reported and not written (this prevents approving what was not seen).
-  Whether to receive decisions on a server is not decided yet.
-- A decisions file is written out with all decisions each time it is saved, so applying an old file later rolls decisions back. apply records the applied files
-  in applied.json and refuses the same file and files saved before the last applied one (only on purpose, with --allow-older).
-- With an approvers list (approvers), approvals, returns, summary checks and decisions files can be written only under names in the list. The approval HTML lets you choose from the list.
-  check makes approvals by names not in the list pending, and the manifest also counts approvals per kind (human / model). The list prevents accidents such as typos and aliases,
-  not malice (anyone can write a decisions file).
-- Whether the source supports the claim is guaranteed by a person's approval. An approval of a citation by someone listed as model stays in the record, but check does not count it as approved
-  and makes it pending with 「承認を数えない（model … の承認は記録に残るが、承認済には人（human）の承認が要る）」 (approval not counted; `check --strict` and `checkpoint` stop).
-  Without a list the kind is unknown, so approvals count as approved regardless of the name. Checks against the original and summary checks accept a model checker separate from the writer (unchanged).
-  review and the approval HTML count in the same way, and show such a citation in the default pending list as not approved (with the 「承認を数えない」 reason as the detail). A person looks at it there and approves again. The model's approval reason and whether the text and evidence at approval match the current ones are shown there too, as material for the person's approval. Write the approval reason so that a person can read it and judge. An approval by someone listed as model cannot be written for a citation whose human approval matches the current text and evidence (it is refused).
-- At the end of the approval HTML is a list of 「引用に使われていない抜き書き」 (excerpts not used by any citation; no citation uses them as evidence, and their summary has not been checked).
-  They do not appear on citation cards, so this is where you compare the summary, what it does not say, and the strength with the original and mark them. Once a citation uses one, it is looked at again in that citation's approval.
-- Besides the judgment, the approval HTML has a 「指摘」 (remarks) field. It is for notes on the manuscript; apply adds it to the citation block's 「指摘」 (it is not part of the approval fingerprint).
-  You may write only a remark and leave the judgment on hold. Write remarks on the manuscript in this field, not in the approval reason.
-- In the 「網羅」 (coverage) line, check gives the number of source-like items in the manuscript (with the number of parentheses) that have no mark. This tool checks nothing about citations without a mark.
-  「確認待ち 0」 (0 pending) and checkpoint are about the state of marked citations, not a check of all citations in the manuscript. List them with coverage.
-  The pattern is a lower-bound guide to counting; sources not in parentheses are not counted.
-- Sources without a mark become candidates, and a person accepts them. The roles: the tool picks up, narrows, checks and writes; the writer AI chooses and writes the interpretation fields;
-  a person accepts.
-  1. propose makes a worksheet (`candidates/work.md` and `work.json`) per parenthesis of sources without a mark. It shows the clause the parenthesis covers (between the source parentheses before and after it in the same sentence),
-     key candidates from the bibliography (guessed from the names and years in and just before the parenthesis), existing excerpts of the same source, and the top sentences of the source (with numbers n).
-  2. The writer writes drafts in `candidates/drafts.json` (format `cite-bridge-drafts/1`). An item has item, kind (主張 claim, 指示 pointer, 引用でない not a citation), key,
-     reason, written_by, and for a claim excerpts, interpretation, difference from the original and phrases that are not quotations. Each of excerpts is an existing `{"use": "e3"}` or a new
-     `{"sentences": [n1, n2], "from": "…", "to": "…", "強さ", "要約", "言っていないこと"}` (up to 6 consecutive sentences; from and to are partial strings within them and can be omitted).
-     If the passage is not among the top sentences, look up the source with sentences (ranking does not work between Japanese clauses and an English source).
-  3. propose --load checks them and puts only those that pass in `candidates/candidates.json`. The tool copies the verbatim text from the source (the writer's text does not go into the verbatim text).
-     It refuses if the manuscript sentence or the source text changed after the worksheet, the key is not in the bibliography, or the range does not match in the source.
-  4. Candidate cards (with a dashed left border) appear in the approval HTML in the order of the manuscript lines. Judgments are hold, accept, or reject (a reason is required).
-  5. apply writes accepted candidates. For a claim, it writes the excerpt (a new eN; an existing one with the same verbatim text is reused) and the citation block (a new cNNN),
-     puts a mark right after the parenthesis in the manuscript, and records the approval and the summary check of the new excerpt (acceptance counts as approval). For a pointer, the citation block and the mark.
-     For not a citation, it records it in excluded.json and removes it from the coverage count. If the candidate or the manuscript sentence changed after the candidate was made, nothing is written. A rejection stays in the candidates with its reason,
-     and appears in the next propose worksheet.
-  Coverage is counted per source. The inside of a parenthesis is split at 「;」 and 「；」, and if there are two or more sources, each source is one item (the coverage list shows 「出典 1/2」, source 1/2).
-  Parentheses that are only a page or ibid. (「（p.49）」「（同書 p.269）」「（同）」 etc.) are not sources; they count as one item, a repetition of the preceding source.
-  Marks are assigned in three passes. First, when the bibliography and the citation's keys are available, a mark is bound to the source in the same sentence whose key candidates include the citation's key (if the evidence spans two sources, one mark covers two sources).
-  Next, among the remaining sources, a mark is given to those whose directly following mark is not used yet (for several split sources, only one, from the front). Finally, unused marks are distributed from the front to the remaining sources without a mark.
-- Narrowing propose: `--key <key>` (repeatable) puts in the worksheet only sources whose key candidates (the top 3 and --add-key) include that key.
-  `--checkable` keeps only sources whose first key candidate has a machine-checkable grade (PDF extracted, web copy saved). Repeat items drop out with `--checkable`. Narrowing happens before cutting with --limit.
-- md2docx's review_html.py (diff review) reads review --json and marks the state on 〔c003〕 in the text. If the approval HTML is next to the output
-  (under the default name cite_review.html), the marks link to that citation's card. The dependency is one way, viewer → bridge; the bridge does not know the viewer.
-- review's md output is kept as material to hand to an AI, and for situations where the HTML cannot be opened.
-- Besides h1 to h6, snapshot picks up collapsible headings (summary of details, Google help's a.zippy) as subheadings.
-  Alternative text of images (alt) is kept as `[図: …]` lines. Images in a paragraph that also has text (arrow icons in the middle of a sentence, logos at the head of an item)
-  are not figures and are not output (they would cut the sentence and break verbatim matching). This is so that content found only in figures, such as names of screen parts, falls within the verbatim text and matching.
-  When you change how headings are picked up, --rebuild rebuilds the copy without fetching again (the date of retrieval and the hash stay; the date of rebuilding is added).
-- The headers of copies and OCR (`<!-- … -->`) are excluded from surrounding sentences. In web copies, blank lines also separate sentences.
-- The derived fields also include 「含む文」 (sentence). When the verbatim text is cut in the middle of a sentence, it shows the whole sentence of the original. This is so that qualifications outside the verbatim text
-  (「…が考えられる」, "without critical reflection", etc.) are not overlooked; write the summary and what it does not say looking at it.
+- snapshot saves the raw HTML to `<web_dir>/<key>.html` (not tracked) and the body to `<key>.txt` (tracked). The location becomes 「Web 写し（取得日） / 見出し」 (web copy (date of retrieval) / heading).
+  The copy stays as it was when retrieved. When it is retrieved again, the date changes and the match is derived again.
+- OCR is not built into the tool. Put text made by OCR at `<text_dir>/<same name as the PDF>.txt` with a header starting with `<!-- ocr` (engine, date) at the top.
+  Its grade becomes 「PDF所持（OCR の抽出）」 (PDF held, OCR extraction), and it is not counted as machine-checkable. Because of misreadings, matches are often approximate.
 - grade gives the grade per bibliography key. Given a mapping table with `--keys-from`, it also shows keys in the table's key column that are not in the bibliography (leftovers of renaming, etc.).
-- Heading detection is an estimate (only headings whose numbers advance in order are taken, and table-of-contents lines are excluded). If a section is derived wrongly, check the heading lines in the extracted text.
-
-- checkpoint writes `bridge/checkpoints/<UTC time>.json` only when there are neither consistency errors nor pending items. It holds git's HEAD and uncommitted inputs,
-  the sha256 of the settings, bibliography, manuscript, citations, excerpts and extracted text, the breakdown of matches and grades of excerpts, the citation states, counts per approver, the tally of checks against the original and the name given to checkpoint --by, the coverage counts (including the number of parentheses), and the tool's version (tool: version, sha256 of the tool's source, last commit of the tool's folder, whether there are uncommitted changes). If a classifier is configured,
-  it also keeps the provider, model, types (name, version, wording fingerprint), number of judgments and number of flags (SPEC §8).
-- OCR is not built into the tool (to keep external dependencies out of the core). Put text made by OCR at `<text_dir>/<same name as the PDF>.txt` with a header starting with `<!-- ocr` (engine, date)
-  at the top. Its grade becomes 「PDF所持（OCR の抽出）」 (PDF held, OCR extraction), and it is not counted as machine-checkable. Because of misreadings, matches are often approximate.
-- Matching is done only within the extracted text bound to the key (`<text_dir>/<name>.txt` with the same name as the PDF the bibliography points to, or else `<web_dir>/<key>.txt`).
-  When nothing matches, matches in other sources are shown as hints.
-- Match levels: identical (only whitespace differs; spaces next to Japanese characters are treated as typesetting and ignored), matches after normalization (NFKC, quotation marks and dashes,
-  small kana, end-of-line hyphens; it says so when punctuation also differs),
-  approximate (50% or more character overlap; the candidate location is shown), cannot be matched (no extraction, or a garbled one), no match.
-- Pages are counted from page breaks (\f) in the extracted text. When the bibliography has a page range that fits the PDF's page count, the printed page is also shown.
-- Extracted text is made with pymupdf (pdftotext garbled many Japanese PDFs).
-
-## Tests
-
-`python -m unittest discover -s tools/cite-bridge/tests`. They do not depend on the user's data; each builds a small set in a temporary folder
-(matching and location, section kinds, the containing sentence, staleness of derived fields, small kana in Japanese, approval and recheck, phrases that are not quotations, orphans, English field names, the three bibliography formats,
-strip, mark-format settings, copies of PDF URLs, LaTeX \cite and the mark's key, checkpoint, OCR marks, approval reasons and evidence, returns,
-summary checks, references within fields, review (md, JSON and HTML), apply (writing, and refusing mismatched fingerprints), collapsible headings and rebuilding,
-coverage counting, worksheets, checking, accepting and rejecting candidates, human readings, precommit, checks of excerpts not used by citations, wording measurement and material preparation,
-language pairs and different-language pairs, mutation difficulty, actual-error items, flags only for judgments heavier than the record, extraction headers and diagnoses, human check and checks against the original, secondary sources, aligned classifier counts, per-source coverage,
-that SPEC.md's field tables, aliases, value vocabularies and format names, and the keys of the JSON the tool writes, agree with the implementation (`tests/test_spec.py`),
-that the getting-started guides run as written (`tests/test_getting_started.py`), and that the English versions agree with the Japanese ones in commands, options, code and links (`tests/test_translations.py`). Of the approval HTML's JavaScript,
-the parts that do not depend on the screen (merging saved input, judging outdated decisions, assembling the decisions file) run on node (`tests/test_review_js.py`; skipped without node). The classifier (a fake server answering in the shape of Jev's API; nothing is sent out): type registry, ledger, staleness and estimates; and that module imports have no cycles).
-The hook also runs the tests when the tool's side is edited.
+- checkpoint writes `bridge/checkpoints/<UTC time>.json` only when there are neither consistency errors nor pending items (its contents are in SPEC.md §8).
 
 ## What an AI must follow
 
