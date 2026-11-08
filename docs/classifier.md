@@ -16,8 +16,13 @@ English: [classifier.en.md](classifier.en.md)（正本はこの日本語の版�
 
 ## 設定
 
-鍵は書かず、環境変数 `JEV_API_KEY`（または `TYPESAFE_API_KEY`。同じ鍵の別名）で渡す。環境変数が無ければ、`bridge.toml` と同じ場所の `.env`（`JEV_API_KEY=...` の行）から読む。
-`.env` は、その場所の `.gitignore`（`bridge/.gitignore`）に入れ、コミットしない。git に無視されていない `.env` からは、鍵を読まない。
+鍵は設定ファイル（bridge.toml）には書かない。鍵を読むのは送るときだけで、次の順に見て、最初に見つかった値を使う（`cite_bridge/classifier.py` の `jev_key`）。
+
+1. 環境変数 `TYPESAFE_API_KEY`、次に `JEV_API_KEY`（同じ鍵の別名）。空の値（空白だけを含む）は無いものとする。
+2. `.env`（`KEY=VALUE` の行。コメントと空行は無視し、両端の引用符は外す）。見る場所は、bridge.toml と同じフォルダ（`--config` で替えたときは、その設定ファイルのフォルダ。既定は `bridge/`）、次に作業フォルダ。各フォルダで、`TYPESAFE_API_KEY`、`JEV_API_KEY` の順に値を探す。
+   その `.env` があり、git のリポジトリの中で git に無視されていなければ、鍵を読まずに止める（`ClassifierUnavailable`。その要求は SKIP になり、判定を何も書かない）。リポジトリの外、または git が無いときは、止めずに読む。
+
+どの場所にも鍵が無ければ `ClassifierUnavailable`。`.env` は、その場所の `.gitignore`（`bridge/.gitignore`）に入れ、コミットしない。
 
 ```toml
 [classifier]
@@ -102,5 +107,6 @@ bridge.py classify --eval <測定の組.json> --variant <文面の案.toml> [--v
 
 ## 提供元を足す
 
-アダプタは `classify(state, asks) -> verdicts` の一つだけである（`cite_bridge/classifier.py`）。
-`Classifier` を継いだクラスを書き、`PROVIDERS` に一行足す。
+`Classifier` を継いだクラスを書き、`PROVIDERS` に一行足す（`cite_bridge/classifier.py`）。アダプタの契約は `classify(state, asks) -> list[Verdict | None]` の一つだけである。
+state は共通の材料の文面、asks は同じ state に対する互いに独立な問い。Verdict は label（labels のどれか）、score（Optional）、scores（全ラベル）。
+答えられなかった問いは None、呼び出し全体の失敗は `ClassifierUnavailable`（判定を何も書かない）。外へ送るのは `classify --send` のときだけ。

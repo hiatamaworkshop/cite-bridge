@@ -3,7 +3,7 @@
 Japanese original: [SPEC.md](SPEC.md). This English version is a translation; the Japanese version is authoritative, and where the two differ, follow it.
 
 This document is the authoritative definition of the formats of the files the tool reads and writes. Where it disagrees with the implementation (bridge.py and cite_bridge/), fix the implementation or this document so that they agree.
-How to use and run the tool is in SKILL.md; the design is in `docs/design-0.3.0.md` (Japanese only).
+How to use and run the tool is in SKILL.md.
 
 - Format version: 0.4.2 (`TOOL_VERSION` in cite_bridge/config.py). It is recorded in the manifest. What is frozen, how changes are made, and migration steps are in §11.
 - Character encoding is UTF-8; line endings are LF.
@@ -122,7 +122,7 @@ extracted: <YYYY-MM-DD>
 (pdf: the PDF file name relative to pdf_dir in the settings; sha256: the sha256 (hex) of the PDF bytes; pages: the number of pages of the PDF; ocr_pages: the pages judged to be an OCR text layer, e.g. 1-7 or 2,5-6, omitted when there are none; extractor: pymupdf and its version; extracted: the date.)
 
 - Key and value lines are read with `^(\w+): (.*)$` (the same way as the header of web copies).
-- `extract --header-only` adds a header made from the PDF to extracted text that has none (the body is unchanged). That header has `extractor: 不明（頭書きは後から足した）` (unknown; header added later) and, in place of `extracted:`, `annotated: <YYYY-MM-DD>`. Files with no extracted text, no PDF, an existing header, or text not readable as UTF-8 are skipped (with the reason; text not readable as UTF-8 is left as is, without guessing or converting the encoding and without adding a header). It cannot be used with `--force`.
+- `extract --header-only` adds a header made from the PDF to extracted text that has none (the body is unchanged). That header has `extractor: 不明（頭書きは後から足した）` (unknown; header added later) and, in place of `extracted:`, `annotated: <YYYY-MM-DD>`.
 - A page belongs to an OCR text layer when it meets both: (1) invisible characters (render mode 3) make up half or more of its characters; (2) images cover 80% or more of the page area.
 
 ### 2.4.2 Extraction diagnoses
@@ -178,8 +178,8 @@ They apply to claim citations. There are five: 未承認 / 承認済 / 要再確
   An approval by someone listed as model is kept in the record but counted as not approved, and check reports a pending NOTE 「承認を数えない」 (approval not counted). Whether the source supports the claim is guaranteed by a person's approval.
   Without a list the kind is unknown, so the approver's name does not matter. Checks against the original (§2.1) and summary checks accept a model checker separate from the writer (outside this rule).
   review (md, JSON) and the approval HTML count approvals in the same way as check. A citation whose approval is not counted (an approval by someone listed as model, or by the same model as the writer, condition 3 of §2.1) gets the state 未承認 (not approved), with 「承認を数えない（<reason>）」 (approval not counted) as the detail, and is in the default pending list.
-  An approval that is not counted is shown as material for a person's approval: who approved and when, the approval reason, and whether the text and evidence at approval match the current ones (with `@承認時の本文` (approved_text) when the text differs) (`model_approval` in review's JSON, a section in the md, a dashed frame in the approval HTML). It is also shown when the text changed afterwards and the citation became 要再確認 (needs recheck).
-  For a citation with a human approval that is counted now (text and evidence match the current ones), the tool refuses to write an approval by someone listed as model (the human's approval record is not removed). It can write one for a citation that is 要再確認 (needs recheck), 差し戻し (sent back) or 未承認 (not approved).
+  A citation whose approval is not counted has the field `model_approval` in review's JSON (null for a counted approval, not approved and sent back). Its contents are `{by, date, note, why, text, evidence, approved_text}`:
+  who approved and when, the approval reason, why it is not counted, whether the text and evidence at approval match the current ones (合う matches / 変わった changed / 記録が無い no record), and `@承認時の本文` (approved_text) only when the text changed. It is also present when the text changed afterwards and the citation became 要再確認 (needs recheck).
   When the kind is looked up in the list, differences of full-width and half-width, and of upper and lower case, in the name are ignored.
 - 要再確認 (needs recheck): the sentence or the evidence changed after approval.
 - 差し戻し (returned): the fingerprint and evidence at the return equal the current ones (the writer has not fixed it yet). If they differ, the state is 「差し戻し後に直された」 (fixed after return), waiting for approval.
@@ -202,7 +202,6 @@ A fingerprint is the first 8 hex digits of the SHA-1 of a normalized string. Nor
 ### 4.1 Rules for human readings
 
 Human judgments (approval, return) are the person's authority, but a reading that goes into the sentence needs an excerpt as its anchor. A reading not in the words of the original is not moved into the sentence without an anchor.
-The human reading is a separate field so that the writer's interpretation (written by an AI) and a reading a person adds on their own responsibility are kept apart, by who wrote it and by what is approved.
 
 - The writer is a person. When the settings have an approvers list, the writer must be of kind human.
 - An anchor is required: the reading contains one or more IDs of the excerpts listed in this citation's `抜き書き` (excerpts) (`e6` or `key#e6`).
@@ -359,19 +358,7 @@ The field reference `excerpt.<field>` covers the excerpt's 逐語, 前, 含む�
   text with only Latin letters is en (Western languages other than English are also counted as en). It is not written in the eval set; the tool detects it.
 - `citation.出典` is the first author and year of the evidence source (derived from the bibliography). It is used in the question to name which part of the sentence to look at.
 
-### Adapter contract (`cite_bridge/classifier.py`)
-
-`classify(state, asks) -> list[Verdict | None]`. state is the wording of the shared material; asks are mutually independent questions about the same state.
-A Verdict has label (one of labels), score (Optional) and scores (all labels). A question that could not be answered is None; a failure of the whole call is
-`ClassifierUnavailable` (no judgment is written). Data is sent out only with `classify --send`.
-
-The key is not written in the settings file (bridge.toml). The key is read only when sending, by looking at the following in order and using the first value found (`jev_key` in `cite_bridge/classifier.py`).
-
-1. The environment variables `TYPESAFE_API_KEY`, then `JEV_API_KEY`. An empty value (only whitespace) counts as absent.
-2. `.env` (`KEY=VALUE` lines; comments and blank lines are ignored, and quotes at both ends are removed). It is looked for in the folder of bridge.toml (when changed with `--config`, the folder of that settings file; `bridge/` by default), then in the working folder. In each folder, the value is looked for as `TYPESAFE_API_KEY`, then `JEV_API_KEY`.
-   If that `.env` exists inside a git repository and git does not ignore it, the tool stops without reading the key (`ClassifierUnavailable`; the request becomes SKIP and no judgment is written). Outside a repository, or without git, it reads the key without stopping.
-
-If no key is found anywhere, `ClassifierUnavailable`.
+The contract of provider adapters, and the order in which the classifier key is read, are in docs/classifier.md.
 
 ## 7. Records of applying
 
@@ -422,14 +409,13 @@ A template is in the "設定" (Settings) section of SKILL.md. The table lists th
 | approvers | <name> = human / model | Who can approve, and their kind. If omitted, names are not checked. Only approvals by human approvers count as approved for citations (§3.2) |
 | coverage | pattern, repeat_pattern | Regular expression for parentheses that look like sources (default: parentheses containing a year), and for parentheses that are only a page or "ibid." (default below) |
 | hook | watch | Paths pre-commit watches besides those the settings point to |
-| classifier | provider, model, endpoint, max_chars, types | Classifier provider and limits (§6.4). Do not write the key (§6.4) |
+| classifier | provider, model, endpoint, max_chars, types | Classifier provider and limits (§6.4). Do not write the key (docs/classifier.md) |
 | checks (array) | type, version, for, question, labels, … | Adding and overriding question types (§6.4) |
 
 When applied, candidates, excluded or judgments in `bridge` is omitted, the tool keeps it as `applied.json`, `candidates/`, `excluded.json` or `judgments.jsonl` in the same folder as the citations file (citations).
-When `--citations` replaces the citations file, the omitted locations also move to that citations file's folder (these four records from a trial on a copy do not go into the original ones).
+When `--citations` replaces the citations file, the omitted locations also move to that citations file's folder.
 Locations set explicitly in the settings do not move. To share the classifier ledger with a copy, set judgments explicitly.
 `--citations` replaces only the citations file and these four locations. The excerpts (including the records of summary checks and checks against the original) and the checkpoints are the ones at the locations in the settings, and the mark written when a candidate is accepted goes into the manuscript named by `対象` (target) in the citations file.
-To try on a copy, copy the manuscript too, and point `対象` in the copied citations file at it.
 
 The default of `repeat_pattern` is `[（(](?:同書[^（）()\n]*|同上|同|ibid\.?[^（）()\n]*|pp?\.\s?\d[^（）()\n]*)[）)]`.
 Parentheses that are only a page or "ibid." are not sources; they count as one item, a repetition of the preceding source. A parenthesis that matches both `pattern` and `repeat_pattern` counts on the `pattern` side.

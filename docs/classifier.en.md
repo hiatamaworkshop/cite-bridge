@@ -16,8 +16,13 @@ The shape of the judgment ledger and of types is in §6.4 of [SPEC.md](../SPEC.m
 
 ## Settings
 
-Do not write the key there; pass it in the environment variable `JEV_API_KEY` (or `TYPESAFE_API_KEY`, another name for the same key). If the environment variable is absent, the key is read from `.env` in the same folder as `bridge.toml` (a `JEV_API_KEY=...` line).
-Put `.env` in that folder's `.gitignore` (`bridge/.gitignore`) and do not commit it. The key is not read from a `.env` that git does not ignore.
+The key is not written in the settings file (bridge.toml). The key is read only when sending, by looking at the following in order and using the first value found (`jev_key` in `cite_bridge/classifier.py`).
+
+1. The environment variables `TYPESAFE_API_KEY`, then `JEV_API_KEY` (another name for the same key). An empty value (only whitespace) counts as absent.
+2. `.env` (`KEY=VALUE` lines; comments and blank lines are ignored, and quotes at both ends are removed). It is looked for in the folder of bridge.toml (when changed with `--config`, the folder of that settings file; `bridge/` by default), then in the working folder. In each folder, the value is looked for as `TYPESAFE_API_KEY`, then `JEV_API_KEY`.
+   If that `.env` exists inside a git repository and git does not ignore it, the tool stops without reading the key (`ClassifierUnavailable`; the request becomes SKIP and no judgment is written). Outside a repository, or without git, it reads the key without stopping.
+
+If no key is found anywhere, `ClassifierUnavailable`. Put `.env` in that folder's `.gitignore` (`bridge/.gitignore`) and do not commit it.
 
 ```toml
 [classifier]
@@ -102,5 +107,6 @@ Surrounding sentences are cut at 200 characters (leftovers of extraction can joi
 
 ## Adding a provider
 
-An adapter has only one method, `classify(state, asks) -> verdicts` (`cite_bridge/classifier.py`).
-Write a class that inherits `Classifier` and add one line to `PROVIDERS`.
+Write a class that inherits `Classifier` and add one line to `PROVIDERS` (`cite_bridge/classifier.py`). The adapter's contract is a single method, `classify(state, asks) -> list[Verdict | None]`.
+state is the wording of the shared material; asks are mutually independent questions about the same state. A Verdict has label (one of labels), score (Optional) and scores (all labels).
+A question that could not be answered is None; a failure of the whole call is `ClassifierUnavailable` (no judgment is written). Data is sent out only with `classify --send`.
