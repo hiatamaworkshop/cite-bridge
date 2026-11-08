@@ -5,7 +5,7 @@ English: [SPEC.en.md](SPEC.en.md)（正本はこの日本語の版で、英語�
 この文書は、道具が読み書きするファイルの形式の正本である。実装（bridge.py と cite_bridge/）と食い違ったときは、この文書に合わせて実装か文書を直す。
 使い方と運用の作法は SKILL.md、設計は `docs/design-0.3.0.md` にある。
 
-- 形式の版: 0.4.1（cite_bridge/config.py の `TOOL_VERSION`）。マニフェストに記録する。固める範囲、変えるときの手順、移行の手順は §11。
+- 形式の版: 0.4.2（cite_bridge/config.py の `TOOL_VERSION`）。マニフェストに記録する。固める範囲、変えるときの手順、移行の手順は §11。
 - 文字コードは UTF-8、改行は LF。
 - 欄名と値は日本語を正とし、英語の別名も受ける（§10）。内部では日本語にそろえる。
 
@@ -366,7 +366,7 @@ Verdict は label（labels のどれか）、score（Optional）、scores（全�
 
 ```json
 {"format": "cite-bridge-manifest/1",
- "tool": {"name": "cite-bridge", "version": "0.4.1", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
+ "tool": {"name": "cite-bridge", "version": "0.4.2", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
  "checkpoint": "<UTC 時刻>", "label": "",
  "git": {"head": "<HEAD>", "uncommitted": ["…"]},
  "files": {"config": {"path", "sha256"}, "bibliography": {…}, "manuscript": {…}, "citations": {…},
@@ -485,6 +485,8 @@ SKILL.md の「設定」の節にひな形がある。表は鍵の一覧であ�
   この版から、§11.1 の範囲を固め、変えるときは §11.2 の手順に従う。
 - 0.4.1 で、review（md・JSON）と承認の HTML が、承認を check と同じに数えるようにした（§3.2）。数えない承認の引用は、状態が承認済から未承認に変わり（補足に理由）、既定の確認待ちに出る。
   欄・形式名・指紋とファイルの状態は変わらないので、移行の手順は要らない。review の JSON の `state` を読む外の表示には、この引用が承認済でなく未承認として渡る。
+- 0.4.2 で、承認者の一覧の種類を、名前の大文字・小文字や全角・半角の違いを無視して引くようにした（§3.2）。一覧の model の者と綴りだけが違う名前の承認は、承認済に数えなくなり、`check --strict` と `checkpoint` が止まる。
+  あわせて、今数えている人の承認がある引用には model の者の承認を書かずに断り、`@承認時の本文` を一行で書くようにした。欄・形式名・指紋とファイルの状態は変わらないので、移行の手順は要らない。
 
 ### 0.4.0 の移行の手順
 

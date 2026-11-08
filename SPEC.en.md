@@ -5,7 +5,7 @@ Japanese original: [SPEC.md](SPEC.md). This English version is a translation; th
 This document is the authoritative definition of the formats of the files the tool reads and writes. Where it disagrees with the implementation (bridge.py and cite_bridge/), fix the implementation or this document so that they agree.
 How to use and run the tool is in SKILL.md; the design is in `docs/design-0.3.0.md` (Japanese only).
 
-- Format version: 0.4.1 (`TOOL_VERSION` in cite_bridge/config.py). It is recorded in the manifest. What is frozen, how changes are made, and migration steps are in §11.
+- Format version: 0.4.2 (`TOOL_VERSION` in cite_bridge/config.py). It is recorded in the manifest. What is frozen, how changes are made, and migration steps are in §11.
 - Character encoding is UTF-8; line endings are LF.
 - Japanese field names and values are canonical; English aliases are also accepted (§10). Internally everything is normalized to Japanese.
   In this translation, field names and values are given in Japanese with the English alias in parentheses, e.g. 逐語 (verbatim).
@@ -386,7 +386,7 @@ Written by `checkpoint` at a point that has passed `check --strict`. When there 
 
 ```json
 {"format": "cite-bridge-manifest/1",
- "tool": {"name": "cite-bridge", "version": "0.4.1", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
+ "tool": {"name": "cite-bridge", "version": "0.4.2", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
  "checkpoint": "<UTC 時刻>", "label": "",
  "git": {"head": "<HEAD>", "uncommitted": ["…"]},
  "files": {"config": {"path", "sha256"}, "bibliography": {…}, "manuscript": {…}, "citations": {…},
@@ -507,6 +507,8 @@ Formats that are not frozen (worksheets, drafts, candidates, eval sets and resul
   From this version, the scope of §11.1 is frozen, and changes follow the steps of §11.2.
 - 0.4.1 made review (md, JSON) and the approval HTML count approvals in the same way as check (§3.2). A citation whose approval is not counted changes from approved to not approved (with the reason as the detail) and appears in the default pending list.
   Fields, format names, fingerprints and the state of files do not change, so no migration steps are needed. External viewers that read `state` in review's JSON receive such a citation as not approved instead of approved.
+- 0.4.2 looks up the kind in the approvers list ignoring differences of upper and lower case and of full-width and half-width in the name (§3.2). An approval by a name that differs only in spelling from someone listed as model is no longer counted as approved, and `check --strict` and `checkpoint` stop.
+  It also refuses to write an approval by someone listed as model for a citation with a human approval that is counted now, and writes `@承認時の本文` (approved_text) on one line. Fields, format names, fingerprints and the state of files do not change, so no migration steps are needed.
 
 ### Migration steps for 0.4.0
 

@@ -4,6 +4,8 @@ Japanese original: [README.md](README.md). This English version is a translation
 
 cite-bridge gives every citation in a paper an anchor (the verbatim text of the source and its location) and keeps the state of its checks correct while you write.
 
+This is an experimental 0.x tool for people who write papers together with an AI. It promises only two things, the shape of the data and the guarantee statement (see "What the tool does" below); commands and output messages may change from version to version.
+
 ## What the tool does
 
 Most citation errors make a real source say something it does not say. The tool does not try to detect that automatically.
