@@ -19,6 +19,8 @@ from .manuscript import (
     mark_keys,
     manuscript_marks,
     mask_comments,
+    model_approval_problem,
+    self_check_problem,
     sentence_at,
     source_check_state,
     summary_fingerprint,
@@ -83,6 +85,24 @@ def needs_review(it):
     if it["kind"] != "主張":
         return False
     return it["state"] != "承認済" or not summaries_confirmed(it["evidence"]) or any(unconfirmed_source(e) for e in it["evidence"])
+
+
+def model_approval_of(f, rec, fp, ev):
+    """model の承認（一覧で model の者と、書き手と同じモデルの承認）の記録を、人が読む形にする（C33）。model の承認でなければ None。
+
+    承認したときの本文と根拠が今と合うかは、approval_state と同じに記録の指紋で比べる。根拠は指紋しか残らないので、合うかだけを出す。
+    """
+    words = (f.get("承認") or "").split()
+    if not words or words[0] in ("未", cfg.RETURNED, "returned"):
+        return None
+    by = words[0]
+    why = self_check_problem(by, writer_of(f.get("記入"))) or model_approval_problem(by)
+    if not why:
+        return None
+    text = "合う" if rec.get("承認時の指紋") == fp else "変わった"
+    evidence = "記録が無い" if not rec.get("承認時の根拠") else ("合う" if rec["承認時の根拠"] == ev else "変わった")
+    return {"by": by, "date": words[1] if len(words) > 1 else "", "note": f.get("承認の理由", ""), "why": why,
+            "text": text, "evidence": evidence, "approved_text": rec.get("承認時の本文", "") if text == "変わった" else ""}
 
 
 def review_data(cids=None, images=None, include_done=False, all_orphans=False, checked=None):
@@ -164,9 +184,11 @@ def review_data(cids=None, images=None, include_done=False, all_orphans=False, c
             continue
         refs = [r.strip() for r in f.get("抜き書き", "").split(",") if r.strip()]
         sent = sentence_at(text, pos[cid])
+        mappr = None
         if f.get("種類") == "主張":
-            state, extra = approval_state(f, b.get("records", {}), fingerprint(sent),
-                                          evidence_hash(refs, excerpt_fields, f.get("人の読み", "")))
+            fp_now, ev_now = fingerprint(sent), evidence_hash(refs, excerpt_fields, f.get("人の読み", ""))
+            state, extra = approval_state(f, b.get("records", {}), fp_now, ev_now)
+            mappr = model_approval_of(f, b.get("records", {}), fp_now, ev_now)
             uncounted = uncounted_approval(state, extra, f)  # check と同じに数える（§3.2、C34）
             if uncounted:
                 state, extra = "未承認", f"承認を数えない（{uncounted}）"
@@ -188,7 +210,7 @@ def review_data(cids=None, images=None, include_done=False, all_orphans=False, c
                                              "差し戻しの理由", "指摘") if f.get(n)},
                 "errors": [e for e in checked["errors"] if tag in e],
                 "notes": [n for n in checked["notes"] if tag in n],
-                "evidence": evidence, "commands": {}}
+                "evidence": evidence, "model_approval": mappr, "commands": {}}
         if item["kind"] == "主張":
             item["commands"] = {
                 "approve": f'python {tool} approve {cid} --by {who} --note "…"',
@@ -307,6 +329,17 @@ def classifier_line(c):
     return f"{c['label']}{rec}　{c['status']}{sc}" + ("" if c["fresh"] else "（本文か材料が変わった。判定し直す）")
 
 
+MATCH_WORDS = {"合う": "今と合う", "変わった": "今と違う", "記録が無い": "記録が無い（根拠の指紋を残す前の承認）"}
+
+
+def model_approval_lines(m):
+    """model の承認の記録（review の JSON の model_approval）を、md と HTML で同じ並びの (名前, 値) にする（C33）。"""
+    rows = [("承認", f"{m['by']} {m['date']}".strip()), ("数えない理由", m["why"])]
+    if m["note"]:
+        rows.append(("承認の理由", m["note"]))
+    return rows + [("承認したときの本文", MATCH_WORDS[m["text"]]), ("承認したときの根拠", MATCH_WORDS[m["evidence"]])]
+
+
 def review_md(data):
     out = [f"# 引用の確認（{data['date']}、{data['manuscript']}）", "",
            "各件で、本文と根拠の逐語を読み、承認か差し戻しを決める。AI が書いた要約と解釈は、逐語を読んだ後に見る。",
@@ -318,6 +351,12 @@ def review_md(data):
         out += [f"- 整合の崩れ: {e}" for e in it["errors"]] + ([""] if it["errors"] else [])
         if it["fields"].get("差し戻しの理由"):
             out += [f"差し戻しの理由: {it['fields']['差し戻しの理由']}", ""]
+        m = it.get("model_approval")
+        if m:
+            out += ["### model の承認（承認済には数えない。人の承認の材料）", ""]
+            out += [f"- {n}: {v}" for n, v in model_approval_lines(m)] + [""]
+            if m["approved_text"]:
+                out += ["承認したときの本文:", "", f"> {m['approved_text']}", ""]
         for i, e in enumerate(it["evidence"], 1):
             if e.get("missing"):
                 out += [f"### 根拠 {i}: {e['id']}（抜き書きが無い）", ""]
@@ -341,8 +380,9 @@ def review_md(data):
             out += [f"要約と言っていないこと（{who}）:", "", f"- 強さ: {e['strength']}", f"- 要約: {e['summary']}",
                     f"- 言っていないこと: {e['not_said']}", ""]
         out += [f"### 引用の欄（記入: {it['fields'].get('記入', '')}）", ""]
+        shown = ("承認", "承認の理由") if m else ()  # model の承認は上の節に出した
         out += [f"- {n}: {it['fields'][n]}" for n in ("理由", "解釈", "人の読み", "人の読みの記入", "原文との差", "引用でない句", "承認", "承認の理由", "指摘")
-                if it["fields"].get(n)] + [""]
+                if it["fields"].get(n) and n not in shown] + [""]
         if it.get("classifier"):
             out += ["分類器の判定（印を立てるだけで、判断は人）:", ""]
             out += [f"- {c['item']} {c['type']}: {classifier_line(c)}" for c in it["classifier"]] + [""]
@@ -488,9 +528,16 @@ def review_page(data):
         if f.get("差し戻しの理由"):
             h.append(f'<p class="back">差し戻しの理由：{E(f["差し戻しの理由"])}</p>')
         h.append(f'<div class="sent">{sent}<details class="inline"><summary>段落</summary><span class="para">{para}</span></details></div>')
+        m = it.get("model_approval")
+        if m:  # 点線の枠は AI が出したもの。承認済には数えず、人の承認の材料として見せる（C33）
+            h.append('<div class="ai mappr"><p class="sm"><b>model の承認</b>（承認済には数えない。人の承認の材料）</p>'
+                     '<dl class="cf-rows">' + "".join(f"<dt>{n}</dt><dd>{E(v)}</dd>" for n, v in model_approval_lines(m)) + "</dl>"
+                     + (f'<p class="sm mut">承認したときの本文：</p><blockquote>{E(m["approved_text"])}</blockquote>'
+                        if m["approved_text"] else "") + "</div>")
         for i, e in enumerate(it["evidence"], 1):
             h.append(ev_html(i, e, it["id"]))
-        rows = [(n, f[n]) for n in ("理由", "解釈", "人の読み", "人の読みの記入", "引用でない句", "承認の理由", "指摘") if f.get(n)]
+        rows = [(n, f[n]) for n in ("理由", "解釈", "人の読み", "人の読みの記入", "引用でない句", "承認の理由", "指摘")
+                if f.get(n) and not (m and n == "承認の理由")]
         rows += [("分類器 " + c["type"], f'{c["item"].split(":", 1)[-1]}　{classifier_line(c)}') for c in it.get("classifier", [])]
         h.append('<dl class="cf-rows">' + "".join(f"<dt>{n}</dt><dd>{E(v)}</dd>" for n, v in rows) + "</dl>"
                  + f'<p class="mut sm" title="{E(f.get("記入", ""))}">記入：{E(short(f.get("記入", ""), 60))}</p></div>')

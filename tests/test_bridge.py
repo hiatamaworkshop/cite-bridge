@@ -502,6 +502,41 @@ class BridgeTest(unittest.TestCase):
         c = json.loads(self.run_bridge("review", "--json", "--all")[1])["citations"][0]
         self.assertEqual((c["state"], c["state_detail"]), ("承認済", "alice"))
 
+    def test_model_approval_record_is_shown(self):
+        """model の承認の理由と、承認したときの本文と根拠が今と合うかが、review の JSON・md・承認の HTML に出る（C33）。"""
+        import json
+        self.write("bridge/bridge.toml", CONFIG + '[approvers]\nalice = "human"\nreviewer-model = "model"\n')
+        self.run_bridge("derive")
+        self.assertEqual(self.run_bridge("approve", "c001", "--by", "reviewer-model", "--note", "逐語が本文の数を支える")[0], 0)
+        why = "model 'reviewer-model' の承認は記録に残るが、承認済には人（human）の承認が要る"
+        m = json.loads(self.run_bridge("review", "--json")[1])["citations"][0]["model_approval"]
+        self.assertEqual((m["by"], m["note"], m["why"], m["text"], m["evidence"], m["approved_text"]),
+                         ("reviewer-model", "逐語が本文の数を支える", why, "合う", "合う", ""))
+        md = self.run_bridge("review")[1]
+        self.assertIn("### model の承認（承認済には数えない。人の承認の材料）", md)
+        self.assertIn("- 承認の理由: 逐語が本文の数を支える\n- 承認したときの本文: 今と合う\n- 承認したときの根拠: 今と合う", md)
+        self.assertEqual(md.count("承認の理由: 逐語が本文の数を支える"), 1)  # 引用の欄の並びには重ねない
+        self.assertEqual(self.run_bridge("review", "--html", "-o", "r.html")[0], 0)
+        html = self.read("r.html")
+        self.assertIn('<div class="ai mappr">', html)
+        self.assertIn("<dt>承認の理由</dt><dd>逐語が本文の数を支える</dd>", html)
+        self.assertEqual(html.count("逐語が本文の数を支える"), 1)
+        # 本文を直すと要再確認になり、承認したときの本文が今の文と並んで出る
+        old = "Doe らの実験では、参加者は \"completed the task in 12 seconds on average\" であった（Doe, 2020）〔c001〕。"
+        self.write("manuscript.md", self.read("manuscript.md").replace("Doe らの実験では", "Doe らの実験で"))
+        c = json.loads(self.run_bridge("review", "--json")[1])["citations"][0]
+        self.assertEqual((c["state"], c["model_approval"]["text"], c["model_approval"]["evidence"]), ("要再確認", "変わった", "合う"))
+        self.assertEqual(c["model_approval"]["approved_text"], old)
+        md = self.run_bridge("review")[1]
+        self.assertIn(f"- 承認したときの本文: 今と違う\n- 承認したときの根拠: 今と合う\n\n承認したときの本文:\n\n> {old}", md)
+        self.assertEqual(self.run_bridge("review", "--html", "-o", "r.html")[0], 0)
+        self.assertIn("<dd>今と違う</dd>", self.read("r.html"))
+        # 人が承認すると、model の承認の記録は消え（承認は書き換わる）、欄は空になる
+        self.assertEqual(self.run_bridge("approve", "c001", "--by", "alice")[0], 0)
+        c = json.loads(self.run_bridge("review", "--json", "--all")[1])["citations"][0]
+        self.assertIsNone(c["model_approval"])
+        self.assertNotIn("model の承認", self.run_bridge("review", "--all")[1])
+
     def test_check_has_no_empty_summary_line(self):
         """抜き書きが無いとき、check は後ろの空いた「抜き書きの要約の確認」の行を出さない。"""
         self.write("bridge/excerpts/doe2020.md", "# doe2020\n")
