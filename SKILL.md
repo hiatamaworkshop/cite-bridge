@@ -101,7 +101,7 @@ English: [SKILL.en.md](SKILL.en.md)（正本はこの日本語の版で、英語
   0.2.0 までの自由文の記録は有効でない（確かめ直して記録し直す）。
 - 逐語を直すと記録は有効でなくなる。直すのは書き手で、道具は直さない。違うと報告された逐語も、書き手が直して確かめ直す。
 
-委ねる場合の決まり（README の「原本での確認（要ヒューマンチェック）」と同じ）。
+委ねる場合の決まり。
 
 1. 要ヒューマンチェックの依頼は、人が外部の AI に委ねてよい。委ねるかを決めるのは人で、委ねる AI を承認者の一覧に model として載せるのも人である。
 2. 委ねた AI は、依頼の JSON を受け取り、その名前で判断ファイルを書く。人がそれを `apply` に渡す。
@@ -207,7 +207,7 @@ python tools/cite-bridge/bridge.py snapshot <key> --rebuild     # 保存した�
 python tools/cite-bridge/bridge.py strip <原稿> <出力>            # 印を外した写しを作る
 python tools/cite-bridge/bridge.py checkpoint [--label 中間提出] [--by 人]   # check --strict を通った地点をマニフェストで残す（道具の版つき）。承認者の一覧があるときは --by（human）が要る
 python tools/cite-bridge/bridge.py precommit                       # git の pre-commit から呼ぶ（hook 節）
-python tools/cite-bridge/bridge.py classify [--send] [--list [--all]] [--cids c001 ...] [--limit N]   # 分類器による検査（README「分類器」。--send が無ければ送らない）
+python tools/cite-bridge/bridge.py classify [--send] [--list [--all]] [--cids c001 ...] [--limit N]   # 分類器による検査（docs/classifier.md。--send が無ければ送らない）
 python tools/cite-bridge/bridge.py classify --eval <組.json> --variant <案.toml> [--types 型 …] [--reps 2] [--send]   # 文面の測定（台帳に書かない）
 ```
 

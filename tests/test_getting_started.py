@@ -80,6 +80,26 @@ class GettingStartedTest(unittest.TestCase):
                 if line.strip():
                     self.assertIn(line, out, f"{m.group('cmd')} の出力に無い")
 
+    def test_readme_example_matches_the_example_set(self):
+        """README の「例」（日本語と英語）の塊は、案内で作るファイルの中身と同じで、承認の後に本文を直すと、書いてある check の行が出る（C38）。"""
+        made = {m.group("path"): m.group("body") for m in GUIDES["ja"][1].finditer(guide_text("ja")) if m.group("path")}
+        self.run_guide("ja")  # 承認と check --strict まで通す
+        sentence = "話す入力は打つ入力より速いが"
+        self.assertIn(sentence, (self.dir / "manuscript.md").read_text(encoding="utf-8"))
+        (self.dir / "manuscript.md").write_text(made["manuscript.md"].replace(sentence, "話す入力は打つ入力より速く"),
+                                                encoding="utf-8", newline="\n")
+        r = subprocess.run([sys.executable, "-X", "utf8", "tools/cite-bridge/bridge.py", "check", "--strict"], cwd=self.dir,
+                           capture_output=True, text=True, encoding="utf-8", env=tb.BridgeTest.clean_env())
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        for name, head, after in (("README.md", "## 例\n", "\n## 始め方\n"), ("README.en.md", "## Example\n", "\n## Getting started\n")):
+            part = (ROOT / name).read_text(encoding="utf-8").split(head, 1)[1].split(after, 1)[0]  # 塊の中の ## e1 では切らない
+            manuscript, excerpt, citation = re.findall(r"```markdown\n(.*?)```", part, re.S)
+            self.assertIn(manuscript, made["manuscript.md"], name)
+            self.assertIn(excerpt, made["bridge/excerpts/tanaka2024.md"], name)
+            self.assertIn(citation, made["bridge/citations.md"], name)
+            for line in "".join(re.findall(r"```text\n(.*?)```", part, re.S)).splitlines():
+                self.assertIn(line, r.stdout + r.stderr, name)
+
     def test_example_files_are_listed(self):
         """案内（日本語と英語）の 0 の表が、例の一式のファイルをすべて挙げる。"""
         files = {p.relative_to(ROOT / "examples" / "first-citation").as_posix()

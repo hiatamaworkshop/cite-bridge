@@ -104,7 +104,7 @@ The mark stays regardless of records; whether the check is done is decided by th
   Free-text records from 0.2.0 and earlier are not valid (check again and record again).
 - Editing the verbatim text invalidates the record. The writer edits it; the tool does not. Verbatim text reported as differing is also fixed by the writer and checked again.
 
-Rules for delegating (the same as "Checking against the original (human check)" in the README).
+Rules for delegating.
 
 1. A person may delegate human-check requests to an external AI. The person decides whether to delegate, and the person lists the delegated AI as model in the approvers list.
 2. The delegated AI receives the request JSON and writes a decisions file under its own name. The person passes it to `apply`.
@@ -210,7 +210,7 @@ python tools/cite-bridge/bridge.py snapshot <key> --rebuild     # rebuild the bo
 python tools/cite-bridge/bridge.py strip <manuscript> <output>            # make a copy without marks
 python tools/cite-bridge/bridge.py checkpoint [--label interim] [--by person]   # record, as a manifest, a point that passed check --strict (with the tool's version); with an approvers list, --by (human) is required
 python tools/cite-bridge/bridge.py precommit                       # called from git's pre-commit (hook section)
-python tools/cite-bridge/bridge.py classify [--send] [--list [--all]] [--cids c001 ...] [--limit N]   # classifier check (README "Classifier"; nothing is sent without --send)
+python tools/cite-bridge/bridge.py classify [--send] [--list [--all]] [--cids c001 ...] [--limit N]   # classifier check (docs/classifier.md; nothing is sent without --send)
 python tools/cite-bridge/bridge.py classify --eval <set.json> --variant <variant.toml> [--types type …] [--reps 2] [--send]   # wording measurement (not written to the ledger)
 ```
 

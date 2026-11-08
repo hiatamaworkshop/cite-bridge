@@ -1,0 +1,45 @@
+# 開発の案内
+
+English: [development.en.md](development.en.md)（正本はこの日本語の版で、英語の版は訳である）
+
+道具に手を入れる人のための文書である。使い方と作法は [SKILL.md](../SKILL.md)、データの形は [SPEC.md](../SPEC.md) にある。
+
+## 実装の構成
+
+入口は `bridge.py`（引数を受けて `cite_bridge/cli.py` へ渡すだけ）。実装は `cite_bridge/` に責務ごとに分けてある。
+
+| モジュール | 内容 |
+|---|---|
+| config | 設定（bridge.toml）の読み込みと、設定で決まる状態（他のモジュールは `cfg.X` で読む）、欄名・値の定数 |
+| source | 原典の正規化、照合、見出しと節の検出、前後の文 |
+| bib | 書誌のアダプタ（keyline・BibTeX・CSL-JSON）と文献の格 |
+| blocks | 抜き書きと引用の md の読み書き |
+| derive | 導く欄（所在・照合・前後の文）を作る |
+| manuscript | 原稿の印・文・指紋、網羅、承認の状態の計算 |
+| check | 整合の検査（check）、網羅の一覧（coverage）、格の一覧（grade） |
+| approve / apply | 承認・差し戻し・要約の確認・指摘の書き込みと、判断ファイルの適用 |
+| propose | 印の無い出典の候補づくり |
+| judge / classifier | 分類器による検査の核（型の登録、材料、台帳、記録との突き合わせ、要求と送信）と、提供元のアダプタ。judge は review を import しない |
+| classify / evaluate | 分類器のコマンド（classify と --list）と、文面の測定（classify --eval） |
+| review（templates/） | 確認の材料（md・JSON）と承認の HTML。HTML と JavaScript は templates/ に置く |
+| fetch | PDF の抽出と Web 資料の写し |
+| checkpoint | マニフェスト、道具の版、pre-commit、印の除去 |
+
+## 試験
+
+- 道具のフォルダで `python -m pytest -q tests`（pytest が無ければ `python -m unittest discover -s tests`）。
+  利用者のデータに依らず、一時フォルダに小さな一式を作って動かす。
+- 承認の HTML の JavaScript の試験には node を使う（無ければその試験だけ飛ばす）。
+  PDF を作る試験は `pymupdf` が無ければ飛ばす。確かめた `pymupdf` の版は 1.28.2 と 2.0。
+- 文書の試験もある。SPEC の欄と形式が実装と合うこと（`tests/test_spec.py`）、始め方の案内が書いてあるとおりに通ること（`tests/test_getting_started.py`）、
+  英語の版がコマンド・オプション・コード・リンクで日本語の版と合うこと（`tests/test_translations.py`）。
+
+## 文書を直すとき
+
+- 日本語の版が正本である。直したら、同じ場所の英語の版（`*.en.md`）も同じに直す。`tests/test_translations.py` は訳の文の正しさは見ない。
+- データの形（SPEC.md §11.1 の範囲）を変えるときは、SPEC.md §11.2 の手順に従い、`cite_bridge/config.py` の `TOOL_VERSION` を上げる。
+
+## 設計と項目
+
+- 設計は [docs/design-0.3.0.md](design-0.3.0.md)（0.3.0 で足した仕組みの設計。日本語だけ）。
+- 開いている項目と、閉じた項目の記録は [docs/roadmap.md](roadmap.md)（日本語だけ）。

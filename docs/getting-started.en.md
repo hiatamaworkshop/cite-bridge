@@ -234,5 +234,5 @@ If you later edit the manuscript sentence or the verbatim text, the citation ret
 ## What to read next
 
 - Making candidates when the manuscript has many sources (`propose`) and the approval page (`review --html`): SKILL.md (SKILL.en.md)
-- Checking against the original, needed for approximate matches and OCR sources: "Checking against the original" in the README (README.en.md)
+- Checking against the original, needed for approximate matches and OCR sources: "Human check (checking against the original)" in SKILL.en.md
 - The short block to put in an agent's instruction file: "Using it with an AI agent" in README.en.md

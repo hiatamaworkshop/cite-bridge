@@ -16,7 +16,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PAIRS = [("README.md", "README.en.md"), ("SPEC.md", "SPEC.en.md"), ("SKILL.md", "SKILL.en.md"),
-         ("docs/getting-started.md", "docs/getting-started.en.md")]
+         ("docs/getting-started.md", "docs/getting-started.en.md"),
+         ("docs/classifier.md", "docs/classifier.en.md"), ("docs/development.md", "docs/development.en.md")]
 FENCE_RE = re.compile(r"^```(\w*)\n(.*?)^```$", re.S | re.M)
 
 
