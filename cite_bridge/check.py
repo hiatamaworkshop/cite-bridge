@@ -27,6 +27,7 @@ from .manuscript import (
     independence_problem,
     sentence_at,
     source_check_state,
+    source_checker_unlisted,
     summary_fingerprint,
     uncounted_approval,
     writer_of,
@@ -109,6 +110,8 @@ def run_check():
             if f.get("原本での確認") and checker:
                 if confirmed:
                     tally("source_checks", "counted", approver_key(checker))
+                elif source_checker_unlisted(checker):  # 一覧に無い確認者（C44）
+                    tally("source_checks", "uncounted", "unlisted")
                 elif independence_code(checker, [writer_of(f.get("記入"))]):
                     tally("source_checks", "uncounted", independence_code(checker, [writer_of(f.get("記入"))]))
             reason = d.get("要ヒューマンチェック", "")

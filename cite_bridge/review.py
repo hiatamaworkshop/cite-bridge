@@ -353,7 +353,8 @@ def review_md(data):
     for it in data["citations"]:
         st = it["state"] + (f"（{it['state_detail']}）" if it["state_detail"] and it["state"] not in ("承認済", "指示") else "")
         if it.get("approved_by") and cfg.COUNT_MODEL:  # model の承認も数えるときは、誰の承認かを見出しに出す（C42）
-            st += f"（{it['approved_by']['by']}・{approver_label(it['approved_by']['by'])}）"
+            label = approver_label(it["approved_by"]["by"])  # 一覧が無ければ種類は出さない（C44）
+            st += f"（{it['approved_by']['by']}" + (f"・{label}" if label else "") + "）"
         out += [f"## {it['id']}　{st}", "", f"節: {it['section']}（原稿 {it['line']} 行）", "", "本文:", "",
                 f"> {it['sentence']}", ""]
         out += [f"- 整合の崩れ: {e}" for e in it["errors"]] + ([""] if it["errors"] else [])
@@ -527,7 +528,8 @@ def review_page(data):
         f = it["fields"]
         detail = f'（{E(it["state_detail"])}）' if it["state_detail"] and it["state"] != "承認済" else ""
         if it.get("approved_by") and cfg.COUNT_MODEL:  # C42
-            detail = f'（{E(it["approved_by"]["by"])}・{E(approver_label(it["approved_by"]["by"]))}）'
+            label = approver_label(it["approved_by"]["by"])  # 一覧が無ければ種類は出さない（C44）
+            detail = f'（{E(it["approved_by"]["by"])}' + (f'・{E(label)}' if label else "") + '）'
         h = [f'<article class="card s-{sev}" id="{cid}" data-id="{cid}" data-done="{int(not needs_review(it))}" tabindex="-1">',
              f'<header><b>〔{cid}〕</b><span class="st s-{sev}">{E(it["state"])}{detail}</span>'
              + (f'<span class="tag">{E(f["原文との差"])}</span>' if f.get("原文との差") else "")

@@ -5,7 +5,7 @@ Japanese original: [SPEC.md](SPEC.md). This English version is a translation; th
 This document is the authoritative definition of the formats of the files the tool reads and writes. Where it disagrees with the implementation (bridge.py and cite_bridge/), fix the implementation or this document so that they agree.
 How to use and run the tool is in SKILL.md.
 
-- Format version: 0.5.0 (`TOOL_VERSION` in cite_bridge/config.py). It is recorded in the manifest. What is frozen, how changes are made, and migration steps are in §11.
+- Format version: 0.5.1 (`TOOL_VERSION` in cite_bridge/config.py). It is recorded in the manifest. What is frozen, how changes are made, and migration steps are in §11.
 - Character encoding is UTF-8; line endings are LF.
 - Japanese field names and values are canonical; English aliases are also accepted (§10). Internally everything is normalized to Japanese.
   In this translation, field names and values are given in Japanese with the English alias in parentheses, e.g. 逐語 (verbatim).
@@ -382,7 +382,7 @@ Written by `checkpoint` at a point that has passed `check --strict`. When there 
 
 ```json
 {"format": "cite-bridge-manifest/1",
- "tool": {"name": "cite-bridge", "version": "0.5.0", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
+ "tool": {"name": "cite-bridge", "version": "0.5.1", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
  "checkpoint": "<UTC 時刻>", "label": "",
  "git": {"head": "<HEAD>", "uncommitted": ["…"]},
  "files": {"config": {"path", "sha256"}, "bibliography": {…}, "manuscript": {…}, "citations": {…},
@@ -401,9 +401,9 @@ Written by `checkpoint` at a point that has passed `check --strict`. When there 
 `source_checks` is the tally of the checks of §5.1: `marked` (excerpts with the human-check mark), `done` (checked), `by_kind` (per kind of checker), `pending` (remaining).
 `by` is the name given to `checkpoint --by`, or null.
 `decided_by` is the breakdown of who judged. Each of `approvals` (citation approvals whose current state is approved), `source_checks` (records of checks against the original, regardless of the human-check mark) and `summary_checks` (summary checks) has `counted` and `uncounted`.
-`counted` counts the judgments that were counted, per kind of the one who judged. The keys are `human`, `model:<family>`, `model` (a model without a family) and `unlisted` (someone not in the list, or when there is no list).
+`counted` counts the judgments that were counted, per kind of the one who judged. The keys are `human`, `model:<family>`, `model` (a model without a family) and `unlisted` (someone not in the list, or when there is no list). The family is normalized by the same rule as names (ignoring full-width and half-width, upper and lower case, and surrounding spaces) and written in lower case.
 `uncounted` counts the judgments not counted because of who judged, per reason. The keys are `same_writer` (the same as the writer), `same_family` (the same family as the writer), `no_family` (the judging model has no family),
-`unknown_writer` (the writer is unknown, not in the list, or has no family) and `model_not_counted` (a citation approval while `approval.count_model` is false).
+`unknown_writer` (the writer is unknown, not in the list, or has no family) `model_not_counted` (a citation approval while `approval.count_model` is false) and `unlisted` (a check against the original whose checker is not in the approvers list).
 Records that are not valid for reasons that do not depend on who judged, such as a stale fingerprint, go in neither. The manifest is written at a point that passed `check --strict`, so `uncounted` is usually empty.
 
 `tool` records which version of the check was passed. sha256 is the sha256 taken over the relative paths and content sha256s of the tool's source (bridge.py and the .py, .html and .js files under cite_bridge/), listed in path order. Even when the tool is used from another repository, the version is known on the user's side. `classifier` is null when no classifier is configured and there is no ledger. Otherwise it is `{provider, model, types:[{type, version, spec}], judgments, flagged, note}` (§6.4).
@@ -516,6 +516,9 @@ Formats that are not frozen (worksheets, drafts, candidates, eval sets and resul
   Nothing changes without a list, or for human checkers and approvers. Fields, format names and fingerprints do not change, but when the list has models, the counting of checks against the original and summary checks changes (the migration steps below).
   It adds the field `decided_by`, the breakdown of who judged, to the manifest (§8). The format name stays `/1`.
   It also adds the setting `approval.count_model` (default false). When true, an approval of a citation by a model independent of the writer counts as approved (§3.2). It adds the field `approved_by` to review's JSON. By default the counting of citation approvals does not change.
+- 0.5.1 fixes the manifest's `decided_by` (§8). A check against the original whose checker is not in the approvers list is counted under `unlisted` in `uncounted` (it used to be dropped).
+  The family in the keys of `counted` and in review's kind heading is normalized by the same rule as names and written in lower case (families that differ only in case count as one).
+  It also fixes `review --html` stopping when there is no approvers list and `approval.count_model` is true. Fields, format names, fingerprints and the counting of approvals do not change, so no migration steps are needed.
 
 ### Migration steps for 0.5.0
 

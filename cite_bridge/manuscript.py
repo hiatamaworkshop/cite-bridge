@@ -290,15 +290,26 @@ def independence_code(by, writers):
     return _independence(by, writers)[0]
 
 
+def family_label(by):
+    """by の系統を、名前の比べ方（same_name）と同じ規則で正規化した形。大文字と小文字だけ違う系統を一つにまとめる（C44）。無ければ None。"""
+    fam = approver_family(by)
+    return unicodedata.normalize("NFKC", fam).strip().casefold() if fam else None
+
+
 def approver_key(by):
     """マニフェストの decided_by で数えるときの、判断した者の種類（C43）。human / model:<系統> / model / unlisted（一覧に無い、一覧が無い）。"""
     kind = approver_kind(by) if cfg.APPROVERS else None
     if kind == "human":
         return "human"
     if kind == "model":
-        fam = approver_family(by)
+        fam = family_label(by)
         return f"model:{fam}" if fam else "model"
     return "unlisted"
+
+
+def source_checker_unlisted(checker):
+    """原本での確認の確認者が承認者の一覧に無いか。一覧が無いときは「確認者不明」だけを無いとみなす（§5.2、C44）。"""
+    return bool((cfg.APPROVERS and checker not in cfg.APPROVERS) or (not cfg.APPROVERS and checker == "確認者不明"))
 
 
 def citation_writers(f, excerpts):
@@ -326,7 +337,7 @@ def approver_label(by):
     if kind == "human":
         return "人"
     if kind == "model":
-        fam = approver_family(by)
+        fam = family_label(by)
         return f"model {fam}" if fam else "model"
     return "一覧に無い"
 
@@ -379,7 +390,7 @@ def source_check_state(f, rec, verbatim, writer):
     if parsed is None:
         return None, "原本での確認の記録が今の形でない"
     checker, result = parsed[0], parsed[1]
-    if (cfg.APPROVERS and checker not in cfg.APPROVERS) or (not cfg.APPROVERS and checker == "確認者不明"):
+    if source_checker_unlisted(checker):
         return checker, f"確認者 '{checker}' が承認者の一覧に無い"
     problem = independence_problem(checker, [writer])
     if problem:

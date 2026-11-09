@@ -5,7 +5,7 @@ English: [SPEC.en.md](SPEC.en.md)（正本はこの日本語の版で、英語�
 この文書は、道具が読み書きするファイルの形式の正本である。実装（bridge.py と cite_bridge/）と食い違ったときは、この文書に合わせて実装か文書を直す。
 使い方と運用の作法は SKILL.md にある。
 
-- 形式の版: 0.5.0（cite_bridge/config.py の `TOOL_VERSION`）。マニフェストに記録する。固める範囲、変えるときの手順、移行の手順は §11。
+- 形式の版: 0.5.1（cite_bridge/config.py の `TOOL_VERSION`）。マニフェストに記録する。固める範囲、変えるときの手順、移行の手順は §11。
 - 文字コードは UTF-8、改行は LF。
 - 欄名と値は日本語を正とし、英語の別名も受ける（§10）。内部では日本語にそろえる。
 
@@ -362,7 +362,7 @@ status は pending / accepted / rejected。decided は、受け入れたとき�
 
 ```json
 {"format": "cite-bridge-manifest/1",
- "tool": {"name": "cite-bridge", "version": "0.5.0", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
+ "tool": {"name": "cite-bridge", "version": "0.5.1", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
  "checkpoint": "<UTC 時刻>", "label": "",
  "git": {"head": "<HEAD>", "uncommitted": ["…"]},
  "files": {"config": {"path", "sha256"}, "bibliography": {…}, "manuscript": {…}, "citations": {…},
@@ -379,9 +379,9 @@ status は pending / accepted / rejected。decided は、受け入れたとき�
 `source_checks` は §5.1 の確認の集計で、`marked`（印のある抜き書き）、`done`（確認済）、`by_kind`（確認者の種類ごと）、`pending`（残り）。
 `by` は `checkpoint --by` の名前で、無ければ null。
 `decided_by` は、誰が判断したかの内訳である。`approvals`（引用の承認のうち、今の状態が承認済のもの）、`source_checks`（原本での確認の記録。要ヒューマンチェックの印に依らない）、`summary_checks`（要約の確認）のそれぞれが、`counted` と `uncounted` を持つ。
-`counted` は数えた判断の数を、判断した者の種類ごとに数える。キーは `human`、`model:<系統>`、`model`（系統の無い model）、`unlisted`（一覧に無い者と、一覧が無いとき）。
+`counted` は数えた判断の数を、判断した者の種類ごとに数える。キーは `human`、`model:<系統>`、`model`（系統の無い model）、`unlisted`（一覧に無い者と、一覧が無いとき）。系統は名前と同じ規則（全角と半角、大文字と小文字、前後の空白の違いを無視する）でそろえ、小文字で書く。
 `uncounted` は、判断した者が理由で数えなかった判断の数を、理由ごとに数える。キーは `same_writer`（書き手と同じ）、`same_family`（書き手と同じ系統）、`no_family`（判断した model に系統が無い）、
-`unknown_writer`（書き手が分からない、一覧に無い、または系統が無い）、`model_not_counted`（引用の承認で、`approval.count_model` が false）。
+`unknown_writer`（書き手が分からない、一覧に無い、または系統が無い）、`model_not_counted`（引用の承認で、`approval.count_model` が false）、`unlisted`（原本での確認で、確認者が承認者の一覧に無い）。
 指紋が古くなった記録など、判断した者に依らない理由で有効でない記録は、どちらにも入れない。マニフェストは `check --strict` を通った地点で書くので、`uncounted` は通常は空である。
 
 `tool` は、どの版の検査で通ったかを残す。sha256 は、道具のソース（bridge.py と cite_bridge/ の下の .py・.html・.js）の相対パスと内容の sha256 を、パスの順に並べてもう一度 sha256 にかけたもの。別のリポジトリから道具を使っても、使う側から版が分かる。`classifier` は、分類器を設定せず台帳も無ければ null。あれば `{provider, model, types:[{type, version, spec}], judgments, flagged, note}`（§6.4）。
@@ -494,6 +494,9 @@ SKILL.md の「設定」の節にひな形がある。表は鍵の一覧であ�
   一覧が無いときと、human の確認者・承認者は変わらない。欄・形式名・指紋は変わらないが、一覧に model の者がいると、原本での確認と要約の確認の数え方が変わる（下の移行の手順）。
   マニフェストに、誰が判断したかの内訳 `decided_by` の欄を足した（§8）。形式名は `/1` のままである。
   あわせて、設定の `approval.count_model`（既定 false）を足した。true にすると、書き手と独立な model の引用の承認を承認済に数える（§3.2）。review の JSON に `approved_by` の欄を足した。既定では引用の承認の数え方は変わらない。
+- 0.5.1 で、マニフェストの `decided_by` の直しをした（§8）。原本での確認のうち、確認者が承認者の一覧に無い記録を `uncounted` の `unlisted` に数える（前は数えずに落としていた）。
+  `counted` のキーと review の種類の見出しの系統を、名前と同じ規則でそろえて小文字で書く（大文字と小文字だけ違う系統を一つに数える）。
+  あわせて、承認者の一覧が無く `approval.count_model` が true のとき、`review --html` が止まる不具合を直した。欄・形式名・指紋と承認の数え方は変わらないので、移行の手順は要らない。
 
 ### 0.5.0 の移行の手順
 

@@ -385,6 +385,39 @@ class HumanCheckTest(unittest.TestCase):
         self.assertEqual(manifest["decided_by"]["source_checks"], {"counted": {"human": 1}, "uncounted": {}})
         self.assertEqual(self.run_bridge("checkpoint", "--by", "reviewer-model")[0], 1)  # 提出は今と同じに人だけ
 
+    # ---- C44（0.5.0 のレビューの直し）
+
+    def test_count_model_without_approvers_shows_name_only(self):
+        self.set_count_model("true")
+        self.write("bridge/bridge.toml", tb.CONFIG + "[approval]\ncount_model = true\n")  # 承認者の一覧が無い
+        self.assertEqual(self.run_bridge("approve", "c001", "--by", "hiatama")[0], 0)
+        code, out = self.run_bridge("review", "--html", "--all", "-o", "r.html")
+        self.assertEqual(code, 0, out)
+        self.assertIn("（hiatama）", self.read("r.html"))
+        md = self.run_bridge("review", "--all")[1]
+        self.assertIn("## c001　承認済（hiatama）", md)
+        self.assertNotIn("None", md)
+
+    def test_unlisted_source_checker_is_uncounted(self):
+        self.set_families("hiatama")
+        self.ocr_record(f"someone {TODAY} 一致", writer="hiatama")
+        self.run_bridge("derive")
+        self.assertEqual(self.decided_by()["source_checks"], {"counted": {}, "uncounted": {"unlisted": 1}})
+
+    def test_family_case_is_normalized_in_keys_and_labels(self):
+        self.set_count_model("true")
+        self.write("bridge/excerpts/ocr2020.md", excerpt("ocr2020", "e1", OCR_SENTENCE, writer="hiatama"))
+        self.run_bridge("derive")
+        self.assertEqual(self.run_bridge("confirm", "ocr2020#e1", "--source", "--by", "alias-a")[0], 0)  # model:Anthropic
+        self.assertEqual(self.run_bridge("approve", "c001", "--by", "writer-a")[0], 0)  # model:anthropic
+        decided = self.decided_by()
+        self.assertEqual(decided["source_checks"]["counted"], {"model:anthropic": 1})
+        self.assertEqual(decided["approvals"]["counted"], {"model:anthropic": 1})
+        self.assertIn("引用: 主張 承認済 1（model anthropic 1） /", self.run_bridge("check")[1])
+        self.assertIn("## c001　承認済（writer-a・model anthropic）", self.run_bridge("review", "--all")[1])
+        self.write("bridge/citations.md", self.read("bridge/citations.md").replace("承認: writer-a", "承認: alias-a"))
+        self.assertIn("## c001　承認済（alias-a・model anthropic）", self.run_bridge("review", "--all")[1])
+
     def test_count_model_must_be_boolean(self):
         self.write("bridge/bridge.toml", tb.CONFIG + '[approval]\ncount_model = "yes"\n')
         code, out = self.run_bridge("check")
