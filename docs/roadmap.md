@@ -470,14 +470,3 @@ AI が承認を主導する運用のため C41〜C43 を決めた（2026-11-08�
 各項目の完了条件に共通する確かめ方:
 - 全体の試験: 道具のフォルダで `python -m pytest -q tests` がすべて通る (`tests/test_review_js.py` は node が要る)。
 - 実データでの確認: 利用者の原稿のリポジトリ (場所は CLAUDE.local.md) で、データを変えずに `check`、`grade`、`coverage`、`classify --list`、`review --source-checks -o <一時フォルダの md>` (C3 より前は `review -o <一時フォルダの md>`) が最後まで走る。derive・extract・confirm・apply は走らせない。check の ERROR は「導く欄が古い」だけでよい (導く欄が増えるため)。それ以外の ERROR は実装の誤りとして直す。NOTE は増えてよい。
-
-### C44. 0.5.0 のレビューで見つけた不具合を直す
-
-0.5.0 のレビュー（2026-11-10）で見つけた三つを直す。どれもデータの形を変えず、マニフェストの decided_by のキーを足すかそろえるだけにする。ERROR は増やさない。
-
-#### 完了条件
-- [x] 承認者の一覧が無く `approval.count_model = true` のとき、承認済の引用があっても `review --html` が落ちない。md に「None」を出さない。
-- [x] 承認者の一覧に無い確認者の原本での確認を、decided_by.source_checks.uncounted のキー `unlisted` に数える。SPEC §8 と英語の版にキーを足す。
-- [x] decided_by のキー（`model:<系統>`）と review の種類の見出しの系統を、same_name と同じ規則（NFKC・前後の空白・casefold）で正規化する。大文字と小文字だけ違う系統が一つに数えられる。
-- [x] 三つそれぞれの試験を足し、`python -m pytest -q tests` がすべて通る。実データでの確認（項目の冒頭）を行う。
-- [x] 版を 0.5.1 に上げ、SPEC §11.3 に 0.5.1 の項を足す。
