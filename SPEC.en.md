@@ -199,14 +199,40 @@ They apply to claim citations. There are five: 未承認 / 承認済 / 要再確
 
 ## 4. Fingerprints and human readings
 
-A fingerprint is the first 8 hex digits of the SHA-1 of a normalized string. Normalization removes all whitespace.
+A fingerprint is made from the string in the table below: encode it as UTF-8, take its SHA-1, and keep the first 8 digits of the hex form (lower case).
 
-| Fingerprint | Input |
+| Fingerprint | String |
 |---|---|
-| Sentence fingerprint | The sentence that contains the citation, without marks and HTML comments. It includes the inside of source parentheses, so changing how the parenthesis is written also leads to recheck |
-| Evidence fingerprint | The excerpt IDs (including the key) sorted, each as `<ID>\t<verbatim>`, joined by line breaks. If there is a human reading, `\n人の読み\t<human reading>` is appended |
-| Summary fingerprint | The excerpt's 逐語, 強さ, 要約 and 言っていないこと (verbatim, strength, summary, not_said) joined by line breaks. Only when there is a 孫引き (secondary_source), `\n孫引き\t<value without spaces>` is appended (otherwise unchanged) |
-| Verbatim fingerprint | The verbatim text with all whitespace removed. Compared with the fingerprint at the check against the original (§2.3). The first 8 hex digits of the SHA-1 |
+| Sentence fingerprint | The sentence that contains the citation, without marks and HTML comments, with whitespace removed. It includes the inside of source parentheses, so changing how the parenthesis is written also leads to recheck |
+| Evidence fingerprint | The IDs written in the citation's `抜き書き` (excerpts) field (including the key) sorted, each as `<ID>\t<verbatim>`, joined by line breaks. If there is a human reading, `\n人の読み\t<human reading>` is appended |
+| Summary fingerprint | The excerpt's 逐語, 強さ, 要約 and 言っていないこと (verbatim, strength, summary, not_said), in this order, joined by line breaks. Only when there is a 孫引き (secondary_source), `\n孫引き\t<secondary source>` is appended (otherwise nothing is appended) |
+| Verbatim fingerprint | The verbatim text with whitespace removed. Compared with the fingerprint at the check against the original (§2.3) |
+
+The string is built as follows. An implementation other than cite-bridge gets the same fingerprints by following these rules.
+
+- Removing whitespace means removing all of these 29 characters: U+0009 to U+000D, U+001C to U+001F, U+0020, U+0085, U+00A0, U+1680, U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F, U+3000.
+  U+FEFF is not removed (in some languages the whitespace class of regular expressions includes this character and leaves out U+0085 and U+001C to U+001F).
+- Whitespace is removed from each value on its own (the sentence, the verbatim text, the strength, the summary, not_said, the human reading, the secondary source). The tab (U+0009) and the line break (U+000A) that join the values stay. Nothing is removed from an ID.
+- Apart from removing whitespace, no character is changed. There is no Unicode normalization and no case folding.
+- A value is the field's value with the whitespace at both ends removed. A value written with a value alias (§10) is turned into the Japanese value first (`observation` becomes `観察`).
+- `人の読み` and `孫引き` are fixed words inside the string. They stay the same when the field names are written with their English aliases.
+- The IDs of the evidence fingerprint are the characters written in the citation's `抜き書き` field, sorted by Unicode code point (`key#e10` comes before `key#e2`). When there is no excerpt with that ID, its verbatim text is empty.
+- For the sentence fingerprint, only the calculation after the sentence is cut out is defined here. How the sentence is cut out and the form of the mark depend on the settings (`manuscript` in §9).
+
+A fingerprint is for noticing a change. It has only 32 bits, and another string with the same fingerprint can be computed, so it is not strong enough to prevent tampering.
+
+Examples of inputs and fingerprints. `string` is the string before SHA-1. `sentence` is the sentence after its marks are removed, and `excerpts` maps IDs to verbatim texts.
+
+```json
+[
+ {"kind": "verbatim", "verbatim": "Trust  is built　slowly.", "string": "Trustisbuiltslowly.", "fingerprint": "27797cc1"},
+ {"kind": "sentence", "sentence": "先行研究は 信頼の形成を論じた（Doe 2020）。", "string": "先行研究は信頼の形成を論じた（Doe2020）。", "fingerprint": "78c5e4cd"},
+ {"kind": "evidence", "excerpts": {"doe2020#e2": "Trust is built slowly.", "doe2020#e10": "信頼は ゆっくり築かれる。"}, "human_reading": "", "string": "doe2020#e10\t信頼はゆっくり築かれる。\ndoe2020#e2\tTrustisbuiltslowly.", "fingerprint": "99be9079"},
+ {"kind": "evidence", "excerpts": {"doe2020#e2": "Trust is built slowly.", "doe2020#e10": "信頼は ゆっくり築かれる。"}, "human_reading": "doe2020#e2 は 条件つきの主張と読む", "string": "doe2020#e10\t信頼はゆっくり築かれる。\ndoe2020#e2\tTrustisbuiltslowly.\n人の読み\tdoe2020#e2は条件つきの主張と読む", "fingerprint": "24f6f2fd"},
+ {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。", "fingerprint": "6e98a8a3"},
+ {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "山田（1996）、 doe2019", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。\n孫引き\t山田（1996）、doe2019", "fingerprint": "57652cea"}
+]
+```
 
 ### 4.1 Rules for human readings
 

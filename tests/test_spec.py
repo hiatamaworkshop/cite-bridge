@@ -6,6 +6,7 @@
 
 実行:  python -m pytest -q tests/test_spec.py
 """
+import hashlib
 import json
 import re
 import sys
@@ -83,6 +84,77 @@ class SpecTablesTest(unittest.TestCase):
         for p in list((ROOT / "cite_bridge").rglob("*.py")) + list((ROOT / "cite_bridge" / "templates").glob("*")) + [tb.BRIDGE]:
             code |= set(re.findall(r"cite-bridge-[a-z-]+/\d+", p.read_text(encoding="utf-8")))
         self.assertEqual(set(re.findall(r"cite-bridge-[a-z-]+/\d+", SPEC)), code)
+
+
+# §4 の「空白」の 29 字。SPEC の文と同じ並び
+SPEC_WHITESPACE = ([chr(c) for c in range(0x09, 0x0E)] + [chr(c) for c in range(0x1C, 0x20)]
+                   + [" ", "\x85", "\xa0", " "] + [chr(c) for c in range(0x2000, 0x200B)]
+                   + [" ", " ", " ", " ", "　"])
+
+
+def spec_string(v):
+    """§4 の文だけに従って、指紋にかける前の文字列を作る（実装の関数を使わない）。"""
+    def ws(s):
+        return "".join(c for c in s if c not in SPEC_WHITESPACE)
+    if v["kind"] == "verbatim":
+        return ws(v["verbatim"])
+    if v["kind"] == "sentence":
+        return ws(v["sentence"])
+    if v["kind"] == "evidence":
+        s = "\n".join(f"{i}\t{ws(v['excerpts'][i])}" for i in sorted(v["excerpts"]))
+        return s + ("\n人の読み\t" + ws(v["human_reading"]) if v["human_reading"] else "")
+    s = "\n".join(ws(v[n]) for n in ("verbatim", "strength", "summary", "not_said"))
+    return s + ("\n孫引き\t" + ws(v["secondary_source"]) if v["secondary_source"] else "")
+
+
+class SpecFingerprintTest(unittest.TestCase):
+    """§4 の指紋の定義と例が、実装と食い違わない（C45）。別の実装は §4 だけを読んで同じ指紋を出す。"""
+
+    def setUp(self):
+        self.vectors = json.loads(re.search(r"```json\n(.*?)\n```", section("## 4."), re.S).group(1))
+
+    def test_whitespace_is_the_29_characters(self):
+        self.assertEqual(len(SPEC_WHITESPACE), 29)
+        self.assertEqual({chr(c) for c in range(sys.maxunicode + 1) if re.match(r"\s", chr(c))}, set(SPEC_WHITESPACE))
+        for a, z in re.findall(r"U\+([0-9A-F]{4})(?:〜U\+([0-9A-F]{4}))?", section("## 4.").split("U+FEFF")[0]):
+            for c in range(int(a, 16), int(z or a, 16) + 1):
+                self.assertIn(chr(c), SPEC_WHITESPACE)
+
+    def test_examples_follow_the_written_rules(self):
+        self.assertEqual({v["kind"] for v in self.vectors}, {"verbatim", "sentence", "evidence", "summary"})
+        for v in self.vectors:
+            self.assertEqual(spec_string(v), v["string"], v)
+            self.assertEqual(hashlib.sha1(v["string"].encode("utf-8")).hexdigest()[:8], v["fingerprint"], v)
+
+    def test_examples_match_the_implementation(self):
+        from cite_bridge.manuscript import evidence_hash, fingerprint, summary_fingerprint, verbatim_fingerprint
+        for v in self.vectors:
+            if v["kind"] == "verbatim":
+                got = verbatim_fingerprint(v["verbatim"])
+            elif v["kind"] == "sentence":
+                got = fingerprint(v["sentence"])
+            elif v["kind"] == "evidence":
+                got = evidence_hash(list(v["excerpts"]), {i: {"逐語": t} for i, t in v["excerpts"].items()}, v["human_reading"])
+            else:
+                got = summary_fingerprint({"逐語": v["verbatim"], "強さ": v["strength"], "要約": v["summary"],
+                                           "言っていないこと": v["not_said"], "孫引き": v["secondary_source"]})
+            self.assertEqual(got, v["fingerprint"], v)
+
+    def test_missing_excerpt_counts_as_empty_verbatim(self):
+        from cite_bridge.manuscript import evidence_hash
+        self.assertEqual(evidence_hash(["k#e1"], {}), hashlib.sha1("k#e1\t".encode("utf-8")).hexdigest()[:8])
+
+    def test_value_alias_is_read_as_the_japanese_value(self):
+        import tempfile
+        from cite_bridge.blocks import parse_blocks
+        from cite_bridge.manuscript import summary_fingerprint
+        v = next(x for x in self.vectors if x["kind"] == "summary" and not x["secondary_source"])
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "doe2020.md"
+            p.write_text(f"# doe2020\n\n## e1\nverbatim: {v['verbatim']}\nstrength: observation\n"
+                         f"summary: {v['summary']}\nnot_said: {v['not_said']}\n", encoding="utf-8")
+            _, blocks = parse_blocks(p)
+        self.assertEqual(summary_fingerprint(blocks[0]["fields"]), v["fingerprint"])
 
 
 class ReadmeBlockTest(unittest.TestCase):
