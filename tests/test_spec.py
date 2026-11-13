@@ -59,6 +59,8 @@ class SpecTablesTest(unittest.TestCase):
         ex = {r[0]: r[2] for r in table_rows(section("### 2.1"))}
         cit = {r[0]: r[2] for r in table_rows(section("### 3.1"))}
         self.assertEqual(set(ex["強さ"].split(" / ")), cfg.STRENGTHS)
+        self.assertEqual(tuple(ex["根拠の種類"].split(" / ")), cfg.EVIDENCE_KINDS)
+        self.assertEqual(set(cfg.VALUE_ALIASES["根拠の種類"].values()), set(cfg.EVIDENCE_KINDS))
         self.assertEqual(set(cit["原文との差"].split(" / ")), cfg.DIFFS)
         self.assertEqual(set(cit["種類"].split(" / ")), cfg.KINDS)
 
@@ -105,7 +107,8 @@ def spec_string(v):
         return s + ("\n人の読み\t" + ws(v["human_reading"]) if v["human_reading"] else "")
     s = "\n".join(ws(v[n]) for n in ("verbatim", "strength", "summary", "not_said"))
     s += "\n孫引き\t" + ws(v["secondary_source"]) if v["secondary_source"] else ""
-    return s + ("\n訳\t" + ws(v["translation"]) if v.get("translation") else "")
+    s += "\n訳\t" + ws(v["translation"]) if v.get("translation") else ""
+    return s + ("\n根拠の種類\t" + ws(v["evidence_kind"]) if v.get("evidence_kind", "文") != "文" else "")
 
 
 class SpecFingerprintTest(unittest.TestCase):
@@ -139,11 +142,17 @@ class SpecFingerprintTest(unittest.TestCase):
             else:
                 got = summary_fingerprint({"逐語": v["verbatim"], "強さ": v["strength"], "要約": v["summary"],
                                            "言っていないこと": v["not_said"], "孫引き": v["secondary_source"],
-                                           "訳": v.get("translation", "")})
+                                           "訳": v.get("translation", ""), "根拠の種類": v.get("evidence_kind", "")})
             self.assertEqual(got, v["fingerprint"], v)
+        summaries = [v for v in self.vectors if v["kind"] == "summary"]
         # 訳だけの例と、孫引きと訳の両方の例がある（足す順を例で決める）
-        both = [(bool(v["secondary_source"]), bool(v.get("translation"))) for v in self.vectors if v["kind"] == "summary"]
-        self.assertEqual(sorted(both), [(False, False), (False, True), (True, False), (True, True)])
+        both = {(bool(v["secondary_source"]), bool(v.get("translation"))) for v in summaries}
+        self.assertEqual(both, {(False, False), (False, True), (True, False), (True, True)})
+        # 根拠の種類は、文の例（欄の無い例と同じ指紋）と、文でない例がある
+        plain = next(v for v in summaries if not v["secondary_source"] and not v.get("translation") and "evidence_kind" not in v)
+        kinds = {v["evidence_kind"]: v["fingerprint"] for v in summaries if "evidence_kind" in v}
+        self.assertEqual(kinds["文"], plain["fingerprint"])
+        self.assertNotEqual(kinds["表"], plain["fingerprint"])
 
     def test_missing_excerpt_counts_as_empty_verbatim(self):
         from cite_bridge.manuscript import evidence_hash

@@ -65,6 +65,7 @@ def run_check():
     excerpts = {}
     states = {}
     exc_where, summary_checked = [], {}
+    evidence_kinds = {}  # 根拠の種類ごとの抜き書きの数（文でないものがあるときだけ INFO に出す）
     for path, (hd, bd) in res.items():
         head, blocks = parse_blocks(path)
         key = head["title"]
@@ -101,6 +102,11 @@ def run_check():
                     errors.append(f"{w}: 欄 '{name}' が空")
             if f.get("強さ") and f["強さ"] not in STRENGTHS:
                 errors.append(f"{w}: 強さ '{f['強さ']}' は {sorted(STRENGTHS)} のどれか")
+            ekind = cfg.evidence_kind(f)
+            if ekind not in cfg.EVIDENCE_KINDS:  # 語彙の外は確認待ち。文でない根拠としては扱わない（要ヒューマンチェックにしない）
+                notes.append(f"{w}: 根拠の種類 '{ekind}' は {' / '.join(cfg.EVIDENCE_KINDS)} のどれか")
+            else:
+                evidence_kinds[ekind] = evidence_kinds.get(ekind, 0) + 1
             if b["derived"] != bd.get(b["id"], {}):
                 errors.append(f"{w}: 導く欄が古い。derive を実行する")
             d = bd.get(b["id"], {})
@@ -155,6 +161,8 @@ def run_check():
                     errors.append(f"{w}: {name}が指す抜き書き '{shown}' が無い")
     if summary_checked:  # 抜き書きが無ければ、後ろの空いた行を出さない
         infos.append("抜き書きの要約の確認: " + " / ".join(f"{k} {v}" for k, v in sorted(summary_checked.items())))
+    if set(evidence_kinds) - {cfg.TEXT_KIND}:  # 文だけの一式では出さない
+        infos.append("抜き書きの根拠の種類: " + " / ".join(f"{k} {evidence_kinds[k]}" for k in cfg.EVIDENCE_KINDS if k in evidence_kinds))
     infos.append(f"要ヒューマンチェック: 印のある抜き書き {marked} 件のうち、確認済 {done}"
                  f"（人 {by_kind['human']}、モデル {by_kind['model']}）、残り {marked - done}（一覧は review --source-checks）")
 

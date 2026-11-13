@@ -70,6 +70,12 @@ def summaries_confirmed(evidence):
     return all(not e.get("missing") and e.get("summary_checked") for e in evidence)
 
 
+def nontext(e):
+    """根拠（review の JSON の evidence か、依頼の一件）が、文でない根拠（表・グラフ・図）か。欄の無いものは文。"""
+    kind = e.get("evidence_kind", cfg.TEXT_KIND)
+    return kind != cfg.TEXT_KIND and kind in cfg.EVIDENCE_KINDS  # 語彙の外の値は check が確認待ちにし、ここでは文と同じに出す
+
+
 def unconfirmed_source(e):
     """要ヒューマンチェックの印があり、原本での確認が有効でない根拠（抜き書き）か。"""
     return bool(e.get("needs_check")) and not e.get("check_ok")
@@ -143,6 +149,7 @@ def review_data(cids=None, images=None, include_done=False, all_orphans=False, c
         return {"id": r, "verbatim": ef.get("逐語", ""), "location": d.get("所在", ""), "match": st,
                 "grade": hd.get("格", ""), "source_check": ef.get("原本での確認", ""), "secondary": ef.get("孫引き", ""),
                 "translation": ef.get("訳", ""), "alternate_location": ef.get("別の所在", ""),
+                "evidence_kind": cfg.evidence_kind(ef),
                 **source_check_fields(ef, rec, d),
                 "image": Path(img).as_posix() if img else None,
                 "before": d.get("前", ""), "sentence": d.get("含む文", ""), "after": d.get("後", ""),
@@ -270,6 +277,7 @@ def review_data(cids=None, images=None, include_done=False, all_orphans=False, c
 INSTRUCTIONS = ("各件の逐語が、原本（頁の画像、無ければ原本の PDF か紙）に、そのとおりあるかを確かめる。"
                 "字の違い（OCR の誤読、抜けた字、違う字）があれば結果を「違う」とし、メモに原本の字を書く。"
                 "逐語が見つからないときも「違う」とし、メモにそう書く。頁と節が分かれば書く。"
+                "根拠の種類（evidence_kind）が文でないもの（表・グラフ・図）は、原本のその表や図を見て確かめ、見た表や図の番号をメモに書く。"
                 "答えは answer_example の形の判断ファイルに書き、by には承認者の一覧に model として載っている自分の名前を書く。"
                 "抜き書きの書き手（written_by）と同じ名前では書けない。")
 
@@ -293,7 +301,8 @@ def source_check_items(images=None):
                 img = Path(p).as_posix() if p else None
             items.append({"id": eid, "reasons": f["needs_check"], "verbatim": b["fields"].get("逐語", ""),
                           "location": bd.get(b["id"], {}).get("所在", ""), "fingerprint": f["verbatim_fp"],
-                          "grade": hd.get("格", ""), "page_image": img, "record": f["check_record"],
+                          "grade": hd.get("格", ""), "evidence_kind": cfg.evidence_kind(b["fields"]),
+                          "page_image": img, "record": f["check_record"],
                           "problem": f["check_problem"], "written_by": b["fields"].get("記入", "")})
     return items
 
@@ -320,7 +329,10 @@ def source_checks_md(data):
         out.append("原本での確認が残っている抜き書きは無い。")
     for it in data["items"]:
         out += [f"## {it['id']}", "", f"- 理由: {it['reasons']}", f"- 所在: {it['location'] or '（導けない）'}",
-                f"- 格: {it['grade']}", f"- 問題: {it['problem']}", f"- 記入: {it['written_by']}", "", "逐語:", "",
+                f"- 格: {it['grade']}"]
+        if nontext(it):
+            out.append(f"- 根拠の種類: {it['evidence_kind']}")
+        out += [f"- 問題: {it['problem']}", f"- 記入: {it['written_by']}", "", "逐語:", "",
                 f"> {it['verbatim']}", ""]
         if it["page_image"]:
             out += [f"頁の画像: {it['page_image']}", ""]
@@ -373,6 +385,8 @@ def review_md(data):
                 continue
             out += [f"### 根拠 {i}: {e['id']}", "", f"- 所在: {e['location'] or '（導けない）'}", f"- 照合: {e['match']}",
                     f"- 格: {e['grade']}"]
+            if nontext(e):
+                out.append(f"- 根拠の種類: {e['evidence_kind']}（文でない根拠。逐語の字ではなく、原本の{e['evidence_kind']}を見て確かめる）")
             if e.get("alternate_location"):
                 out.append(f"- 別の所在: {e['alternate_location']}")
             if e["secondary"]:
@@ -450,6 +464,8 @@ def review_page(data):
         h.append(f'<div class="ev"><p class="evh">{label} {i} <b>{eid}</b> <span class="mut">'
                  f'{E(e["location"] or "所在を導けない")}・{E(e["match"])}・{E(e["grade"])}'
                  + (f'・他に {E("・".join(others))} の根拠' if others else "") + "</span></p>")
+        if nontext(e):
+            h.append(f'<p class="hc sm">根拠の種類：{E(e["evidence_kind"])}（文でない根拠。原本の{E(e["evidence_kind"])}を見て確かめる）</p>')
         if e.get("alternate_location"):
             h.append(f'<p class="mut sm">別の所在：{E(e["alternate_location"])}</p>')
         if e["secondary"]:

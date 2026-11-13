@@ -211,10 +211,11 @@ def evidence_hash(refs, excerpts, reading=""):
 
 def summary_fingerprint(fields):
     """抜き書きの、人が確かめる欄（逐語・要約・言っていないこと・強さ）の指紋（SPEC §4）。
-    孫引きと訳は、あるときだけ、この順に含める（欄の無い抜き書きの指紋は変えない）。別の所在は含めない。"""
+    孫引き・訳・根拠の種類は、あるときだけ、この順に含める（欄の無い抜き書きの指紋は変えない）。
+    根拠の種類の 文 は、省いた場合と同じに数えて含めない。別の所在は含めない。"""
     s = "\n".join(re.sub(r"\s", "", fields.get(n, "")) for n in ("逐語", "強さ", "要約", "言っていないこと"))
-    for name in ("孫引き", "訳"):
-        if fields.get(name):
+    for name in ("孫引き", "訳", "根拠の種類"):
+        if fields.get(name) and (name, fields[name]) != ("根拠の種類", cfg.TEXT_KIND):
             s += f"\n{name}\t" + re.sub(r"\s", "", fields[name])
     return hashlib.sha1(s.encode("utf-8")).hexdigest()[:8]
 

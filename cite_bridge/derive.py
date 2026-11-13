@@ -73,10 +73,13 @@ def derive_excerpt_file(path, bib, sources_cache):
                 others = other_matches(quote, txt, sources_cache)
                 if others:
                     d["他の文献で一致"] = ", ".join(others)
-        if not src or quote:
-            reasons = human_check_reasons(grade, src, d["照合"], a, z, quote)
-            if reasons:
-                d["要ヒューマンチェック"] = "、".join(reasons)
+        reasons = human_check_reasons(grade, src, d["照合"], a, z, quote) if not src or quote else []
+        # 文でない根拠（表・グラフ・図）は、照合が一致しても、逐語の字だけでは根拠の中身を確かめられない（SPEC §2.2）
+        kind = cfg.evidence_kind(b["fields"])
+        if kind != cfg.TEXT_KIND and kind in cfg.EVIDENCE_KINDS:
+            reasons.append(f"文でない根拠（{kind}）")
+        if reasons:
+            d["要ヒューマンチェック"] = "、".join(reasons)
         bd[b["id"]] = d
     return hd, bd
 

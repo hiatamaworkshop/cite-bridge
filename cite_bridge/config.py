@@ -6,7 +6,7 @@ import sys
 
 
 TOOL_NAME = "cite-bridge"
-TOOL_VERSION = "0.6.0"  # 形式（欄・判断ファイル・マニフェスト）を変えたら副版を上げる（SPEC §11.2）。数え方の直しでも上げる。マニフェストに記録する
+TOOL_VERSION = "0.7.0"  # 形式（欄・判断ファイル・マニフェスト）を変えたら副版を上げる（SPEC §11.2）。数え方の直しでも上げる。マニフェストに記録する
 
 # 設定（bridge.toml）から main で埋める
 CONFIG = Path("bridge/bridge.toml")
@@ -100,6 +100,13 @@ STRENGTHS = {"観察", "示唆", "主張", "一般化", "条件付き"}
 DIFFS = {"一致", "言い換え", "限定つき一般化", "外挿"}
 KINDS = {"指示", "主張"}
 EXC_REQUIRED = ["逐語", "強さ", "要約", "言っていないこと", "記入"]
+EVIDENCE_KINDS = ("文", "表", "グラフ", "図")  # 抜き書きの任意の欄「根拠の種類」の語彙。省けば 文（SPEC §2.1）
+TEXT_KIND = "文"
+
+
+def evidence_kind(fields):
+    """抜き書きの根拠の種類。欄が無いか空なら 文。語彙の外の値はそのまま返す（check が確認待ちにする）。"""
+    return fields.get("根拠の種類") or TEXT_KIND
 
 # 欄名と値は日本語を正とし、英語の別名も受ける。導く欄を書く言語は設定の output.language で選ぶ
 FIELD_ALIASES = {
@@ -108,7 +115,7 @@ FIELD_ALIASES = {
     "source": "文献", "reason": "理由", "interpretation": "解釈", "diff": "原文との差", "approval": "承認",
     "human_reading": "人の読み", "human_reading_by": "人の読みの記入",
     "not_quotes": "引用でない句", "target": "対象", "secondary_source": "孫引き",
-    "translation": "訳", "alternate_location": "別の所在",
+    "translation": "訳", "alternate_location": "別の所在", "evidence_kind": "根拠の種類",
     "grade": "格", "text": "抽出", "match": "照合", "location": "所在", "section_kind": "節の種類",
     "before": "前", "sentence": "含む文", "after": "後", "also_found_in": "他の文献で一致",
     "approved_fingerprint": "承認時の指紋", "approved_text": "承認時の本文",
@@ -128,6 +135,7 @@ VALUE_ALIASES = {
                "extrapolation": "外挿"},
     "種類": {"pointer": "指示", "claim": "主張"},
     "承認": {"none": "未"},
+    "根拠の種類": {"text": "文", "table": "表", "chart": "グラフ", "figure": "図"},
 }
 RETURNED = "差し戻し"  # 承認の欄の値。英語の原稿では returned とも書ける（_approval_state で読む）
 OUTPUT_LANG = "ja"

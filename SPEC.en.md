@@ -5,7 +5,7 @@ Japanese original: [SPEC.md](SPEC.md). This English version is a translation; th
 This document is the authoritative definition of the formats of the files the tool reads and writes. Where it disagrees with the implementation (bridge.py and cite_bridge/), fix the implementation or this document so that they agree.
 How to use and run the tool is in SKILL.md.
 
-- Format version: 0.6.0 (`TOOL_VERSION` in cite_bridge/config.py). It is recorded in the manifest. What is frozen, how changes are made, and migration steps are in §11.
+- Format version: 0.7.0 (`TOOL_VERSION` in cite_bridge/config.py). It is recorded in the manifest. What is frozen, how changes are made, and migration steps are in §11.
 - Character encoding is UTF-8; line endings are LF.
 - Japanese field names and values are canonical; English aliases are also accepted (§10). Internally everything is normalized to Japanese.
   In this translation, field names and values are given in Japanese with the English alias in parentheses, e.g. 逐語 (verbatim).
@@ -50,6 +50,11 @@ Directly under the source heading, the tool writes `@格` (grade) and `@抽出` 
 | 孫引き (secondary_source) | Optional | The original work the verbatim text cites. A bibliography key, or author and year (`山田（1996）`). Separate several with 「、」. English alias secondary_source |
 | 訳 (translation) | Optional | When the verbatim text is in a language other than the manuscript's, the writer's (the citing author's) own translation of the verbatim text. One line. Not used for matching. The tool does not decide whether the translation fits the verbatim text; a person looks at it in the summary check. English alias translation |
 | 別の所在 (alternate_location) | Optional | Page or section numbers by edition (the page in a translated edition, conventional section numbers and so on). Written by the writer. Separate several with 「、」. It does not change the derived location (§2.2) and is not used for matching. English alias alternate_location |
+| 根拠の種類 (evidence_kind) | Optional | 文 / 表 / グラフ / 図 (text / table / chart / figure) |
+
+根拠の種類 (evidence_kind) says what in the original the excerpt rests on. When omitted it is `文` (text). `図` (figure) covers figures and photographs. For a kind other than `文` (numbers in a table, a reading of a chart, a figure or photograph),
+the machine cannot check the content of the evidence even when the characters of the verbatim text match the extracted text, so the excerpt needs a human check (§2.2).
+A value outside the vocabulary is reported by check as pending (NOTE) and is not treated as non-text evidence. English alias evidence_kind.
 
 Form of the 原本での確認 (source_check) value:
 
@@ -90,9 +95,10 @@ Form of the 原本での確認 (source_check) value:
   (introduction / related work / method / results / discussion / limitations / conclusion / abstract / appendix / references / body). Words can be added in the settings.
 - 前 (before), 含む文 (sentence), 後 (after): as in the extracted text. Nothing is filled in.
 - 要ヒューマンチェック (human_check; a derived field of excerpts, present only when there is a reason): the applicable reasons joined with 「、」. The reasons are: the match is approximate (「照合が近似一致」), not found by matching,
-  cannot be matched (grade), OCR extraction, OCR text layer (with 「（PDF n頁目）」 when the page of the verbatim text is an OCR page), unreadable characters within the verbatim range, and short verbatim text.
+  cannot be matched (grade), OCR extraction, OCR text layer (with 「（PDF n頁目）」 when the page of the verbatim text is an OCR page), unreadable characters within the verbatim range, short verbatim text, and non-text evidence (with the kind, as in `文でない根拠（表）`).
   Short verbatim text (「逐語が短い」): matching found the verbatim text in the extracted text, and the text is short. A short text can match some place in the extracted text by chance; even if matching succeeds, the location is not guaranteed.
   If the text contains even one Japanese character (kana, kanji or a full-width character), it is short when it has 10 characters or fewer excluding spaces; otherwise, when it has 3 words or fewer separated by spaces.
+  Non-text evidence (「文でない根拠」): the 根拠の種類 (§2.1) is 表, グラフ or 図. It does not depend on the result of matching, and is added even when the verbatim text matches the extracted text.
   The field shows that the machine cannot guarantee the verbatim text exists. It stays regardless of records; whether the check is done is decided by the 原本での確認 (source_check) record (§2.1).
   A misplaced page break (extraction diagnosis 2, §2.4.2) is not a reason.
 
@@ -207,17 +213,17 @@ A fingerprint is made from the string in the table below: encode it as UTF-8, ta
 |---|---|
 | Sentence fingerprint | The sentence that contains the citation, without marks and HTML comments, with whitespace removed. It includes the inside of source parentheses, so changing how the parenthesis is written also leads to recheck |
 | Evidence fingerprint | The IDs written in the citation's `抜き書き` (excerpts) field (including the key) sorted, each as `<ID>\t<verbatim>`, joined by line breaks. If there is a human reading, `\n人の読み\t<human reading>` is appended |
-| Summary fingerprint | The excerpt's 逐語, 強さ, 要約 and 言っていないこと (verbatim, strength, summary, not_said), in this order, joined by line breaks. Only when there is a 孫引き (secondary_source), `\n孫引き\t<secondary source>` is appended (otherwise nothing is appended). Only when there is a 訳 (translation), `\n訳\t<translation>` is appended after that (otherwise nothing is appended). 別の所在 (alternate_location) is not included |
+| Summary fingerprint | The excerpt's 逐語, 強さ, 要約 and 言っていないこと (verbatim, strength, summary, not_said), in this order, joined by line breaks. Only when there is a 孫引き (secondary_source), `\n孫引き\t<secondary source>` is appended (otherwise nothing is appended). Only when there is a 訳 (translation), `\n訳\t<translation>` is appended after that (otherwise nothing is appended). Only when the 根拠の種類 (evidence_kind) is not `文`, `\n根拠の種類\t<evidence kind>` is appended after that (nothing is appended when it is omitted or `文`). 別の所在 (alternate_location) is not included |
 | Verbatim fingerprint | The verbatim text with whitespace removed. Compared with the fingerprint at the check against the original (§2.3) |
 
 The string is built as follows. An implementation other than cite-bridge gets the same fingerprints by following these rules.
 
 - Removing whitespace means removing all of these 29 characters: U+0009 to U+000D, U+001C to U+001F, U+0020, U+0085, U+00A0, U+1680, U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F, U+3000.
   U+FEFF is not removed (in some languages the whitespace class of regular expressions includes this character and leaves out U+0085 and U+001C to U+001F).
-- Whitespace is removed from each value on its own (the sentence, the verbatim text, the strength, the summary, not_said, the human reading, the secondary source, the translation). The tab (U+0009) and the line break (U+000A) that join the values stay. Nothing is removed from an ID.
+- Whitespace is removed from each value on its own (the sentence, the verbatim text, the strength, the summary, not_said, the human reading, the secondary source, the translation, the evidence kind). The tab (U+0009) and the line break (U+000A) that join the values stay. Nothing is removed from an ID.
 - Apart from removing whitespace, no character is changed. There is no Unicode normalization and no case folding.
 - A value is the field's value with the whitespace at both ends removed. A value written with a value alias (§10) is turned into the Japanese value first (`observation` becomes `観察`).
-- `人の読み`, `孫引き` and `訳` are fixed words inside the string. They stay the same when the field names are written with their English aliases.
+- `人の読み`, `孫引き`, `訳` and `根拠の種類` are fixed words inside the string. They stay the same when the field names are written with their English aliases.
 - The IDs of the evidence fingerprint are the characters written in the citation's `抜き書き` field, sorted by Unicode code point (`key#e10` comes before `key#e2`). When there is no excerpt with that ID, its verbatim text is empty.
 - For the sentence fingerprint, only the calculation after the sentence is cut out is defined here. How the sentence is cut out and the form of the mark depend on the settings (`manuscript` in §9).
 
@@ -234,7 +240,9 @@ Examples of inputs and fingerprints. `string` is the string before SHA-1. `sente
  {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。", "fingerprint": "6e98a8a3"},
  {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "山田（1996）、 doe2019", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。\n孫引き\t山田（1996）、doe2019", "fingerprint": "57652cea"},
  {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "", "translation": "信頼は ゆっくり築かれる。", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。\n訳\t信頼はゆっくり築かれる。", "fingerprint": "6bf2ea40"},
- {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "山田（1996）、 doe2019", "translation": "信頼は ゆっくり築かれる。", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。\n孫引き\t山田（1996）、doe2019\n訳\t信頼はゆっくり築かれる。", "fingerprint": "88d2ed37"}
+ {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "山田（1996）、 doe2019", "translation": "信頼は ゆっくり築かれる。", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。\n孫引き\t山田（1996）、doe2019\n訳\t信頼はゆっくり築かれる。", "fingerprint": "88d2ed37"},
+ {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "", "evidence_kind": "文", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。", "fingerprint": "6e98a8a3"},
+ {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "", "evidence_kind": "表", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。\n根拠の種類\t表", "fingerprint": "03546877"}
 ]
 ```
 
@@ -283,11 +291,12 @@ An external AI or a person receives it and answers with a decisions file in the 
                     "saved": "<ISO 時刻>", "decisions": [], "candidates": [], "confirms": [],
                     "source_checks": [{"id": "<id>", "fingerprint": "<fingerprint>", "result": "一致", "page": "", "note": ""}]},
  "items": [{"id": "key#e1", "reasons": "<要ヒューマンチェックの理由>", "verbatim": "<逐語>", "location": "<所在>",
-            "fingerprint": "<逐語の指紋>", "grade": "<格>", "page_image": "<--images の PNG のパス、無ければ null>",
+            "fingerprint": "<逐語の指紋>", "grade": "<格>", "evidence_kind": "<根拠の種類。文 / 表 / グラフ / 図>",
+            "page_image": "<--images の PNG のパス、無ければ null>",
             "record": "<今の原本での確認の値>", "problem": "<問題の文（§2.1 の五つの条件のどれに欠けるか）>", "written_by": "<記入>"}]}
 ```
 
-(instructions: fixed text held by the tool (check each item's verbatim text against the original and answer the result and the original's characters); reasons: the human-check reasons; verbatim, location, fingerprint, grade: of the excerpt;
+(instructions: fixed text held by the tool (check each item's verbatim text against the original and answer the result and the original's characters); reasons: the human-check reasons; verbatim, location, fingerprint, grade, evidence_kind: of the excerpt;
 page_image: path of the PNG from --images, or null; record: the current source_check value; problem: which of the five conditions of §2.1 is missing; written_by: the excerpt's 記入.)
 
 - The answer's `by` is a name listed as model in the approvers list. It cannot be the same name as the excerpt's writer (written_by) (condition 3 of §2.1).
@@ -412,7 +421,7 @@ Written by `checkpoint` at a point that has passed `check --strict`. When there 
 
 ```json
 {"format": "cite-bridge-manifest/1",
- "tool": {"name": "cite-bridge", "version": "0.6.0", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
+ "tool": {"name": "cite-bridge", "version": "0.7.0", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
  "checkpoint": "<UTC 時刻>", "label": "",
  "git": {"head": "<HEAD>", "uncommitted": ["…"]},
  "files": {"config": {"path", "sha256"}, "bibliography": {…}, "manuscript": {…}, "citations": {…},
@@ -488,10 +497,11 @@ If there are two or more sources, each source is one item (`part` is the same nu
 | 承認時の指紋 | approved_fingerprint | 承認時の本文 | approved_text |
 | 承認時の根拠 | approved_evidence | 差し戻し時の指紋 | returned_fingerprint |
 | 差し戻し時の根拠 | returned_evidence | 訳 | translation |
-| 別の所在 | alternate_location | | |
+| 別の所在 | alternate_location | 根拠の種類 | evidence_kind |
 
 Value aliases: 強さ (observation / suggestion / claim / generalization / conditional), 種類 (pointer / claim),
-原文との差 (identical / paraphrase / qualified_generalization / extrapolation), 承認 (none = 未, returned = 差し戻し).
+原文との差 (identical / paraphrase / qualified_generalization / extrapolation), 承認 (none = 未, returned = 差し戻し),
+根拠の種類 (text / table / chart / figure).
 The table covers all written fields and record fields (frozen by §11.1) and some of the derived fields. The mapping of derived field names is in `FIELD_ALIASES` in cite_bridge/config.py and is not frozen.
 
 ## 11. Version policy
@@ -553,6 +563,10 @@ Formats that are not frozen (worksheets, drafts, candidates, eval sets and resul
 - 0.6.0 adds two optional excerpt fields, `訳` (translation: the citing author's own translation of the verbatim text) and `別の所在` (alternate_location: page or section numbers by edition) (§2.1). `訳` enters the summary fingerprint (§4). `別の所在` does not enter any fingerprint.
   The fingerprint of an excerpt with neither field does not change, so existing files pass the check as they are and the states of approvals and checks do not change. No migration steps are needed.
   Adding `訳` to an excerpt whose summary check is done, or editing `訳`, sends it back to "check again". Format names do not change.
+- 0.7.0 adds the optional excerpt field `根拠の種類` (evidence_kind: 文 / 表 / グラフ / 図) (§2.1). A kind other than `文` enters the summary fingerprint (§4) and gets the human-check reason 「文でない根拠」 (non-text evidence, §2.2).
+  It adds the field `evidence_kind` to the request for checks against the original (§5.1). The format name stays `/1`.
+  An excerpt without the field is `文`, and neither its fingerprint nor its derived fields change, so existing files pass the check as they are and the states of approvals and checks do not change. No migration steps are needed.
+  Writing a kind other than `文` in an excerpt makes it need a human check after `derive`; without a check against the original, `check --strict` and `checkpoint` stop. Its summary check goes back to "check again".
 
 ### Migration steps for 0.5.0
 

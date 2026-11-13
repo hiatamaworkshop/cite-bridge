@@ -5,7 +5,7 @@ English: [SPEC.en.md](SPEC.en.md)（正本はこの日本語の版で、英語�
 この文書は、道具が読み書きするファイルの形式の正本である。実装（bridge.py と cite_bridge/）と食い違ったときは、この文書に合わせて実装か文書を直す。
 使い方と運用の作法は SKILL.md にある。
 
-- 形式の版: 0.6.0（cite_bridge/config.py の `TOOL_VERSION`）。マニフェストに記録する。固める範囲、変えるときの手順、移行の手順は §11。
+- 形式の版: 0.7.0（cite_bridge/config.py の `TOOL_VERSION`）。マニフェストに記録する。固める範囲、変えるときの手順、移行の手順は §11。
 - 文字コードは UTF-8、改行は LF。
 - 欄名と値は日本語を正とし、英語の別名も受ける（§10）。内部では日本語にそろえる。
 
@@ -49,6 +49,11 @@ English: [SPEC.en.md](SPEC.en.md)（正本はこの日本語の版で、英語�
 | 孫引き | 任意 | 逐語が紹介している元の文献。書誌の key か著者と年（`山田（1996）`）。複数は「、」で区切る。英語の別名は secondary_source |
 | 訳 | 任意 | 逐語が原稿と別の言語のとき、書き手（引用者）が逐語を訳した文。一行。照合には使わない。訳が逐語に合うかは道具は決めず、人が要約の確認で見る。英語の別名は translation |
 | 別の所在 | 任意 | 版ごとの頁や節番号（訳書の頁、慣用の節番号など）。書き手が書く。複数は「、」で区切る。導く欄の所在（§2.2）は変えず、照合にも使わない。英語の別名は alternate_location |
+| 根拠の種類 | 任意 | 文 / 表 / グラフ / 図 |
+
+根拠の種類は、その抜き書きが原本の何に依るかを表す。省けば `文` である。`図` は図と写真を含む。`文` でないもの（表の数値、グラフの読み取り、図や写真）は、
+逐語の字が抽出テキストに一致しても、根拠の中身を機械で確かめられないので、要ヒューマンチェックになる（§2.2）。
+語彙の外の値は、check が確認待ち（NOTE）で出し、文でない根拠としては扱わない。英語の別名は evidence_kind。
 
 原本での確認の値の形:
 
@@ -85,9 +90,10 @@ English: [SPEC.en.md](SPEC.en.md)（正本はこの日本語の版で、英語�
 - 節の種類: 序論 / 関連研究 / 方法 / 結果 / 議論 / 限界 / 結論 / 要旨 / 付録 / 参考文献 / 本論（設定で語を足せる）。
 - 前・含む文・後: 抽出テキストのまま。補わない。
 - 要ヒューマンチェック（抜き書きの導く欄。理由があるときだけ）: 当たる理由を「、」で結ぶ。理由は、照合が近似一致（「照合が近似一致」）、照合で見つからない、
-  照合不能（格）、OCR の抽出、OCR の文字の層（逐語の頁が OCR の頁なら「（PDF n頁目）」を付ける）、逐語の範囲に読めない字、逐語が短い、のどれか。
+  照合不能（格）、OCR の抽出、OCR の文字の層（逐語の頁が OCR の頁なら「（PDF n頁目）」を付ける）、逐語の範囲に読めない字、逐語が短い、文でない根拠（`文でない根拠（表）` のように種類を付ける）、のどれか。
   逐語が短い: 照合で逐語が抽出テキストに見つかり、逐語が短いとき。短い逐語は抽出テキストのどこかに偶然当たりやすく、照合が一致しても所在を保証しない。
   和文の字（かな・漢字・全角の字）を一つでも含めば空白を除いた字数が 10 字以下、含まなければ空白で区切った語数が 3 語以下を短いとする。
+  文でない根拠: 根拠の種類（§2.1）が 表・グラフ・図 のとき。照合の結果に依らない。逐語が抽出テキストに一致しても付く。
   機械で逐語の実在を保証できない抜き書きであることを示す。この欄は記録に依らず残り、済んだかは原本での確認の記録（§2.1）で決まる。
   頁の区切りのずれ（抽出の診断 2、§2.4.2）は理由にしない。
 
@@ -198,17 +204,17 @@ extracted: <YYYY-MM-DD>
 |---|---|
 | 本文の指紋 | 引用を含む文から印と HTML コメントを除き、空白を除いたもの。出典の括弧の中も含むので、括弧の書き方を変えても要再確認になる |
 | 根拠の指紋 | 引用の `抜き書き` に書いた ID（key を含む）を整列し、各 `<ID>\t<逐語>` を改行で結んだもの。人の読みがあれば、末尾に `\n人の読み\t<人の読み>` を足す |
-| 要約の指紋 | 抜き書きの 逐語・強さ・要約・言っていないこと を、この順に改行で結んだもの。孫引きがあるときだけ、末尾に `\n孫引き\t<孫引き>` を足す（無ければ足さない）。訳があるときだけ、その後に `\n訳\t<訳>` を足す（無ければ足さない）。別の所在は入れない |
+| 要約の指紋 | 抜き書きの 逐語・強さ・要約・言っていないこと を、この順に改行で結んだもの。孫引きがあるときだけ、末尾に `\n孫引き\t<孫引き>` を足す（無ければ足さない）。訳があるときだけ、その後に `\n訳\t<訳>` を足す（無ければ足さない）。根拠の種類が `文` でないときだけ、その後に `\n根拠の種類\t<根拠の種類>` を足す（省いた場合と `文` は足さない）。別の所在は入れない |
 | 逐語の指紋 | 逐語から空白を除いたもの。原本での確認時の指紋（§2.3）と照合する |
 
 文字列の作り方は、次のとおりである。cite-bridge でない実装も、これに従えば同じ指紋になる。
 
 - 空白を除くとは、次の 29 字をすべて除くことである。U+0009〜U+000D、U+001C〜U+001F、U+0020、U+0085、U+00A0、U+1680、U+2000〜U+200A、U+2028、U+2029、U+202F、U+205F、U+3000。
   U+FEFF は除かない（言語によっては、正規表現の空白にこの字を含み、U+0085 と U+001C〜U+001F を含まない）。
-- 空白は値ごとに除く（文、逐語、強さ、要約、言っていないこと、人の読み、孫引き、訳）。値を結ぶタブ（U+0009）と改行（U+000A）は残す。ID からは除かない。
+- 空白は値ごとに除く（文、逐語、強さ、要約、言っていないこと、人の読み、孫引き、訳、根拠の種類）。値を結ぶタブ（U+0009）と改行（U+000A）は残す。ID からは除かない。
 - 空白を除くほかには、字を変えない。Unicode の正規化も、大文字と小文字の統一もしない。
 - 値は、欄の値の前後の空白を除いたものである。値の別名（§10）で書いた値は、日本語の値に直してから使う（`observation` は `観察`）。
-- `人の読み`、`孫引き`、`訳` は、文字列の中の決まった語である。欄の名前を英語の別名で書いても、この語は変えない。
+- `人の読み`、`孫引き`、`訳`、`根拠の種類` は、文字列の中の決まった語である。欄の名前を英語の別名で書いても、この語は変えない。
 - 根拠の指紋の ID は、引用の `抜き書き` に書いたままの字で、Unicode の符号位置の順に並べる（`key#e10` は `key#e2` より前）。その ID の抜き書きが無いときは、逐語を空とする。
 - 本文の指紋は、文が切り出された後の計算だけをここで決める。文の切り出しと印の形は、設定（§9 の `manuscript`）に依る。
 
@@ -225,7 +231,9 @@ extracted: <YYYY-MM-DD>
  {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。", "fingerprint": "6e98a8a3"},
  {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "山田（1996）、 doe2019", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。\n孫引き\t山田（1996）、doe2019", "fingerprint": "57652cea"},
  {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "", "translation": "信頼は ゆっくり築かれる。", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。\n訳\t信頼はゆっくり築かれる。", "fingerprint": "6bf2ea40"},
- {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "山田（1996）、 doe2019", "translation": "信頼は ゆっくり築かれる。", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。\n孫引き\t山田（1996）、doe2019\n訳\t信頼はゆっくり築かれる。", "fingerprint": "88d2ed37"}
+ {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "山田（1996）、 doe2019", "translation": "信頼は ゆっくり築かれる。", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。\n孫引き\t山田（1996）、doe2019\n訳\t信頼はゆっくり築かれる。", "fingerprint": "88d2ed37"},
+ {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "", "evidence_kind": "文", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。", "fingerprint": "6e98a8a3"},
+ {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "", "evidence_kind": "表", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。\n根拠の種類\t表", "fingerprint": "03546877"}
 ]
 ```
 
@@ -271,7 +279,8 @@ extracted: <YYYY-MM-DD>
                     "saved": "<ISO 時刻>", "decisions": [], "candidates": [], "confirms": [],
                     "source_checks": [{"id": "<id>", "fingerprint": "<fingerprint>", "result": "一致", "page": "", "note": ""}]},
  "items": [{"id": "key#e1", "reasons": "<要ヒューマンチェックの理由>", "verbatim": "<逐語>", "location": "<所在>",
-            "fingerprint": "<逐語の指紋>", "grade": "<格>", "page_image": "<--images の PNG のパス、無ければ null>",
+            "fingerprint": "<逐語の指紋>", "grade": "<格>", "evidence_kind": "<根拠の種類。文 / 表 / グラフ / 図>",
+            "page_image": "<--images の PNG のパス、無ければ null>",
             "record": "<今の原本での確認の値>", "problem": "<問題の文（§2.1 の五つの条件のどれに欠けるか）>", "written_by": "<記入>"}]}
 ```
 
@@ -392,7 +401,7 @@ status は pending / accepted / rejected。decided は、受け入れたとき�
 
 ```json
 {"format": "cite-bridge-manifest/1",
- "tool": {"name": "cite-bridge", "version": "0.6.0", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
+ "tool": {"name": "cite-bridge", "version": "0.7.0", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
  "checkpoint": "<UTC 時刻>", "label": "",
  "git": {"head": "<HEAD>", "uncommitted": ["…"]},
  "files": {"config": {"path", "sha256"}, "bibliography": {…}, "manuscript": {…}, "citations": {…},
@@ -466,10 +475,11 @@ SKILL.md の「設定」の節にひな形がある。表は鍵の一覧であ�
 | 承認時の指紋 | approved_fingerprint | 承認時の本文 | approved_text |
 | 承認時の根拠 | approved_evidence | 差し戻し時の指紋 | returned_fingerprint |
 | 差し戻し時の根拠 | returned_evidence | 訳 | translation |
-| 別の所在 | alternate_location | | |
+| 別の所在 | alternate_location | 根拠の種類 | evidence_kind |
 
 値の別名: 強さ（observation / suggestion / claim / generalization / conditional）、種類（pointer / claim）、
-原文との差（identical / paraphrase / qualified_generalization / extrapolation）、承認（none = 未、returned = 差し戻し）。
+原文との差（identical / paraphrase / qualified_generalization / extrapolation）、承認（none = 未、returned = 差し戻し）、
+根拠の種類（text / table / chart / figure）。
 表は、書く欄と記録の欄（§11.1 で固める範囲）のすべてと、導く欄の一部である。導く欄の名前の対応は cite_bridge/config.py の `FIELD_ALIASES` にあり、固めない。
 
 ## 11. 版の方針
@@ -531,6 +541,10 @@ SKILL.md の「設定」の節にひな形がある。表は鍵の一覧であ�
 - 0.6.0 で、抜き書きの任意の欄 `訳`（引用者が逐語を訳した文）と `別の所在`（版ごとの頁や節番号）を足した（§2.1）。`訳` は要約の指紋に入る（§4）。`別の所在` は指紋に入らない。
   どちらの欄も無い抜き書きの指紋は変わらないので、既存のファイルはそのまま検査を通り、承認と確認の状態も変わらない。移行の手順は要らない。
   要約の確認が済んだ抜き書きに `訳` を足すか、`訳` を直すと、「確認し直す」に戻る。形式名は変えていない。
+- 0.7.0 で、抜き書きの任意の欄 `根拠の種類`（文 / 表 / グラフ / 図）を足した（§2.1）。`文` でない種類は要約の指紋に入り（§4）、要ヒューマンチェックの理由「文でない根拠」が付く（§2.2）。
+  原本での確認の依頼に `evidence_kind` の欄を足した（§5.1）。形式名は `/1` のままである。
+  欄の無い抜き書きは `文` で、指紋も導く欄も変わらないので、既存のファイルはそのまま検査を通り、承認と確認の状態も変わらない。移行の手順は要らない。
+  抜き書きに `文` でない種類を書くと、`derive` の後に要ヒューマンチェックになり、原本での確認が無ければ `check --strict` と `checkpoint` が止まる。要約の確認は「確認し直す」に戻る。
 
 ### 0.5.0 の移行の手順
 

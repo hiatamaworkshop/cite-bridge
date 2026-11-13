@@ -58,6 +58,8 @@ Excerpts `bridge/excerpts/<key>.md` (one file per source; the heading is the bib
 - Write each field on one line.
 - Optional field `訳` (translation): when the verbatim text is in a language other than the manuscript's and the manuscript quotes your own translation, write that translation here. Copy the verbatim text in the original language; do not put a translation in the verbatim field.
   The translation is not matched, so, like the summary, a person compares it with the verbatim text and records it with `confirm`. Editing the translation sends it back to "check again".
+- Optional field `根拠の種類` (evidence_kind): 文／表／グラフ／図 (text／table／chart／figure; figure covers figures and photographs). When omitted it is text. Write it when the evidence is numbers in a table, a reading of a chart, or a figure or photograph.
+  Non-text evidence needs a human check even when the verbatim text matches. Look at that table or figure in the original and record it with `confirm --source`.
 - Optional field `別の所在` (alternate_location): page or section numbers in the edition readers will look up (the page in a translated edition, conventional section numbers and so on). The derived location is the page of the PDF at hand, so write this when a different way of pointing is needed.
 - Derived fields: 照合 (match), 所在 (location: page and section), 節の種類 (section kind), 前 (before), 後 (after), 含む文 (sentence). Under the source heading, the grade and the location of the extracted text.
   If a section is derived wrongly, check the heading lines in the extracted text (heading detection is an estimate).
