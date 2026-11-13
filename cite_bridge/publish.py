@@ -11,7 +11,7 @@ import re
 import shutil
 import sys
 from . import config as cfg
-from .bib import grade_of, parse_bib
+from .bib import doi_of, grade_of, parse_bib
 from .blocks import parse_blocks
 from .check import run_check
 from .checkpoint import tool_version
@@ -146,16 +146,15 @@ def _date(value):
 
 def _source_entry(key, bib, grade, txt, withheld):
     entry = (bib.get(key) or {}).get("entry", "")
-    doi = re.search(r"\b10\.\d{4,9}/[^\s）)>\]]+", entry)
-    url = re.search(r"https?://[^\s）)>\]]+", entry)
+    urls = [u.rstrip(".,;") for u in re.findall(r"https?://[^\s（）()<>\[\]]+", entry)]
+    url = next((u for u in urls if not re.match(r"https?://(?:dx\.)?doi\.org/", u)), None)  # DOI の URL は doi の欄に持つ
     src = Source(txt) if txt else None
     head = src.head if src else {}
     file = None
     if src and src.kind in ("extract", "snapshot") and head.get("sha256"):
         file = {"sha256": head["sha256"], "pages": int(head["pages"]) if head.get("pages", "").isdigit() else None,
                 "ocr_pages": head.get("ocr_pages") or None}
-    return {"key": key, "entry": entry, "doi": doi.group(0).rstrip(".,;") if doi else None,
-            "url": url.group(0).rstrip(".,;") if url else None, "accessed": (bib.get(key) or {}).get("accessed"),
+    return {"key": key, "entry": entry, "doi": doi_of(entry), "url": url, "accessed": (bib.get(key) or {}).get("accessed"),
             "retrieved": head.get("retrieved") if src and src.kind == "snapshot" else None,
             "grade": grade, "file": file, "verbatim_published": not withheld}
 
@@ -318,4 +317,7 @@ def cmd_publish(args):
     print(f"  ID: {doc['id']}")
     print(f"  引用 {len(c['citations'])} 件、抜き書き {len(c['excerpts'])} 件（逐語を外したもの {kept} 件）、文献 {len(c['sources'])} 件、"
           f"添えたファイル {len(copies)} 件")
+    no_doi = [s["key"] for s in c["sources"] if not s["doi"]]
+    print(f"  DOI: 文献 {len(c['sources'])} 件のうち、書誌に DOI があるもの {len(c['sources']) - len(no_doi)}"
+          + (f"、無いもの {len(no_doi)}（{', '.join(no_doi)}）。DOI のある文献は、書誌に書いてから書き出し直す" if no_doi else ""))
     print("  ID を論文の本文か補足資料に書くと、読み手が受け取った公開物を確かめられる")

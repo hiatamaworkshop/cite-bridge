@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 import sys
 from . import config as cfg
-from .bib import bib_occurrences, extraction_diagnosis, grade_of, parse_bib
+from .bib import bib_occurrences, doi_of, extraction_diagnosis, grade_of, parse_bib
 from .blocks import parse_blocks
 from .config import DIFFS, EXC_REQUIRED, KINDS, STRENGTHS
 from .derive import derive_excerpts
@@ -161,6 +161,11 @@ def run_check():
                     errors.append(f"{w}: {name}が指す抜き書き '{shown}' が無い")
     if summary_checked:  # 抜き書きが無ければ、後ろの空いた行を出さない
         infos.append("抜き書きの要約の確認: " + " / ".join(f"{k} {v}" for k, v in sorted(summary_checked.items())))
+    cited = [k for k in dict.fromkeys(k for _, k, _ in exc_where) if k in bib]  # 抜き書きのある文献（書誌にあるもの）
+    if cited:  # DOI は、読み手が同じ文献を手に入れる第一の手がかり（C57）。書籍や Web 資料には無いので、欠けていても確認待ちにしない
+        no_doi = [k for k in cited if not doi_of(bib[k]["entry"])]
+        infos.append(f"DOI: 抜き書きのある文献 {len(cited)} 件のうち、書誌に DOI があるもの {len(cited) - len(no_doi)}"
+                     + (f"、無いもの {len(no_doi)}（{', '.join(no_doi)}）" if no_doi else ""))
     if set(evidence_kinds) - {cfg.TEXT_KIND}:  # 文だけの一式では出さない
         infos.append("抜き書きの根拠の種類: " + " / ".join(f"{k} {evidence_kinds[k]}" for k in cfg.EVIDENCE_KINDS if k in evidence_kinds))
     infos.append(f"要ヒューマンチェック: 印のある抜き書き {marked} 件のうち、確認済 {done}"
@@ -395,6 +400,8 @@ def cmd_grade(args):
         print(f"{g}: {len(ks)}  {', '.join(ks)}")
     for line in diag:
         print(line)
+    with_doi = [k for k in keys if k in bib and doi_of(bib[k]["entry"])]
+    print(f"DOI: 書誌に DOI があるもの {len(with_doi)} 件、無いもの {len(keys) - len(with_doi)} 件")
     total = len(keys)
     ok = len(summary.get("PDF所持（抽出あり）", [])) + len(summary.get("Web 写し（保存あり）", []))
     print(f"--- {total} 件のうち、機械で照合できるもの {ok} 件（{round(100 * ok / max(1, total))}%）")

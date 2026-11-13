@@ -11,6 +11,20 @@ from .util import _sha256
 
 # ---------------------------------------------------------------- 書誌と格
 
+DOI_RE = re.compile(r"10\.\d{4,9}/[^\s（）()<>\[\]]+")
+
+
+def doi_of(entry):
+    """書誌の一件の文にある DOI（`10.` から始まる形、小文字）。無ければ None。
+
+    `https://doi.org/10.…`、`doi:10.…`、裸の `10.…` のどれで書いてあっても拾う。DOI は大文字と小文字を区別しないので、小文字にそろえる。
+    BibTeX と CSL-JSON のアダプタは、doi の欄を書誌の文に `https://doi.org/…` で入れる（_entry_text）。
+    """
+    m = DOI_RE.search(entry or "")
+    return m.group(0).rstrip(".,;:、。").lower() if m else None
+
+
+
 def parse_bib():
     """書誌を {key: {entry, pdfs}} にする。形式ごとの読み方はアダプタに分ける。"""
     if cfg.BIB_FORMAT not in BIB_ADAPTERS:

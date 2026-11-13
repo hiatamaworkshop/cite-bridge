@@ -5,7 +5,7 @@ Japanese original: [SPEC.md](SPEC.md). This English version is a translation; th
 This document is the authoritative definition of the formats of the files the tool reads and writes. Where it disagrees with the implementation (bridge.py and cite_bridge/), fix the implementation or this document so that they agree.
 How to use and run the tool is in SKILL.md.
 
-- Format version: 0.8.0 (`TOOL_VERSION` in cite_bridge/config.py). It is recorded in the manifest. What is frozen, how changes are made, and migration steps are in §11.
+- Format version: 0.8.1 (`TOOL_VERSION` in cite_bridge/config.py). It is recorded in the manifest. What is frozen, how changes are made, and migration steps are in §11.
 - Character encoding is UTF-8; line endings are LF.
 - Japanese field names and values are canonical; English aliases are also accepted (§10). Internally everything is normalized to Japanese.
   In this translation, field names and values are given in Japanese with the English alias in parentheses, e.g. 逐語 (verbatim).
@@ -15,7 +15,7 @@ How to use and run the tool is in SKILL.md.
 | File | Owner | Contents |
 |---|---|---|
 | Settings `bridge/bridge.toml` | The user | Paths, how to read the bibliography, approvers, mark format (§9) |
-| Bibliography | The user (keyline / bibtex / csl-json) | Keys and their mapping to original PDFs and URLs |
+| Bibliography | The user (keyline / bibtex / csl-json) | Keys and their mapping to original PDFs and URLs. Sources that have a DOI carry it (below) |
 | Excerpts `<excerpts>/<key>.md` | The writer (fields) and the tool (@ lines) | Verbatim text and summary of each passage of a source (§2) |
 | Citations `<citations>` | The writer (fields) and the tool (@ lines) | Each citation in the manuscript (§3) |
 | Extracted text `<text_dir>/<name>.txt`, web copies `<web_dir>/<key>.txt` | The tool | What is matched against (§8). Starts with a header (§2.4) |
@@ -23,6 +23,10 @@ How to use and run the tool is in SKILL.md.
 | `applied.json`, `excluded.json` | The tool | Record of applied files; parentheses judged not to be citations (§7) |
 | `judgments.jsonl` | The tool | Ledger of classifier judgments (§6.4) |
 | `checkpoints/<UTC>.json` | The tool | Manifest (§8) |
+
+A DOI is the first handle by which a reader gets the same source. When a source has a DOI, write it in the bibliography: in the doi field for BibTeX and CSL-JSON, and for keyline as
+`https://doi.org/10.…` (or `doi:10.…`) in the bibliography line. The tool picks a DOI that starts with `10.` from the entry text and uses it in lower case (DOIs are case-insensitive).
+check and grade count and report sources without a DOI (INFO; books and web sources have no DOI, so it is not a pending item).
 
 Lines starting with `@` are written by the tool. Do not edit them by hand. The tool writes two kinds of lines: derived fields are rebuilt on every check, and record fields (§2.3, §3.3) are kept and never erased.
 The 原本での確認 (source_check) field (§2.1) is written only by `confirm --source` or `apply` (it needs a fingerprint, so do not write it by hand).
@@ -421,7 +425,7 @@ Written by `checkpoint` at a point that has passed `check --strict`. When there 
 
 ```json
 {"format": "cite-bridge-manifest/1",
- "tool": {"name": "cite-bridge", "version": "0.8.0", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
+ "tool": {"name": "cite-bridge", "version": "0.8.1", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
  "checkpoint": "<UTC 時刻>", "label": "",
  "git": {"head": "<HEAD>", "uncommitted": ["…"]},
  "files": {"config": {"path", "sha256"}, "bibliography": {…}, "manuscript": {…}, "citations": {…},
@@ -570,6 +574,9 @@ Formats that are not frozen (worksheets, drafts, candidates, eval sets and resul
   An excerpt without the field is `文`, and neither its fingerprint nor its derived fields change, so existing files pass the check as they are and the states of approvals and checks do not change. No migration steps are needed.
   Writing a kind other than `文` in an excerpt makes it need a human check after `derive`; without a check against the original, `check --strict` and `checkpoint` stop. Its summary check goes back to "check again".
 - 0.8.0 adds writing a published package (`publish`, `cite-bridge-publication/1`, §12) and the setting `[publication]` (§9). Fields, format names and fingerprints of working files do not change, so no migration steps are needed.
+- 0.8.1 normalizes `doi` in a published package's `sources` to the lower-case form that starts with `10.`, and no longer puts a DOI URL in `url` (§12.1). In 0.8.0 it was the text as written in the bibliography entry, and a DOI URL also went into `url`.
+  If the bibliography has a DOI with upper-case letters or a DOI URL, writing the same package again changes its ID. Packages published with 0.8.0 stay as they are (a published package is never rewritten).
+  check and grade gain a line (INFO) with the number of sources whose bibliography entry has a DOI. Fields, format names and fingerprints of working files do not change, so no migration steps are needed.
 
 ### Migration steps for 0.5.0
 
@@ -653,7 +660,7 @@ The reading side does not have to be cite-bridge; it can be implemented from thi
 - Keys are English (the aliases of §10); values stay in the Japanese vocabulary. `vocabulary` maps the Japanese values to English (the same as the value aliases of §10; `result` is the result of a check against the original) and is not used for fingerprints.
 - `spec` says by which definitions to recompute fingerprints (`fingerprint`: the name of the definition in §4) and the ID (`identity`: the name of the definition in §12.2). When a definition changes, its name changes.
 - `tool` has the same form as the manifest's `tool` and points to the tool that wrote the package.
-- `content.sources` lists the sources of the released excerpts and of pointer citations. `doi` and `url` are picked from the bibliography entry, or null. `accessed` is the access date in the bibliography; `retrieved` is the date the web copy was taken.
+- `content.sources` lists the sources of the released excerpts and of pointer citations. `doi` is the DOI picked from the bibliography entry, normalized to the lower-case form that starts with `10.` (without `https://doi.org/`). `url` is the first URL in the entry that is not a DOI URL. Either is null when nothing is found. `accessed` is the access date in the bibliography; `retrieved` is the date the web copy was taken.
   `file` is the fingerprint and page count of the file the author used, taken from the header of the extracted text or web copy (§2.4.1), or null when there is no header.
 - `content.excerpts` lists only the excerpts that claim citations rest on, in the order of the citations. It has every written field (§2.1); an optional field that is absent is an empty string (`evidence_kind` is `文`).
   `derived` holds the derived fields the writing tool produced (match, location, section kind, human check); it is a record that the writing side produced them.

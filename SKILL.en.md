@@ -167,6 +167,9 @@ python tools/cite-bridge/bridge.py publish -o <フォルダ> [--checkpoint <マ�
 - Working files are not changed. Point to a folder that does not exist or is empty (a published package is never rewritten; to correct one, release a new package and put the previous ID in the setting `replaces`).
 - Write the ID that `publish` prints (`sha256-…`) in the paper or its supplementary material. Readers can recompute the ID of the package they received and check that it is the same one.
   The ID is determined by the content and the records of checks only; it does not depend on who published it, when, the pointer to the published paper (`reference`), or the tool version. Adding the DOI to `reference` after the ID is written in the paper does not change the ID.
+- A source is pointed to by its bibliography entry, DOI, URL, retrieval date and the fingerprint of the file the author used. The DOI is the first handle by which a reader gets the same source, so write the DOI in the bibliography for every source that has one ("DOI" below).
+  `publish` reports the number and keys of sources without a DOI.
+- If you deposit the package in a repository that issues DOIs (Zenodo and the like), the package itself gets a DOI. That DOI cannot be written inside the package (it would change the ID). Write the package ID in the repository's description field, and give both the ID and the package's DOI in the paper.
 - Only citations that have a mark in the manuscript, and the excerpts they rest on, are released. Extracted text, page images, surrounding sentences, the full manuscript and the originals are not.
 - Verbatim text is released by default. For sources you cannot confirm may be released, list the key (or the excerpt ID) in `withhold_verbatim`. A withheld excerpt is released as fingerprints and location only.
   Which sources' verbatim text may be released is for the person publishing to confirm. The tool does not judge.
@@ -191,6 +194,16 @@ To add a signature, sign `publication.json` with an outside command and put the 
 ssh-keygen -Y sign -f <key> -n cite-bridge publication.json
 gpg --detach-sign --armor publication.json
 ```
+
+## DOI
+
+A DOI is the first handle by which readers and AIs reach the same source. URLs change and bibliography entries vary in how they are written, but a DOI stays.
+
+- When a source has a DOI, always write it in the bibliography: in the doi field for BibTeX and CSL-JSON, and for keyline as `https://doi.org/10.…` in the bibliography line (`doi:10.…` is also read).
+- Confirm the DOI before you start writing excerpts. Resolving the DOI also tells you whether the PDF at hand is the publisher's version or the author's version (a preprint). Pages and characters differ between versions, so say in the bibliography which version you read.
+- Books, web sources and old papers may have no DOI. Do not force one. `check` and `grade` only count and report sources without a DOI; they do not make it a pending item.
+- An AI does not write a DOI from memory. Write only a DOI confirmed on the first page of the original PDF or on the publisher's page. If it cannot be confirmed, leave it empty and ask a person.
+- When naming the original work of a secondary citation, add its DOI if known (`孫引き: 山田（1996）https://doi.org/10.…`).
 
 ## Sources without a mark
 
