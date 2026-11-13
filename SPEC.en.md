@@ -5,7 +5,7 @@ Japanese original: [SPEC.md](SPEC.md). This English version is a translation; th
 This document is the authoritative definition of the formats of the files the tool reads and writes. Where it disagrees with the implementation (bridge.py and cite_bridge/), fix the implementation or this document so that they agree.
 How to use and run the tool is in SKILL.md.
 
-- Format version: 0.7.0 (`TOOL_VERSION` in cite_bridge/config.py). It is recorded in the manifest. What is frozen, how changes are made, and migration steps are in §11.
+- Format version: 0.8.0 (`TOOL_VERSION` in cite_bridge/config.py). It is recorded in the manifest. What is frozen, how changes are made, and migration steps are in §11.
 - Character encoding is UTF-8; line endings are LF.
 - Japanese field names and values are canonical; English aliases are also accepted (§10). Internally everything is normalized to Japanese.
   In this translation, field names and values are given in Japanese with the English alias in parentheses, e.g. 逐語 (verbatim).
@@ -421,7 +421,7 @@ Written by `checkpoint` at a point that has passed `check --strict`. When there 
 
 ```json
 {"format": "cite-bridge-manifest/1",
- "tool": {"name": "cite-bridge", "version": "0.7.0", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
+ "tool": {"name": "cite-bridge", "version": "0.8.0", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
  "checkpoint": "<UTC 時刻>", "label": "",
  "git": {"head": "<HEAD>", "uncommitted": ["…"]},
  "files": {"config": {"path", "sha256"}, "bibliography": {…}, "manuscript": {…}, "citations": {…},
@@ -465,6 +465,7 @@ A template is in the "設定" (Settings) section of SKILL.md. The table lists th
 | coverage | pattern, repeat_pattern | Regular expression for parentheses that look like sources (default: parentheses containing a year), and for parentheses that are only a page or "ibid." (default below) |
 | hook | watch | Paths pre-commit watches besides those the settings point to |
 | classifier | provider, model, endpoint, max_chars, types | Classifier provider and limits (§6.4). Do not write the key (docs/classifier.md) |
+| publication | published_by, license, reference, withhold_verbatim, names, notes, replaces, people | Settings for writing a published package (§12). Read only by `publish`. published_by (who publishes) is required. withhold_verbatim lists source keys or excerpt IDs whose verbatim text is withheld. names and notes are show (default) or hide. people is `<name> = { orcid = "…" }` |
 | checks (array) | type, version, for, question, labels, … | Adding and overriding question types (§6.4) |
 
 When applied, candidates, excluded or judgments in `bridge` is omitted, the tool keeps it as `applied.json`, `candidates/`, `excluded.json` or `judgments.jsonl` in the same folder as the citations file (citations).
@@ -514,6 +515,7 @@ Of the shape of the data, the following, which people and other tools read and w
 - The written fields (§2.1) and record fields (§2.3) of excerpts; `対象` (target) of the citations file, and the written fields (§3.1) and record fields (§3.3) of citations. Field names (including English aliases, §10), value vocabularies and meanings.
 - How fingerprints are made (§4).
 - The shapes of the decisions file (§5), the source-check request (§5.1), the judgment ledger (§6.4) and the manifest (§8).
+- The form of a published package and how its ID is made (§12). For published packages the promise of §12.6 applies, not the procedure of §11.2.
 
 The following are not frozen. They may change without a version bump.
 
@@ -567,6 +569,7 @@ Formats that are not frozen (worksheets, drafts, candidates, eval sets and resul
   It adds the field `evidence_kind` to the request for checks against the original (§5.1). The format name stays `/1`.
   An excerpt without the field is `文`, and neither its fingerprint nor its derived fields change, so existing files pass the check as they are and the states of approvals and checks do not change. No migration steps are needed.
   Writing a kind other than `文` in an excerpt makes it need a human check after `derive`; without a check against the original, `check --strict` and `checkpoint` stop. Its summary check goes back to "check again".
+- 0.8.0 adds writing a published package (`publish`, `cite-bridge-publication/1`, §12) and the setting `[publication]` (§9). Fields, format names and fingerprints of working files do not change, so no migration steps are needed.
 
 ### Migration steps for 0.5.0
 
@@ -598,3 +601,119 @@ To check an existing manuscript and extracted text with 0.3.0, do the following 
    Checks against the original from 0.2.0 and earlier (free text) are not valid, so check again.
 4. Excerpts with a secondary source need their summary checked again (the summary fingerprint changes).
 5. Coverage counts per source, so the numbers change. Item IDs of parentheses with one source do not change.
+
+## 12. Published package (`cite-bridge-publication/1`)
+
+A package released together with a published paper so that its citations can be checked again. `publish -o <folder>` writes it from a point that has a manifest (§8).
+The reading side does not have to be cite-bridge; it can be implemented from this section and §4 alone. A published package is never rewritten. To correct one, release a new package and point to the previous ID with `replaces`.
+
+- It is written only when the fingerprints in the manifest's `files` match the current files and the current check (`check --strict`) passes. Otherwise the tool lists the files that differ and refuses.
+  Without `--checkpoint <manifest>`, the latest manifest in the checkpoints folder is used.
+- The folder gets the publication JSON `publication.json` and copies of the source files under `source/` (citations, excerpts, settings, manifest). Working files are not changed.
+- Not released: extracted text, page images, surrounding sentences (前・含む文・後), excerpts no citation rests on, work sheets, drafts and candidates, decisions files, the applied record,
+  return records, remarks, the contents of the classifier ledger, and the full manuscript (only the sentences that contain citations are released). Originals are not bundled.
+- The tool does not vouch for who published it (it does not sign). Writing the package ID in the paper or its supplementary material lets readers check that the package they received is the same one.
+
+### 12.1 Form of the publication JSON
+
+```json
+{"format": "cite-bridge-publication/1",
+ "id": "sha256-<64 桁>",
+ "spec": {"fingerprint": "sha1-8", "identity": "sha256-jcs"},
+ "tool": {"name": "cite-bridge", "version": "0.8.0", "sha256": "…", "commit": "…", "dirty": false},
+ "vocabulary": {"strength": {"観察": "observation"}, "diff": {"一致": "identical"}, "kind": {"主張": "claim"},
+                "evidence_kind": {"文": "text"}, "result": {"一致": "match", "違う": "differs"}},
+ "content": {
+  "manuscript": {"title": "<原稿の最初の見出し | null>", "file": {"path": "<原稿のパス>", "sha256": "…"}},
+  "sources": [{"key": "doe2020", "entry": "<書誌の一件の文>", "doi": null, "url": null, "accessed": null, "retrieved": null,
+               "grade": "<格>", "file": {"sha256": "…", "pages": 12, "ocr_pages": null}, "verbatim_published": true}],
+  "excerpts": [{"id": "doe2020#e1", "verbatim": "<逐語 | null>", "verbatim_fingerprint": "<8 桁>", "verbatim_sha256": "<64 桁>",
+                "strength": "観察", "summary": "…", "not_said": "…", "secondary_source": "", "translation": "",
+                "alternate_location": "", "evidence_kind": "文", "written_by": "<記入>", "summary_fingerprint": "<8 桁>",
+                "derived": {"match": "一致", "location": "…", "section_kind": "結果", "human_check": ""}}],
+  "citations": [{"id": "c001", "kind": "主張", "sentence": "<印を外した文>", "sentence_fingerprint": "<8 桁>",
+                 "excerpts": ["doe2020#e1"], "source": "", "reason": "…", "interpretation": "", "human_reading": "",
+                 "human_reading_by": "", "diff": "言い換え", "not_quotes": "", "written_by": "<記入>",
+                 "evidence_fingerprint": "<8 桁>", "section": "<原稿の節の見出し>"}]},
+ "records": {
+  "approvals": [{"citation": "c001", "by": "<名前 | null>", "kind": "human", "family": null, "date": "2026-01-01",
+                 "note": null, "sentence_fingerprint": "<8 桁>", "evidence_fingerprint": "<8 桁>"}],
+  "summary_checks": [{"excerpt": "doe2020#e1", "by": "<名前 | null>", "kind": "human", "family": null, "date": "2026-01-01",
+                      "summary_fingerprint": "<8 桁>"}],
+  "source_checks": [{"excerpt": "doe2020#e1", "by": "<名前 | null>", "kind": "model", "family": "acme", "date": "2026-01-01",
+                     "result": "一致", "page": "", "note": null, "verbatim_fingerprint": "<8 桁>"}],
+  "decided_by": {}, "coverage": {}, "classifier": null},
+ "publication": {"published_by": "<公開した者>", "published_at": "<UTC 時刻>", "license": null, "reference": null,
+                 "checkpoint": "<もとにしたマニフェストの時刻>", "replaces": null,
+                 "people": {"<名前>": {"orcid": null}},
+                 "files": {"source/<元のファイルのパス>": {"sha256": "…", "included": true}}}}
+```
+
+- Content (`content`), records of checks (`records`) and publication information (`publication`) are kept apart. The ID (§12.2) covers `format`, `spec`, `content` and `records`.
+- Keys are English (the aliases of §10); values stay in the Japanese vocabulary. `vocabulary` maps the Japanese values to English (the same as the value aliases of §10; `result` is the result of a check against the original) and is not used for fingerprints.
+- `spec` says by which definitions to recompute fingerprints (`fingerprint`: the name of the definition in §4) and the ID (`identity`: the name of the definition in §12.2). When a definition changes, its name changes.
+- `tool` has the same form as the manifest's `tool` and points to the tool that wrote the package.
+- `content.sources` lists the sources of the released excerpts and of pointer citations. `doi` and `url` are picked from the bibliography entry, or null. `accessed` is the access date in the bibliography; `retrieved` is the date the web copy was taken.
+  `file` is the fingerprint and page count of the file the author used, taken from the header of the extracted text or web copy (§2.4.1), or null when there is no header.
+- `content.excerpts` lists only the excerpts that claim citations rest on, in the order of the citations. It has every written field (§2.1); an optional field that is absent is an empty string (`evidence_kind` is `文`).
+  `derived` holds the derived fields the writing tool produced (match, location, section kind, human check); it is a record that the writing side produced them.
+- `content.citations` lists the citations that have a mark in the manuscript, in manuscript order. `sentence` is the sentence that contains the citation without marks and HTML comments, so a reader can check the sentence fingerprint without the settings.
+  A pointer citation has an empty `excerpts`, the bibliography key in `source`, and an empty string as `evidence_fingerprint`.
+- The three lists in `records` hold only counted records (approvals counted as approved, valid summary checks, valid checks against the original; §2.1, §3.2), and only those about released excerpts and citations.
+  Each record carries the fingerprint at the time of the check. `kind` is the kind in the approvers list (human / model), or `unlisted` for someone not in the list or when there is no list. `family` is the model family, or null.
+  `decided_by`, `coverage` and `classifier` are copies of the manifest fields of the same names (§8). The summary-check and source-check counts in `decided_by` can exceed the listed records by the excerpts that were not released.
+- `publication.reference` points to the published paper (a DOI or URL). It is decided after the ID is written in the paper, so it sits on the side the ID does not cover.
+  `publication.files` gives the fingerprints of the source files. A file whose `included` is false is not attached (§12.3, §12.4). `publication.json` itself is not listed.
+
+### 12.2 Package ID
+
+Take the JSON that has only the four keys `format`, `spec`, `content` and `records`, serialize it with RFC 8785 (JSON Canonicalization Scheme), and take the SHA-256 of its UTF-8 bytes. `id` is `sha256-` followed by all 64 hexadecimal digits (lower case).
+
+- Serialization sorts keys by code point, puts in no spaces or line breaks, escapes only `"`, `\` and characters before U+0020 in strings, and writes everything else as UTF-8.
+  Characters before U+0020 are written as `\b`, `\f`, `\n`, `\r`, `\t`, and otherwise as `\u` with four hexadecimal digits (lower case). Keys are ASCII only. Numbers are integers only; there are no fractions.
+- `tool`, `vocabulary` and `publication` are not covered by the ID. The same content and records written on another day, by another person, with another version of the tool have the same ID.
+- To point from outside, write a citation as `<ID>#<citation ID>` and an excerpt as `<ID>#<key>#<excerpt ID>` (for example `sha256-…#doe2020#e1`). Since the ID is determined by the content, what it points to does not change.
+
+Examples of inputs and values. `string` is the string before SHA-256.
+
+```json
+[
+ {"kind": "identity", "object": {"format": "cite-bridge-publication/1", "spec": {"fingerprint": "sha1-8", "identity": "sha256-jcs"}, "content": {"citations": [{"id": "c001", "sentence": "信頼は \"ゆっくり\" 築かれる（Doe 2020）。", "excerpts": ["doe2020#e1"]}], "excerpts": [{"id": "doe2020#e1", "verbatim": null, "evidence_kind": "文"}]}, "records": {"approvals": [], "coverage": {"spans": 1}}}, "string": "{\"content\":{\"citations\":[{\"excerpts\":[\"doe2020#e1\"],\"id\":\"c001\",\"sentence\":\"信頼は \\\"ゆっくり\\\" 築かれる（Doe 2020）。\"}],\"excerpts\":[{\"evidence_kind\":\"文\",\"id\":\"doe2020#e1\",\"verbatim\":null}]},\"format\":\"cite-bridge-publication/1\",\"records\":{\"approvals\":[],\"coverage\":{\"spans\":1}},\"spec\":{\"fingerprint\":\"sha1-8\",\"identity\":\"sha256-jcs\"}}", "id": "sha256-b55d390f05c1980967fa5f5b91bccde83ad244552c8167b28eb8df844bdbae66"},
+ {"kind": "verbatim_sha256", "verbatim": "Trust  is built　slowly.", "string": "Trustisbuiltslowly.", "sha256": "e9adb0ce1d9f2af0f7d41c6c4f56ef72d4524e615b56206387ac8bf21b534c52"}
+]
+```
+
+### 12.3 How much verbatim text is released
+
+Verbatim text is released by default. For the sources (`doe2020`) and excerpts (`doe2020#e1`) listed in the setting `withhold_verbatim`, `verbatim` is null. Which sources' verbatim text may be released is decided by the writing side.
+
+- `verbatim_sha256` is all 64 hexadecimal digits (lower case) of the SHA-256 of the UTF-8 bytes of the verbatim text with whitespace (the 29 characters of §4) removed. It is present whether or not the verbatim text is released.
+  A reader uses it to check that a string they copied from the original is the same as the author's verbatim text (the verbatim fingerprint has 32 bits, and a different string can match it).
+- An excerpt whose verbatim text is withheld still has its fingerprints, location, summary, not_said and translation. The summary and the translation are the writer's own text.
+- The excerpt file of a source that has a withheld excerpt is not attached under `source/` (`included` is false). That source's `verbatim_published` is false.
+- The evidence fingerprint of a citation that rests on a withheld excerpt cannot be recomputed from the package alone.
+
+### 12.4 Names
+
+When the setting `names` is `hide`, `by` in the records is null and only `kind` and `family` are given. In `written_by` and `human_reading_by`, the name at the start of the value (the writer of §2.1) is replaced by the kind.
+The kind uses the same words as the keys of the manifest's `decided_by` (human / model:<family> / model / unlisted). The characters after the name (a date and so on) are kept.
+In that case `people` is empty and no source file is attached (every file carries names). When the setting `notes` is `hide`, `note` in the records is null.
+
+### 12.5 What the reading side can check again
+
+From the package alone: the ID (§12.2), the fingerprints (§4, computed from the values in `content`), that each record's fingerprint matches the current content, and that the breakdown of approvals matches the listed records.
+With the originals: whether a file is the one the author used (`file.sha256`), and whether the verbatim text is in the original.
+
+For whether the verbatim text is in the original, this specification promises exact match only. Remove whitespace (the 29 characters of §4) from both the verbatim text and the string the reader got from the original; it matches if the verbatim text is a substring of the original's string.
+How the reader gets the string from the original (PDF extraction, OCR) is not defined. Extraction changes characters, so a failure to match does not mean the verbatim text is absent from the original.
+`derived.match` is the matching result the writing tool produced (§2.2) and includes levels looser than exact match. Redoing looser matching is a hint left to each implementation.
+
+What a package does not guarantee: whether the source supports the claim (that is the approver's judgment), whether an approver really is that person, and whether the writing side's `derived` is right.
+
+### 12.6 Version promise for published packages
+
+A published package stays as it is, and readers come with later versions of tools. "Old forms are read until the next minor version" in §11.2 is a promise for working files and does not apply to published packages.
+
+- The definition of `cite-bridge-publication/1` and the definitions named in `spec` (`sha1-8`, `sha256-jcs`) stay in later versions of this specification. To change the form, raise the number in the format name and keep the definition of the previous number.
+- The fields that never change are `format`, `id` and `spec`. With these three, the reading side knows by which definitions to read the rest.
+- Whether a later version of cite-bridge reads packages of an older number is not promised.

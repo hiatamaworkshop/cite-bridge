@@ -24,6 +24,7 @@ The entry point is `bridge.py` (it only takes arguments and passes them to `cite
 | review (templates/) | Review material (md, JSON) and the approval HTML. HTML and JavaScript live in templates/ |
 | fetch | PDF extraction and copies of web sources |
 | checkpoint | Manifest, tool version, pre-commit, removing marks |
+| publish | Writing a published package (the publication JSON, the ID, attached source files; SPEC §12) |
 
 ## Tests
 

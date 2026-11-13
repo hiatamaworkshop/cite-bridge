@@ -84,6 +84,7 @@ c001: 承認の後に本文が変わった。要再確認
 4. `bridge.py derive` で導く欄を書き、`bridge.py check` で整合を検査する。
 5. `bridge.py review --html -o review.html` の画面で人が判断し、保存した判断ファイルを `bridge.py apply <判断ファイル>` で書き込む。
 6. 提出前は `bridge.py check --strict`、地点の記録は `bridge.py checkpoint`。
+7. 発表の後に、引用を確かめ直せる一式を公開するときは `bridge.py publish -o <フォルダ>`（SKILL.md の「公開物」）。
 
 コマンドの全部、git の pre-commit の hook、原稿が複数あるときの `--citations` は SKILL.md にある。
 

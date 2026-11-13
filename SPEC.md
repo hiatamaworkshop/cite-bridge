@@ -5,7 +5,7 @@ English: [SPEC.en.md](SPEC.en.md)（正本はこの日本語の版で、英語�
 この文書は、道具が読み書きするファイルの形式の正本である。実装（bridge.py と cite_bridge/）と食い違ったときは、この文書に合わせて実装か文書を直す。
 使い方と運用の作法は SKILL.md にある。
 
-- 形式の版: 0.7.0（cite_bridge/config.py の `TOOL_VERSION`）。マニフェストに記録する。固める範囲、変えるときの手順、移行の手順は §11。
+- 形式の版: 0.8.0（cite_bridge/config.py の `TOOL_VERSION`）。マニフェストに記録する。固める範囲、変えるときの手順、移行の手順は §11。
 - 文字コードは UTF-8、改行は LF。
 - 欄名と値は日本語を正とし、英語の別名も受ける（§10）。内部では日本語にそろえる。
 
@@ -401,7 +401,7 @@ status は pending / accepted / rejected。decided は、受け入れたとき�
 
 ```json
 {"format": "cite-bridge-manifest/1",
- "tool": {"name": "cite-bridge", "version": "0.7.0", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
+ "tool": {"name": "cite-bridge", "version": "0.8.0", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
  "checkpoint": "<UTC 時刻>", "label": "",
  "git": {"head": "<HEAD>", "uncommitted": ["…"]},
  "files": {"config": {"path", "sha256"}, "bibliography": {…}, "manuscript": {…}, "citations": {…},
@@ -443,6 +443,7 @@ SKILL.md の「設定」の節にひな形がある。表は鍵の一覧であ�
 | coverage | pattern, repeat_pattern | 出典らしき括弧の正規表現（既定は年を含む括弧）と、頁だけ・同書の括弧の正規表現（既定は下） |
 | hook | watch | pre-commit が監視する、設定が指す以外のパス |
 | classifier | provider, model, endpoint, max_chars, types | 分類器の提供元と上限（§6.4）。鍵は書かない（docs/classifier.md） |
+| publication | published_by, license, reference, withhold_verbatim, names, notes, replaces, people | 公開物の書き出しの設定（§12）。`publish` のときだけ読む。published_by（公開する者）は必須。withhold_verbatim は逐語を外す文献の key か抜き書きの ID の並び。names と notes は show（既定）か hide。people は `<名前> = { orcid = "…" }` |
 | checks（配列） | type, version, for, question, labels, … | 問いの型の追加と上書き（§6.4） |
 
 `bridge` の applied・candidates・excluded・judgments を省くと、引用のファイル（citations）と同じフォルダの `applied.json`・`candidates/`・`excluded.json`・`judgments.jsonl` に置く。
@@ -492,6 +493,7 @@ SKILL.md の「設定」の節にひな形がある。表は鍵の一覧であ�
 - 抜き書きの書く欄（§2.1）と記録の欄（§2.3）、引用のファイルの `対象` と、引用の書く欄（§3.1）と記録の欄（§3.3）。欄の名前（英語の別名を含む。§10）、値の語彙、意味。
 - 指紋の作り方（§4）。
 - 判断ファイル（§5）、原本での確認の依頼（§5.1）、判定の台帳（§6.4）、マニフェスト（§8）の形。
+- 公開物の形と ID の作り方（§12）。公開物には §11.2 の手順ではなく、§12.6 の約束が当たる。
 
 次のものは固めない。版を上げずに変えることがある。
 
@@ -545,6 +547,7 @@ SKILL.md の「設定」の節にひな形がある。表は鍵の一覧であ�
   原本での確認の依頼に `evidence_kind` の欄を足した（§5.1）。形式名は `/1` のままである。
   欄の無い抜き書きは `文` で、指紋も導く欄も変わらないので、既存のファイルはそのまま検査を通り、承認と確認の状態も変わらない。移行の手順は要らない。
   抜き書きに `文` でない種類を書くと、`derive` の後に要ヒューマンチェックになり、原本での確認が無ければ `check --strict` と `checkpoint` が止まる。要約の確認は「確認し直す」に戻る。
+- 0.8.0 で、公開物の書き出し（`publish`、`cite-bridge-publication/1`、§12）と、設定の `[publication]`（§9）を足した。作業中のファイルの欄・形式名・指紋は変えていないので、移行の手順は要らない。
 
 ### 0.5.0 の移行の手順
 
@@ -576,3 +579,119 @@ SKILL.md の「設定」の節にひな形がある。表は鍵の一覧であ�
    0.2.0 までの原本での確認（自由文）は有効でないので、確かめ直す。
 4. 孫引きを書いた抜き書きは、要約の確認がし直しになる（要約の指紋が変わる）。
 5. 網羅は出典ごとに数えるので、数が変わる。出典が一つの括弧の item の ID は変わらない。
+
+## 12. 公開物（`cite-bridge-publication/1`）
+
+発表した論文と一緒に出す、確かめ直せる一式である。`publish -o <フォルダ>` が、マニフェスト（§8）のある地点から書き出す。
+読む側は cite-bridge でなくてよく、この節と §4 だけを読んで実装できる。公開物は書き換えない。直すときは新しい公開物を出し、前の ID を `replaces` で指す。
+
+- 書き出すのは、マニフェストの `files` の指紋が今のファイルと合い、今の検査（`check --strict`）を通るときだけである。合わなければ、違うファイルを出して断る。
+  `--checkpoint <マニフェスト>` を省くと、チェックポイントの置き場の最新のマニフェストを使う。
+- フォルダには、公開用の JSON `publication.json` と、元のファイルの写し `source/`（引用、抜き書き、設定、マニフェスト）を書く。作業中のファイルは変えない。
+- 出さないもの: 抽出テキスト、頁の画像、前後の文（前・含む文・後）、どの引用も根拠にしていない抜き書き、作業票・下書き・候補、判断ファイル、適用の記録、
+  差し戻しの記録、指摘、分類器の判定の台帳の中身、原稿の全文（引用を含む文だけを出す）。原本は同梱しない。
+- 誰が公開したかは、道具は支えない（署名しない）。公開物の ID を論文の本文か補足資料に書くと、読み手は受け取った公開物が同じものかを確かめられる。
+
+### 12.1 公開用の JSON の形
+
+```json
+{"format": "cite-bridge-publication/1",
+ "id": "sha256-<64 桁>",
+ "spec": {"fingerprint": "sha1-8", "identity": "sha256-jcs"},
+ "tool": {"name": "cite-bridge", "version": "0.8.0", "sha256": "…", "commit": "…", "dirty": false},
+ "vocabulary": {"strength": {"観察": "observation"}, "diff": {"一致": "identical"}, "kind": {"主張": "claim"},
+                "evidence_kind": {"文": "text"}, "result": {"一致": "match", "違う": "differs"}},
+ "content": {
+  "manuscript": {"title": "<原稿の最初の見出し | null>", "file": {"path": "<原稿のパス>", "sha256": "…"}},
+  "sources": [{"key": "doe2020", "entry": "<書誌の一件の文>", "doi": null, "url": null, "accessed": null, "retrieved": null,
+               "grade": "<格>", "file": {"sha256": "…", "pages": 12, "ocr_pages": null}, "verbatim_published": true}],
+  "excerpts": [{"id": "doe2020#e1", "verbatim": "<逐語 | null>", "verbatim_fingerprint": "<8 桁>", "verbatim_sha256": "<64 桁>",
+                "strength": "観察", "summary": "…", "not_said": "…", "secondary_source": "", "translation": "",
+                "alternate_location": "", "evidence_kind": "文", "written_by": "<記入>", "summary_fingerprint": "<8 桁>",
+                "derived": {"match": "一致", "location": "…", "section_kind": "結果", "human_check": ""}}],
+  "citations": [{"id": "c001", "kind": "主張", "sentence": "<印を外した文>", "sentence_fingerprint": "<8 桁>",
+                 "excerpts": ["doe2020#e1"], "source": "", "reason": "…", "interpretation": "", "human_reading": "",
+                 "human_reading_by": "", "diff": "言い換え", "not_quotes": "", "written_by": "<記入>",
+                 "evidence_fingerprint": "<8 桁>", "section": "<原稿の節の見出し>"}]},
+ "records": {
+  "approvals": [{"citation": "c001", "by": "<名前 | null>", "kind": "human", "family": null, "date": "2026-01-01",
+                 "note": null, "sentence_fingerprint": "<8 桁>", "evidence_fingerprint": "<8 桁>"}],
+  "summary_checks": [{"excerpt": "doe2020#e1", "by": "<名前 | null>", "kind": "human", "family": null, "date": "2026-01-01",
+                      "summary_fingerprint": "<8 桁>"}],
+  "source_checks": [{"excerpt": "doe2020#e1", "by": "<名前 | null>", "kind": "model", "family": "acme", "date": "2026-01-01",
+                     "result": "一致", "page": "", "note": null, "verbatim_fingerprint": "<8 桁>"}],
+  "decided_by": {}, "coverage": {}, "classifier": null},
+ "publication": {"published_by": "<公開した者>", "published_at": "<UTC 時刻>", "license": null, "reference": null,
+                 "checkpoint": "<もとにしたマニフェストの時刻>", "replaces": null,
+                 "people": {"<名前>": {"orcid": null}},
+                 "files": {"source/<元のファイルのパス>": {"sha256": "…", "included": true}}}}
+```
+
+- 中身（`content`）、確かめた記録（`records`）、公開の情報（`publication`）を分けて持つ。ID（§12.2）に入るのは `format`・`spec`・`content`・`records` である。
+- 鍵は英語（§10 の別名）、値は日本語の語彙のままである。`vocabulary` は、値の語彙の日本語と英語の対応で（§10 の値の別名と同じ。`result` は原本での確認の結果）、指紋の計算には使わない。
+- `spec` は、指紋（`fingerprint`。§4 の定義の名前）と ID（`identity`。§12.2 の定義の名前）を、どの定義で計算し直すかを示す。定義を変えたら名前を変える。
+- `tool` は、マニフェストの `tool` と同じ形で、書き出した道具を指す。
+- `content.sources` は、出した抜き書きの文献と、指示の引用の文献である。`doi` と `url` は書誌の文から拾い、拾えなければ null。`accessed` は書誌の参照日、`retrieved` は Web の写しの取得日。
+  `file` は、抽出テキストか Web の写しの頭書き（§2.4.1）から取った、著者が使ったファイルの指紋と頁の数で、頭書きが無ければ null。
+- `content.excerpts` は、主張の引用が根拠にしている抜き書きだけを、引用の順に並べる。書く欄（§2.1）をすべて持ち、任意の欄は無ければ空の文字列（`evidence_kind` は `文`）である。
+  `derived` は書く側の道具が出した導く欄（照合、所在、節の種類、要ヒューマンチェック）で、書く側がそう出したという記録である。
+- `content.citations` は、原稿に印のある引用を、原稿の順に並べる。`sentence` は、引用を含む文から印と HTML コメントを外したもので、読む側は設定なしで本文の指紋を確かめられる。
+  指示の引用は `excerpts` が空で、`source` に書誌の key を持ち、`evidence_fingerprint` は空の文字列である。
+- `records` の三つの並びは、数えた記録だけを持つ（承認済に数えた承認、有効な要約の確認、有効な原本での確認。§2.1、§3.2）。出した抜き書きと引用についての記録だけを並べる。
+  各記録は、確かめたときの指紋を持つ。`kind` は承認者の一覧の種類（human / model）で、一覧に無い者と一覧が無いときは `unlisted`。`family` は model の系統で、無ければ null。
+  `decided_by`・`coverage`・`classifier` は、マニフェストの同じ名前の欄の写しである（§8）。`decided_by` の要約の確認と原本での確認の数は、出さなかった抜き書きの分だけ、並んだ記録より多くなりうる。
+- `publication.reference` は、発表した論文の指し方（DOI か URL）である。論文に ID を書いた後で決まるので、ID に入らない側に置く。
+  `publication.files` は、元のファイルの指紋である。`included` が false のファイルは添えていない（§12.3、§12.4）。`publication.json` 自身は入れない。
+
+### 12.2 公開物の ID
+
+`format`・`spec`・`content`・`records` の四つの鍵だけを持つ JSON を、RFC 8785（JSON Canonicalization Scheme）で直列化し、その UTF-8 の列の SHA-256 を取る。`id` は `sha256-` に 16 進（小文字）の全 64 桁を続けたものである。
+
+- 直列化は、鍵を符号位置の順に整列し、空白と改行を入れず、文字列は `"` と `\` と U+0020 より前の字だけをエスケープして、ほかは UTF-8 のまま書く。
+  U+0020 より前の字は、`\b`・`\f`・`\n`・`\r`・`\t` と、それ以外は `\u` に 16 進（小文字）4 桁で書く。鍵は ASCII だけである。数は整数だけで、小数を持たない。
+- `tool`・`vocabulary`・`publication` は ID に入らない。同じ中身と記録を、別の日に、別の者が、別の版の道具で書き出しても、同じ ID になる。
+- 外から指すときは、引用を `<ID>#<引用の ID>`、抜き書きを `<ID>#<key>#<抜き書きの ID>` と書く（例 `sha256-…#doe2020#e1`）。ID が中身から決まるので、指した先の中身は変わらない。
+
+入力と値の例。`string` は SHA-256 にかける前の文字列である。
+
+```json
+[
+ {"kind": "identity", "object": {"format": "cite-bridge-publication/1", "spec": {"fingerprint": "sha1-8", "identity": "sha256-jcs"}, "content": {"citations": [{"id": "c001", "sentence": "信頼は \"ゆっくり\" 築かれる（Doe 2020）。", "excerpts": ["doe2020#e1"]}], "excerpts": [{"id": "doe2020#e1", "verbatim": null, "evidence_kind": "文"}]}, "records": {"approvals": [], "coverage": {"spans": 1}}}, "string": "{\"content\":{\"citations\":[{\"excerpts\":[\"doe2020#e1\"],\"id\":\"c001\",\"sentence\":\"信頼は \\\"ゆっくり\\\" 築かれる（Doe 2020）。\"}],\"excerpts\":[{\"evidence_kind\":\"文\",\"id\":\"doe2020#e1\",\"verbatim\":null}]},\"format\":\"cite-bridge-publication/1\",\"records\":{\"approvals\":[],\"coverage\":{\"spans\":1}},\"spec\":{\"fingerprint\":\"sha1-8\",\"identity\":\"sha256-jcs\"}}", "id": "sha256-b55d390f05c1980967fa5f5b91bccde83ad244552c8167b28eb8df844bdbae66"},
+ {"kind": "verbatim_sha256", "verbatim": "Trust  is built　slowly.", "string": "Trustisbuiltslowly.", "sha256": "e9adb0ce1d9f2af0f7d41c6c4f56ef72d4524e615b56206387ac8bf21b534c52"}
+]
+```
+
+### 12.3 逐語を出す範囲
+
+逐語は既定で出す。設定の `withhold_verbatim` に挙げた文献（`doe2020`）と抜き書き（`doe2020#e1`）は、`verbatim` を null にする。どの文献の逐語を出してよいかは、書く側が決める。
+
+- `verbatim_sha256` は、逐語から空白（§4 の 29 字）を除いた文字列の、UTF-8 の SHA-256 の全 64 桁（16 進、小文字）である。逐語を出すときも出さないときも持つ。
+  読み手は、自分で原本から写した文字列が著者の逐語と同じかを、これで確かめる（逐語の指紋は 32 ビットで、別の文字列でも合いうる）。
+- 逐語を外した抜き書きも、指紋、所在、要約、言っていないこと、訳を持つ。要約と訳は書き手の文である。
+- 逐語を外した抜き書きのある文献の抜き書きのファイルは、`source/` に添えない（`included` が false）。その文献の `verbatim_published` は false である。
+- 逐語を外した抜き書きを根拠に持つ引用の根拠の指紋は、公開物だけでは計算し直せない。
+
+### 12.4 名前
+
+設定の `names` が `hide` のとき、記録の `by` を null にし、`kind` と `family` だけを出す。記入（`written_by`、`human_reading_by`）は、値の先頭の名前（§2.1 の書き手）を種類に置き換える。
+種類は、マニフェストの `decided_by` のキーと同じ語（human / model:<系統> / model / unlisted）である。名前の後の字（日付など）はそのまま出す。
+このとき `people` は空にし、元のファイルは一つも添えない（どのファイルも名前を持つため）。設定の `notes` が `hide` のとき、記録の `note` を null にする。
+
+### 12.5 読む側が確かめ直せること
+
+公開物だけで確かめ直せるのは、ID（§12.2）、指紋（§4。`content` の値から計算する）、各記録の指紋が今の中身の指紋と合うこと、承認の内訳が並んだ記録と合うこと、である。
+原本を手に入れれば、ファイルが著者の使ったものと同じか（`file.sha256`）と、逐語が原本にあるかを確かめ直せる。
+
+逐語が原本にあるかについて、この仕様が約束するのは完全な一致だけである。逐語と、読み手が原本から得た文字列の両方から空白（§4 の 29 字）を除き、逐語が原本の文字列の部分文字列であれば一致とする。
+読み手が原本から文字列をどう得るか（PDF の抽出、OCR）は決めない。抽出の仕方で字が変わるので、一致しないことは、逐語が原本に無いことを意味しない。
+`derived.match` は書く側の道具が出した照合の結果（§2.2）で、完全な一致より緩い段階を含む。緩い照合のやり直しは、実装ごとの手がかりとする。
+
+公開物が保証しないこと: 主張を原典が支えているか（承認した者の判断である）、承認者が本当にその人か、書く側の `derived` が正しいか。
+
+### 12.6 公開物の版の約束
+
+公開物は止まったままで、読み手は後の版の道具で来る。§11.2 の「古い形は次の副版まで読む」は作業中のファイルの約束で、公開物には当たらない。
+
+- `cite-bridge-publication/1` の定義と、`spec` の名前（`sha1-8`、`sha256-jcs`）が指す定義は、後の版の仕様にも残す。形を変えるときは形式名の番号を上げ、前の番号の定義を残す。
+- 永久に変えない欄は `format`・`id`・`spec` である。読む側は、この三つで、残りをどの定義で読むかが分かる。
+- cite-bridge が後の版で古い番号の公開物を読むかは約束しない。

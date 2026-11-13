@@ -171,6 +171,40 @@ class SpecFingerprintTest(unittest.TestCase):
         self.assertEqual(summary_fingerprint(blocks[0]["fields"]), v["fingerprint"])
 
 
+class SpecPublicationTest(unittest.TestCase):
+    """§12 の公開物の ID と verbatim_sha256 の定義と例が、実装と食い違わない（C54）。別の実装は §12 と §4 だけを読んで同じ値を出す。"""
+
+    def setUp(self):
+        self.vectors = {v["kind"]: v for v in json.loads(re.search(r"```json\n(.*?)\n```", section("### 12.2"), re.S).group(1))}
+
+    def test_identity_example_follows_the_written_rule_and_the_implementation(self):
+        from test_publish import jcs  # §12.2 の文だけに従った直列化（実装の関数を使わない）
+        from cite_bridge import publish
+        v = self.vectors["identity"]
+        self.assertEqual(set(v["object"]), {"format", "spec", "content", "records"})
+        self.assertEqual(jcs(v["object"]), v["string"])
+        self.assertEqual("sha256-" + hashlib.sha256(v["string"].encode("utf-8")).hexdigest(), v["id"])
+        self.assertEqual(publish.canonical(v["object"]), v["string"])
+        self.assertEqual(publish.publication_id({**v["object"], "tool": {"version": "x"}, "publication": {"published_by": "y"}}), v["id"])
+        # 例は、エスケープの要る字、ASCII でない字、null、整数、鍵の整列を含む
+        for part in ('\\"', "信頼", "null", ":1", '{"content":'):
+            self.assertIn(part, v["string"])
+        self.assertEqual(v["object"]["format"], "cite-bridge-publication/1")
+        self.assertEqual(v["object"]["spec"], publish.SPEC)
+
+    def test_verbatim_sha256_example(self):
+        from cite_bridge import publish
+        v = self.vectors["verbatim_sha256"]
+        self.assertEqual("".join(c for c in v["verbatim"] if c not in SPEC_WHITESPACE), v["string"])
+        self.assertEqual(hashlib.sha256(v["string"].encode("utf-8")).hexdigest(), v["sha256"])
+        self.assertEqual(publish.verbatim_sha256(v["verbatim"]), v["sha256"])
+
+    def test_settings_keys_match(self):
+        from cite_bridge import publish
+        row = next(r for r in table_rows(section("## 9.")) if r[0] == "publication")
+        self.assertEqual({k.strip() for k in row[1].split(",")}, publish.SETTINGS)
+
+
 class ReadmeBlockTest(unittest.TestCase):
     """README の「AI に使わせるとき」の写すブロックが、道具の今のファイルとコマンドを指す（C30）。英語の版も同じ（C32）。"""
     READMES = {"README.md": "## AI に使わせるとき", "README.en.md": "## Using it with an AI agent"}

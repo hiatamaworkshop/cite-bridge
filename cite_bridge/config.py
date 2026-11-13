@@ -6,7 +6,7 @@ import sys
 
 
 TOOL_NAME = "cite-bridge"
-TOOL_VERSION = "0.7.0"  # 形式（欄・判断ファイル・マニフェスト）を変えたら副版を上げる（SPEC §11.2）。数え方の直しでも上げる。マニフェストに記録する
+TOOL_VERSION = "0.8.0"  # 形式（欄・判断ファイル・マニフェスト）を変えたら副版を上げる（SPEC §11.2）。数え方の直しでも上げる。マニフェストに記録する
 
 # 設定（bridge.toml）から main で埋める
 CONFIG = Path("bridge/bridge.toml")
@@ -24,6 +24,7 @@ CLASSIFIER = {}     # [classifier]。提供元・モデル・上限・文面の�
 CHECKS_USER = []    # [[checks]]。問いの型の追加と上書き（既定の型は judge.DEFAULT_CHECKS）
 APPROVERS = {}      # 承認者の一覧 {名前: human / model}。空なら名前を問わない（approvers）
 APPROVER_FAMILIES = {}  # model の系統 {名前: 系統}。一覧に `model:<系統>` と書いた者だけ（C41）
+PUBLICATION = {}    # [publication]。公開物の書き出しの設定（publish のときだけ読む。SPEC §12）
 COUNT_MODEL = False  # 書き手と独立な model の引用の承認を承認済に数えるか（approval.count_model。既定は数えない。C42）
 # 出典らしき括弧（著者と年など）。印の無い文にあるものを「印の無い出典」として数える（coverage.pattern で替える）
 COVER_RE = re.compile(r"[（(][^（）()\n]*?(?<!\d)(?:19|20)\d{2}[a-z]?(?![\d年月日-])[^（）()\n]*[）)]")
@@ -86,7 +87,8 @@ def load_config(path, citations=None):
     OUTPUT_LANG = c.get("output", {}).get("language", OUTPUT_LANG)
     global WATCH_EXTRA
     WATCH_EXTRA = [Path(x) for x in c.get("hook", {}).get("watch", [])]
-    global JUDGMENTS, CLASSIFIER, CHECKS_USER
+    global JUDGMENTS, CLASSIFIER, CHECKS_USER, PUBLICATION
+    PUBLICATION = dict(c.get("publication", {}))
     JUDGMENTS = Path(r.get("judgments", CIT.parent / "judgments.jsonl"))
     CLASSIFIER = dict(c.get("classifier", {}))
     CHECKS_USER = list(c.get("checks", []))

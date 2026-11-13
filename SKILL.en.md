@@ -153,6 +153,45 @@ When a paper discloses its use of AI, use the manifest of the submission point (
 - `by` is the person who submitted, limited to human when there is an approvers list. Who wrote the excerpts and citations is not counted in the manifest; see 記入 (written_by) in the excerpt and citation files.
 - `tool` is the version of the tool that checked, and `files` the fingerprints of the files checked; they show which state of the manuscript the disclosed numbers belong to.
 
+## Published package (released with the published paper)
+
+After a paper is published, you can release a package that lets others check its citations again. `publish` writes the publication JSON and copies of the source files from the submission point (the manifest). The form, and what the reading side can check again, are in SPEC.md §12.
+
+```
+python tools/cite-bridge/bridge.py publish -o <フォルダ> [--checkpoint <マニフェスト>]
+```
+
+(`<フォルダ>` is the output folder; `<マニフェスト>` is a manifest file.)
+
+- It writes only when no file has changed since the manifest and the current `check --strict` passes. Otherwise it lists the files that differ and refuses. Write `checkpoint` again, then `publish`.
+- Working files are not changed. Point to a folder that does not exist or is empty (a published package is never rewritten; to correct one, release a new package and put the previous ID in the setting `replaces`).
+- Write the ID that `publish` prints (`sha256-…`) in the paper or its supplementary material. Readers can recompute the ID of the package they received and check that it is the same one.
+  The ID is determined by the content and the records of checks only; it does not depend on who published it, when, the pointer to the published paper (`reference`), or the tool version. Adding the DOI to `reference` after the ID is written in the paper does not change the ID.
+- Only citations that have a mark in the manuscript, and the excerpts they rest on, are released. Extracted text, page images, surrounding sentences, the full manuscript and the originals are not.
+- Verbatim text is released by default. For sources you cannot confirm may be released, list the key (or the excerpt ID) in `withhold_verbatim`. A withheld excerpt is released as fingerprints and location only.
+  Which sources' verbatim text may be released is for the person publishing to confirm. The tool does not judge.
+- With `names = "hide"`, names of approvers and checkers are not released; only whether each is a human or a model (and the model family) is. In that case no copy of the source files is attached either. `notes = "hide"` leaves out approval notes and the notes of checks against the original.
+
+Settings go in `[publication]` in bridge.toml (the keys are listed in SPEC.md §9). `published_by` is required.
+
+```toml
+[publication]
+published_by = "Example Lab"
+license = "CC-BY-4.0"
+reference = "https://doi.org/10.9999/example"
+withhold_verbatim = ["smith2020", "doe2019#e3"]
+names = "show"
+notes = "show"
+```
+
+The tool does not sign a published package. Who published it is supported by the ID written in the paper and by the hosting mechanism (a repository that issues DOIs, a signed git tag).
+To add a signature, sign `publication.json` with an outside command and put the signature file in the package folder. The tool neither calls these commands nor verifies the signature.
+
+```
+ssh-keygen -Y sign -f <key> -n cite-bridge publication.json
+gpg --detach-sign --armor publication.json
+```
+
 ## Sources without a mark
 
 - In the 「網羅」 (coverage) line, check gives the number of source-like items in the manuscript (with the number of parentheses) that have no mark. This tool checks nothing about citations without a mark.
@@ -272,6 +311,7 @@ python tools/cite-bridge/bridge.py snapshot <key> [<URL>]       # copy of a web 
 python tools/cite-bridge/bridge.py snapshot <key> --rebuild     # rebuild the body from the saved raw HTML (without fetching again)
 python tools/cite-bridge/bridge.py strip <manuscript> <output>            # make a copy without marks
 python tools/cite-bridge/bridge.py checkpoint [--label interim] [--by person]   # record, as a manifest, a point that passed check --strict (with the tool's version); with an approvers list, --by (human) is required
+python tools/cite-bridge/bridge.py publish -o <フォルダ> [--checkpoint <マニフェスト>]   # write a published package from the submission point (the "Published package" section)
 python tools/cite-bridge/bridge.py precommit                       # called from git's pre-commit (hook section)
 python tools/cite-bridge/bridge.py classify [--send] [--list [--all]] [--cids c001 ...] [--limit N]   # classifier check (docs/classifier.md; nothing is sent without --send)
 python tools/cite-bridge/bridge.py classify --eval <set.json> --variant <variant.toml> [--types type …] [--reps 2] [--send]   # wording measurement (not written to the ledger)

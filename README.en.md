@@ -86,6 +86,7 @@ The everyday flow is below (run commands at the root of the repository).
 4. Fill in the derived fields with `bridge.py derive`, and check consistency with `bridge.py check`.
 5. A person makes decisions on the page built by `bridge.py review --html -o review.html`, then the saved decisions file is written with `bridge.py apply <decisions file>`.
 6. Before submission, run `bridge.py check --strict`; to record a milestone, run `bridge.py checkpoint`.
+7. After publication, to release a package that lets others check the citations again, run `bridge.py publish -o <フォルダ>` ("Published package" in SKILL.md).
 
 All commands, the git pre-commit hook, and `--citations` for several manuscripts are in SKILL.md.
 

@@ -13,6 +13,7 @@ from .derive import cmd_derive
 from .classify import cmd_classify
 from .fetch import cmd_extract, cmd_snapshot
 from .propose import cmd_propose, cmd_sentences
+from .publish import cmd_publish
 from .review import cmd_review
 
 
@@ -91,6 +92,10 @@ def main():
     cp.add_argument("--label", default="")
     cp.add_argument("--by", help="提出する人（承認者の一覧があるときは必須で、human のみ）")
     cp.set_defaults(func=cmd_checkpoint)
+    pb = sub.add_parser("publish")
+    pb.add_argument("-o", "--out", required=True, help="公開物を書き出すフォルダ（無いか、空のフォルダ）")
+    pb.add_argument("--checkpoint", help="もとにするマニフェスト（省くと、チェックポイントの置き場の最新のもの）")
+    pb.set_defaults(func=cmd_publish)
     cl = sub.add_parser("classify")
     cl.add_argument("--send", action="store_true", help="外部の分類器へ送る（既定は、送る内容の見積りだけ）")
     cl.add_argument("--list", action="store_true", help="台帳の判定を、現在の記録と突き合わせて出す（何も送らない）")

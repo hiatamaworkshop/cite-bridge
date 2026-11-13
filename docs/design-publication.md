@@ -72,7 +72,7 @@
 ```json
 {"format": "cite-bridge-publication/1",
  "id": "<公開物の ID。§7>",
- "spec": {"version": "<書き出した道具の SPEC の版>", "fingerprint": "sha1-8", "identity": "sha256-jcs"},
+ "spec": {"fingerprint": "sha1-8", "identity": "sha256-jcs"},
  "tool": {"name": "cite-bridge", "version": "…", "sha256": "…", "commit": "…", "dirty": false},
  "vocabulary": {"strength": {"観察": "observation", "…": "…"}, "diff": {…}, "kind": {…}, "evidence_kind": {…}, "result": {"一致": "match", "違う": "differs"}},
  "content": {"manuscript": {…}, "sources": […], "excerpts": […], "citations": […]},
@@ -81,6 +81,7 @@
 ```
 
 - `spec`: 読む側が、どの定義で指紋と ID を計算し直すかを知るための欄。`fingerprint` は SPEC §4 の指紋の定義の名前、`identity` は §7 の ID の定義の名前である。定義を変えたら名前を変える。
+  SPEC の版はここに持たない（`tool.version` にある）。`spec` は ID に入るので、版を持つと、道具の版を上げただけで ID が変わるためである（実装のときに直した）。
 - `tool`: マニフェストの `tool` をそのまま写す（どの版の検査で通ったか）。
 - `vocabulary`: 値の語彙の、日本語と英語の対応。値は日本語のまま持つので（決めたこと 7）、日本語を読まない読み手と実装がここで引く。指紋の計算には使わない。
   対応は SPEC §10 の値の別名と同じである。原本での確認の結果（一致・違う）は §10 に別名が無いので、この対応表にだけ持つ（作業中のファイルの読み方は変えない）。
@@ -130,7 +131,8 @@
 - 指示の引用は `kind` が `指示` で、`source` に書誌の key を持ち、`excerpts` は空である。
 - 原稿の全文は持たない。発表した論文そのものは、公開物の外にある（`content.manuscript` で指す）。
 
-`content.manuscript` は `{"title", "reference": "<発表した論文の指し方。DOI か URL>", "file": {"path", "sha256"}}`。`reference` は書く側が設定に書く（§10）。
+`content.manuscript` は `{"title", "file": {"path", "sha256"}}`。発表した論文の指し方（DOI か URL）は、`content` ではなく `publication.reference` に持つ（§4.5）。
+論文の本文に公開物の ID を書いてから論文の DOI が決まるので、DOI を ID に入る側に置くと順序が循環するためである（実装のときに気づいて直した）。
 
 ### 4.4 `records`（確かめた記録）
 
@@ -154,6 +156,7 @@
 
 ```json
 {"published_by": "<公開した者>", "published_at": "<UTC 時刻>", "license": "<ライセンスの名前か URL | null>",
+ "reference": "<発表した論文の指し方。DOI か URL | null>",
  "checkpoint": "<もとにしたマニフェストの時刻>", "replaces": "<置き換える前の版の ID | null>",
  "people": {"<名前>": {"orcid": "<ORCID | null>"}},
  "files": {"<公開物のフォルダの中のパス>": {"sha256": "…", "included": true}}}
@@ -211,7 +214,7 @@ ID の作り方:
 1. 公開物の ID（§7）。
 2. 本文の指紋、根拠の指紋、要約の指紋、逐語の指紋（SPEC §4）。逐語を外した抜き書きを根拠に持つ引用の根拠の指紋は、計算し直せない（逐語が要る）。書いてある値を読むだけになる。
 3. 各記録（承認、要約の確認、原本での確認）が、今の中身の指紋についてのものであること。
-4. 数えた判断の内訳（`decided_by`）が、並んだ記録と合うこと。
+4. 数えた承認の内訳（`decided_by` の `approvals`）が、並んだ承認の記録と合うこと。要約の確認と原本での確認の内訳は、出さなかった抜き書き（引用が根拠にしていないもの）の分だけ、並んだ記録より多くなりうる。
 
 原本を手に入れて確かめ直せること:
 

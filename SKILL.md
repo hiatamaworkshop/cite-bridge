@@ -150,6 +150,43 @@ English: [SKILL.en.md](SKILL.en.md)（正本はこの日本語の版で、英語
 - `by` は提出した人で、承認者の一覧があれば human に限る。誰が抜き書きと引用を書いたかは、マニフェストには数えない。抜き書きと引用のファイルの「記入」を見る。
 - `tool` は検査した道具の版、`files` は検査したファイルの指紋で、開示した数がどの原稿の状態のものかを示す。
 
+## 公開物（発表した論文と一緒に出す）
+
+論文を発表した後に、引用を確かめ直せる一式を公開できる。`publish` が、提出の地点（マニフェスト）から、公開用の JSON と元のファイルの写しを書き出す。形と、読む側が確かめ直せることは SPEC.md §12。
+
+```
+python tools/cite-bridge/bridge.py publish -o <フォルダ> [--checkpoint <マニフェスト>]
+```
+
+- 書き出すのは、マニフェストの後にファイルが変わっておらず、今の `check --strict` を通るときだけである。合わなければ、違うファイルを出して断る。`checkpoint` を書き直してから `publish` する。
+- 作業中のファイルは変えない。フォルダは、無いか空のものを指す（公開物は書き換えない。直すときは新しい公開物を出し、設定の `replaces` に前の ID を書く）。
+- `publish` が出す ID（`sha256-…`）を、論文の本文か補足資料に書く。読み手は、受け取った公開物の ID を計算し直して、同じものかを確かめられる。
+  ID は中身と確かめた記録だけから決まり、公開した者・日時・発表した論文の指し方（`reference`）・道具の版には依らない。論文に ID を書いた後で DOI を `reference` に足しても、ID は変わらない。
+- 出すのは、原稿に印のある引用と、その根拠の抜き書きだけである。抽出テキスト、頁の画像、前後の文、原稿の全文、原本は出さない。
+- 逐語は既定で出す。出してよいかを確かめられない文献は、`withhold_verbatim` に key（または抜き書きの ID）を挙げて外す。外した抜き書きは、指紋と所在だけが出る。
+  どの文献の逐語を出してよいかは、公開する人が確かめる。道具は判断しない。
+- `names = "hide"` にすると、承認者と確認者の名前を出さず、人か model か（と model の系統）だけを出す。このときは元のファイルの写しも添えない。`notes = "hide"` は、承認の理由と原本での確認のメモを出さない。
+
+設定は bridge.toml の `[publication]` に書く（鍵の一覧は SPEC.md §9）。`published_by` は必須である。
+
+```toml
+[publication]
+published_by = "Example Lab"
+license = "CC-BY-4.0"
+reference = "https://doi.org/10.9999/example"
+withhold_verbatim = ["smith2020", "doe2019#e3"]
+names = "show"
+notes = "show"
+```
+
+道具は公開物に署名しない。誰が公開したかは、論文に書いた ID と、置き場所の仕組み（DOI を出す保管庫、署名つきの git のタグ）が支える。
+署名を添えたいときは、外のコマンドで `publication.json` に署名し、署名のファイルを公開物のフォルダに置く。道具はこれを呼ばず、検証もしない。
+
+```
+ssh-keygen -Y sign -f <key> -n cite-bridge publication.json
+gpg --detach-sign --armor publication.json
+```
+
 ## 印の無い出典
 
 - check は「網羅」の行に、原稿の出典らしきもの（括弧の数を併記）のうち、印の無いものの数を出す。印の無い引用はこのツールが何も確かめていない。
@@ -269,6 +306,7 @@ python tools/cite-bridge/bridge.py snapshot <key> [<URL>]       # Web 資料の�
 python tools/cite-bridge/bridge.py snapshot <key> --rebuild     # 保存した生の HTML から本文を作り直す（取り直さない）
 python tools/cite-bridge/bridge.py strip <原稿> <出力>            # 印を外した写しを作る
 python tools/cite-bridge/bridge.py checkpoint [--label 中間提出] [--by 人]   # check --strict を通った地点をマニフェストで残す（道具の版つき）。承認者の一覧があるときは --by（human）が要る
+python tools/cite-bridge/bridge.py publish -o <フォルダ> [--checkpoint <マニフェスト>]   # 提出の地点から公開物を書き出す（「公開物」の節）
 python tools/cite-bridge/bridge.py precommit                       # git の pre-commit から呼ぶ（hook 節）
 python tools/cite-bridge/bridge.py classify [--send] [--list [--all]] [--cids c001 ...] [--limit N]   # 分類器による検査（docs/classifier.md。--send が無ければ送らない）
 python tools/cite-bridge/bridge.py classify --eval <組.json> --variant <案.toml> [--types 型 …] [--reps 2] [--send]   # 文面の測定（台帳に書かない）

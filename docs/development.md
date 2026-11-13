@@ -24,6 +24,7 @@ English: [development.en.md](development.en.md)（正本はこの日本語の版
 | review（templates/） | 確認の材料（md・JSON）と承認の HTML。HTML と JavaScript は templates/ に置く |
 | fetch | PDF の抽出と Web 資料の写し |
 | checkpoint | マニフェスト、道具の版、pre-commit、印の除去 |
+| publish | 公開物の書き出し（公開用の JSON、ID、添える元のファイル。SPEC §12） |
 
 ## 試験
 
