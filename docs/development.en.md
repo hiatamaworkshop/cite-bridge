@@ -34,6 +34,8 @@ The entry point is `bridge.py` (it only takes arguments and passes them to `cite
   The tests that make PDFs are skipped without `pymupdf`. The tested versions of `pymupdf` are 1.28.2 and 2.0.
 - There are also tests of the documents: that SPEC's fields and formats match the implementation (`tests/test_spec.py`), that the getting-started guide works as written (`tests/test_getting_started.py`),
   and that the English versions match the Japanese ones in commands, options, code and links (`tests/test_translations.py`).
+- Conformance files for other implementations are in [spec/](../spec/README.en.md). When an example in SPEC.md §4 or §12.2 changes, or the form of a published package changes, rebuild them with `python spec/make_examples.py`
+  (until then `tests/test_vectors.py` fails).
 
 ## When you edit the documents
 

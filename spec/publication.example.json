@@ -1,0 +1,202 @@
+{
+ "format": "cite-bridge-publication/1",
+ "id": "sha256-f134f11089bd65903a41159453dea3fe9f06f7773f7e01dd58e89f5602e84f1c",
+ "spec": {
+  "fingerprint": "sha1-8",
+  "identity": "sha256-jcs"
+ },
+ "tool": {
+  "name": "cite-bridge",
+  "version": "0.8.1",
+  "sha256": "044ac5b3be6497da26257e2dddde3f6eb3f7792ffe7d4f37c03413c9dc63e4b7",
+  "commit": null,
+  "dirty": false
+ },
+ "vocabulary": {
+  "strength": {
+   "観察": "observation",
+   "示唆": "suggestion",
+   "主張": "claim",
+   "一般化": "generalization",
+   "条件付き": "conditional"
+  },
+  "diff": {
+   "一致": "identical",
+   "言い換え": "paraphrase",
+   "限定つき一般化": "qualified_generalization",
+   "外挿": "extrapolation"
+  },
+  "kind": {
+   "指示": "pointer",
+   "主張": "claim"
+  },
+  "evidence_kind": {
+   "文": "text",
+   "表": "table",
+   "グラフ": "chart",
+   "図": "figure"
+  },
+  "result": {
+   "一致": "match",
+   "違う": "differs"
+  }
+ },
+ "content": {
+  "manuscript": {
+   "title": "本文",
+   "file": {
+    "path": "manuscript.md",
+    "sha256": "d238ee42056db674aedf831c260c724cfb429d1ebe7ad495ccbb3ee844dd8fa3"
+   }
+  },
+  "sources": [
+   {
+    "key": "doe2020",
+    "entry": "Doe, J. (2020). A study of things. *Journal of Things*, 1(1), 1–3. https://doi.org/10.9999/JT.2020.001",
+    "doi": "10.9999/jt.2020.001",
+    "url": null,
+    "accessed": null,
+    "retrieved": null,
+    "grade": "PDF所持（抽出あり）",
+    "file": null,
+    "verbatim_published": true
+   }
+  ],
+  "excerpts": [
+   {
+    "id": "doe2020#e1",
+    "verbatim": "Participants completed the task in 12 seconds on average.",
+    "verbatim_fingerprint": "89689c89",
+    "verbatim_sha256": "1993625bdb1f3ef9d13e5828f9a57e8bce0b9844ace3a9b6e1e1ae2adcc516d6",
+    "strength": "観察",
+    "summary": "平均12秒で課題を終えた。",
+    "not_said": "雑音の中では測っていない。",
+    "secondary_source": "",
+    "translation": "",
+    "alternate_location": "",
+    "evidence_kind": "文",
+    "written_by": "test",
+    "summary_fingerprint": "f07c7f0b",
+    "derived": {
+     "match": "一致",
+     "location": "p.2（PDF 2頁目） / §3 Results",
+     "section_kind": "結果",
+     "human_check": ""
+    }
+   }
+  ],
+  "citations": [
+   {
+    "id": "c001",
+    "kind": "主張",
+    "sentence": "Doe らの実験では、参加者は \"completed the task in 12 seconds on average\" であった（Doe, 2020）。",
+    "sentence_fingerprint": "e4009397",
+    "excerpts": [
+     "doe2020#e1"
+    ],
+    "source": "",
+    "reason": "試験",
+    "interpretation": "",
+    "human_reading": "",
+    "human_reading_by": "",
+    "diff": "一致",
+    "not_quotes": "",
+    "written_by": "test",
+    "evidence_fingerprint": "d677ee63",
+    "section": "2.1 先行研究"
+   }
+  ]
+ },
+ "records": {
+  "approvals": [
+   {
+    "citation": "c001",
+    "by": "tester",
+    "kind": "human",
+    "family": null,
+    "date": "2026-11-13",
+    "note": "原文のとおり",
+    "sentence_fingerprint": "e4009397",
+    "evidence_fingerprint": "d677ee63"
+   }
+  ],
+  "summary_checks": [
+   {
+    "excerpt": "doe2020#e1",
+    "by": "tester",
+    "kind": "human",
+    "family": null,
+    "date": "2026-11-13",
+    "summary_fingerprint": "f07c7f0b"
+   }
+  ],
+  "source_checks": [
+   {
+    "excerpt": "doe2020#e1",
+    "by": "tester",
+    "kind": "human",
+    "family": null,
+    "date": "2026-11-13",
+    "result": "一致",
+    "page": "p.2 §3",
+    "note": null,
+    "verbatim_fingerprint": "89689c89"
+   }
+  ],
+  "decided_by": {
+   "approvals": {
+    "counted": {
+     "human": 1
+    },
+    "uncounted": {}
+   },
+   "source_checks": {
+    "counted": {
+     "human": 1
+    },
+    "uncounted": {}
+   },
+   "summary_checks": {
+    "counted": {
+     "human": 1
+    },
+    "uncounted": {}
+   }
+  },
+  "coverage": {
+   "spans": 1,
+   "in_marked_sentences": 1,
+   "unmarked": 0,
+   "parens": 1,
+   "excluded": 0
+  },
+  "classifier": null
+ },
+ "publication": {
+  "published_by": "Example Lab",
+  "published_at": "2026-11-13T10:00:37Z",
+  "license": "CC-BY-4.0",
+  "reference": "https://doi.org/10.9999/example.paper",
+  "checkpoint": "2026-11-13T10:00:37Z",
+  "replaces": null,
+  "people": {},
+  "files": {
+   "source/bridge/citations.md": {
+    "sha256": "74a065f48a345d9928229550f5efd4c297d7f81bb810d93d7994613c43f814de",
+    "included": false
+   },
+   "source/bridge/bridge.toml": {
+    "sha256": "ef6d29c2c973f590b3364884f3d9492aa3297147c55fd5ca8d1874df573ec01f",
+    "included": false
+   },
+   "source/bridge/excerpts/doe2020.md": {
+    "sha256": "d4097ae6fed41b7f47e41ad5655546b39c8126128383e65402e552827864e946",
+    "included": false
+   },
+   "source/bridge/checkpoints/20261113T100037Z.json": {
+    "sha256": "5e398c82e678ec8b2212fbf2da062ab18dc401aff3d6ea6ad5f97aaf3414abcf",
+    "included": false
+   }
+  }
+ }
+}

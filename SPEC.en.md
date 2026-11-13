@@ -612,7 +612,7 @@ To check an existing manuscript and extracted text with 0.3.0, do the following 
 ## 12. Published package (`cite-bridge-publication/1`)
 
 A package released together with a published paper so that its citations can be checked again. `publish -o <folder>` writes it from a point that has a manifest (§8).
-The reading side does not have to be cite-bridge; it can be implemented from this section and §4 alone. A published package is never rewritten. To correct one, release a new package and point to the previous ID with `replaces`.
+The reading side does not have to be cite-bridge; it can be implemented from this section and §4 alone. Files for checking that an implementation conforms (a machine-readable copy of the examples, and an example package) are in [spec/](spec/README.en.md). A published package is never rewritten. To correct one, release a new package and point to the previous ID with `replaces`.
 
 - It is written only when the fingerprints in the manifest's `files` match the current files and the current check (`check --strict`) passes. Otherwise the tool lists the files that differ and refuses.
   Without `--checkpoint <manifest>`, the latest manifest in the checkpoints folder is used.

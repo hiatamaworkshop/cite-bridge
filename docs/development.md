@@ -34,6 +34,8 @@ English: [development.en.md](development.en.md)（正本はこの日本語の版
   PDF を作る試験は `pymupdf` が無ければ飛ばす。確かめた `pymupdf` の版は 1.28.2 と 2.0。
 - 文書の試験もある。SPEC の欄と形式が実装と合うこと（`tests/test_spec.py`）、始め方の案内が書いてあるとおりに通ること（`tests/test_getting_started.py`）、
   英語の版がコマンド・オプション・コード・リンクで日本語の版と合うこと（`tests/test_translations.py`）。
+- 別の実装のための適合試験のファイルが [spec/](../spec/README.md) にある。SPEC.md の §4 か §12.2 の例を直したとき、公開物の形を変えたときは、`python spec/make_examples.py` で作り直す
+  （直すまで `tests/test_vectors.py` が落ちる）。
 
 ## 文書を直すとき
 

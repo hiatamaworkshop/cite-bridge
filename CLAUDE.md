@@ -6,9 +6,10 @@
 - [SPEC.md](SPEC.md) — データ形式の正本
 - [SKILL.md](SKILL.md) — 道具を使う AI の作法
 - [docs/getting-started.md](docs/getting-started.md) — 始め方の案内 (例の一式 `examples/first-citation/` を使う。試験 `tests/test_getting_started.py` が案内のとおりに通す)
-- 英語の版 (`README.en.md`・`SPEC.en.md`・`SKILL.en.md`・`docs/*.en.md`) は訳で、正本は日本語。日本語の版を直したら英語の版も同じに直す (`tests/test_translations.py` がコマンド・オプション・コード・リンクの食い違いを見る。訳の文の正しさは見ない)
+- 英語の版 (`README.en.md`・`SPEC.en.md`・`SKILL.en.md`・`docs/*.en.md`・`spec/README.en.md`) は訳で、正本は日本語。日本語の版を直したら英語の版も同じに直す (`tests/test_translations.py` がコマンド・オプション・コード・リンクの食い違いを見る。訳の文の正しさは見ない)
 - [docs/classifier.md](docs/classifier.md) — 分類器 (任意の検査) の使い方と文面の測り方
 - [docs/development.md](docs/development.md) — 道具に手を入れる人向け (実装の構成、試験)
+- [spec/README.md](spec/README.md) — 別の実装のための適合試験のファイル (SPEC の例の写しと公開物の例。SPEC の例を直したら `python spec/make_examples.py`)
 - [docs/roadmap.md](docs/roadmap.md) — 開いている項目 (`### C<n>.`)。依頼で `C<n>` を指されたら、その節の `#### 完了条件` を満たして終える
 - [docs/design-0.3.0.md](docs/design-0.3.0.md) — 0.3.0 の設計 (各節の見出しに項目の番号)
 - [docs/design-publication.md](docs/design-publication.md) — 公開物の設計の案 (C46。利用者が決める点は §12)

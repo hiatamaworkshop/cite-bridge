@@ -1,0 +1,178 @@
+{
+ "about": "cite-bridge の SPEC.md の例の、機械で読める写し。正本は SPEC.md の §4 と §12.2。",
+ "fingerprint": "sha1-8",
+ "identity": "sha256-jcs",
+ "whitespace": [
+  "0009",
+  "000A",
+  "000B",
+  "000C",
+  "000D",
+  "001C",
+  "001D",
+  "001E",
+  "001F",
+  "0020",
+  "0085",
+  "00A0",
+  "1680",
+  "2000",
+  "2001",
+  "2002",
+  "2003",
+  "2004",
+  "2005",
+  "2006",
+  "2007",
+  "2008",
+  "2009",
+  "200A",
+  "2028",
+  "2029",
+  "202F",
+  "205F",
+  "3000"
+ ],
+ "fingerprints": [
+  {
+   "kind": "verbatim",
+   "verbatim": "Trust  is built　slowly.",
+   "string": "Trustisbuiltslowly.",
+   "fingerprint": "27797cc1"
+  },
+  {
+   "kind": "sentence",
+   "sentence": "先行研究は 信頼の形成を論じた（Doe 2020）。",
+   "string": "先行研究は信頼の形成を論じた（Doe2020）。",
+   "fingerprint": "78c5e4cd"
+  },
+  {
+   "kind": "evidence",
+   "excerpts": {
+    "doe2020#e2": "Trust is built slowly.",
+    "doe2020#e10": "信頼は ゆっくり築かれる。"
+   },
+   "human_reading": "",
+   "string": "doe2020#e10\t信頼はゆっくり築かれる。\ndoe2020#e2\tTrustisbuiltslowly.",
+   "fingerprint": "99be9079"
+  },
+  {
+   "kind": "evidence",
+   "excerpts": {
+    "doe2020#e2": "Trust is built slowly.",
+    "doe2020#e10": "信頼は ゆっくり築かれる。"
+   },
+   "human_reading": "doe2020#e2 は 条件つきの主張と読む",
+   "string": "doe2020#e10\t信頼はゆっくり築かれる。\ndoe2020#e2\tTrustisbuiltslowly.\n人の読み\tdoe2020#e2は条件つきの主張と読む",
+   "fingerprint": "24f6f2fd"
+  },
+  {
+   "kind": "summary",
+   "verbatim": "Trust is built slowly.",
+   "strength": "観察",
+   "summary": "信頼の形成は 遅い。",
+   "not_said": "速さの原因は述べていない。",
+   "secondary_source": "",
+   "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。",
+   "fingerprint": "6e98a8a3"
+  },
+  {
+   "kind": "summary",
+   "verbatim": "Trust is built slowly.",
+   "strength": "観察",
+   "summary": "信頼の形成は 遅い。",
+   "not_said": "速さの原因は述べていない。",
+   "secondary_source": "山田（1996）、 doe2019",
+   "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。\n孫引き\t山田（1996）、doe2019",
+   "fingerprint": "57652cea"
+  },
+  {
+   "kind": "summary",
+   "verbatim": "Trust is built slowly.",
+   "strength": "観察",
+   "summary": "信頼の形成は 遅い。",
+   "not_said": "速さの原因は述べていない。",
+   "secondary_source": "",
+   "translation": "信頼は ゆっくり築かれる。",
+   "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。\n訳\t信頼はゆっくり築かれる。",
+   "fingerprint": "6bf2ea40"
+  },
+  {
+   "kind": "summary",
+   "verbatim": "Trust is built slowly.",
+   "strength": "観察",
+   "summary": "信頼の形成は 遅い。",
+   "not_said": "速さの原因は述べていない。",
+   "secondary_source": "山田（1996）、 doe2019",
+   "translation": "信頼は ゆっくり築かれる。",
+   "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。\n孫引き\t山田（1996）、doe2019\n訳\t信頼はゆっくり築かれる。",
+   "fingerprint": "88d2ed37"
+  },
+  {
+   "kind": "summary",
+   "verbatim": "Trust is built slowly.",
+   "strength": "観察",
+   "summary": "信頼の形成は 遅い。",
+   "not_said": "速さの原因は述べていない。",
+   "secondary_source": "",
+   "evidence_kind": "文",
+   "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。",
+   "fingerprint": "6e98a8a3"
+  },
+  {
+   "kind": "summary",
+   "verbatim": "Trust is built slowly.",
+   "strength": "観察",
+   "summary": "信頼の形成は 遅い。",
+   "not_said": "速さの原因は述べていない。",
+   "secondary_source": "",
+   "evidence_kind": "表",
+   "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。\n根拠の種類\t表",
+   "fingerprint": "03546877"
+  }
+ ],
+ "publication": [
+  {
+   "kind": "identity",
+   "object": {
+    "format": "cite-bridge-publication/1",
+    "spec": {
+     "fingerprint": "sha1-8",
+     "identity": "sha256-jcs"
+    },
+    "content": {
+     "citations": [
+      {
+       "id": "c001",
+       "sentence": "信頼は \"ゆっくり\" 築かれる（Doe 2020）。",
+       "excerpts": [
+        "doe2020#e1"
+       ]
+      }
+     ],
+     "excerpts": [
+      {
+       "id": "doe2020#e1",
+       "verbatim": null,
+       "evidence_kind": "文"
+      }
+     ]
+    },
+    "records": {
+     "approvals": [],
+     "coverage": {
+      "spans": 1
+     }
+    }
+   },
+   "string": "{\"content\":{\"citations\":[{\"excerpts\":[\"doe2020#e1\"],\"id\":\"c001\",\"sentence\":\"信頼は \\\"ゆっくり\\\" 築かれる（Doe 2020）。\"}],\"excerpts\":[{\"evidence_kind\":\"文\",\"id\":\"doe2020#e1\",\"verbatim\":null}]},\"format\":\"cite-bridge-publication/1\",\"records\":{\"approvals\":[],\"coverage\":{\"spans\":1}},\"spec\":{\"fingerprint\":\"sha1-8\",\"identity\":\"sha256-jcs\"}}",
+   "id": "sha256-b55d390f05c1980967fa5f5b91bccde83ad244552c8167b28eb8df844bdbae66"
+  },
+  {
+   "kind": "verbatim_sha256",
+   "verbatim": "Trust  is built　slowly.",
+   "string": "Trustisbuiltslowly.",
+   "sha256": "e9adb0ce1d9f2af0f7d41c6c4f56ef72d4524e615b56206387ac8bf21b534c52"
+  }
+ ]
+}
