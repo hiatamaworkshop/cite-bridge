@@ -74,6 +74,29 @@ claim = "citation.sentence"
 source = "excerpt.逐語"
 ```
 
+Another example. One error is to cite a view the author presents in order to reject it (the target of a rebuttal, an anticipated objection) as the author's own view. The verbatim text matches, so matching does not find it.
+The default `cite.attribution` puts such a view under 「他者の紹介」 (a report of others), so it cannot tell it from a plain report, and the flag is cleared when the excerpt records a secondary source. To look at it regardless of the secondary-source record, add the type below.
+This type has not been measured on a real classifier, so it is not among the defaults. Measure it first, as in "Measuring wording" below.
+
+```toml
+[[checks]]
+type = "cite.rebuttal"
+version = 1
+for = "excerpt"
+question = "原典の逐語は、著者自身の主張ではなく、著者が退けるために示した説か。前後の文から判断する。"
+labels = ["退けるために示した説", "それ以外", "判定できない"]
+flag_on = ["退けるために示した説"]
+[checks.gloss]
+"退けるために示した説" = "著者が、前後の文で否定・批判・反論している、他者の説・通説・想定される反論"
+"それ以外" = "著者自身の主張や結果、退けていない紹介、仮定や問題設定"
+[checks.materials]
+source = "excerpt.逐語"
+before = "excerpt.前"
+after = "excerpt.後"
+```
+
+For an excerpt that gets the flag, a person checks whether the manuscript sentence citing it states that view as the author's own.
+
 The names, versions and wording fingerprints of registered types are kept in the `classifier` field of the `checkpoint` manifest.
 The classifier only raises flags and has no action that lowers the approval state. Use a new type after measuring its agreement with human approvals.
 

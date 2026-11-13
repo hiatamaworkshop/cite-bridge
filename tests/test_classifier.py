@@ -232,6 +232,55 @@ class ClassifierTest(unittest.TestCase):
         chk = re.search(r"分類器: 判定 (\d+) 件のうち印 (\d+) 件", self.run_bridge("check")[1])
         self.assertEqual((c["judgments"], c["flagged"]), (int(chk.group(1)), int(chk.group(2))))  # マニフェストと check は同じ数え方
 
+    def _rebuttal_example(self):
+        """docs/classifier.md に載せた cite.rebuttal の例（[[checks]] の塊）を、文書から取り出す。"""
+        doc = (tb.BRIDGE.parent / "docs/classifier.md").read_text(encoding="utf-8")
+        blocks = [b for b in re.findall(r"```toml\n(.*?)```", doc, re.S) if 'type = "cite.rebuttal"' in b]
+        self.assertEqual(len(blocks), 1)
+        return blocks[0]
+
+    def test_rebuttal_example_in_the_doc_registers_and_flags(self):
+        """文書の cite.rebuttal の例を設定に足すと、型が登録されて走る。退けるために示した説なら印、それ以外なら印なし。"""
+        self.write("bridge/bridge.toml", self.read("bridge/bridge.toml") + self._rebuttal_example())
+        code, out = self.run_bridge("classify")
+        self.assertEqual(code, 0, out)
+        self.assertIn("問い 10 件", out)  # 既定の七件に、抜き書き三件の新しい型が足される
+        SCRIPT["退けるために示した説か"] = "退けるために示した説"
+        try:
+            self.assertEqual(self.run_bridge("classify", "--send")[0], 0)
+            led = {(e["item"], e["type"]): e for e in self.ledger()}
+            e = led[("exc:doe2020#e1", "cite.rebuttal")]
+            self.assertEqual((e["label"], e["status"]), ("退けるために示した説", "要確認"))
+            self.assertIn("cite.rebuttal", self.run_bridge("classify", "--list")[1])
+            # 孫引きの記録があっても印は消えない（cleared_by を持たない。cite.attribution は消える）
+            exc = self.read("bridge/excerpts/doe2020.md")
+            self.write("bridge/excerpts/doe2020.md", exc.replace("\n記入:", "\n孫引き: 山田（1996）\n記入:", 1))
+            self.run_bridge("derive")
+            rows = [r for r in json.loads(self.run_bridge("review", "--json", "--all")[1])["citations"][0]["classifier"]
+                    if r["item"] == "exc:doe2020#e1"]
+            st = {r["type"]: r["status"] for r in rows}
+            self.assertEqual((st["cite.rebuttal"], st["cite.attribution"]), ("要確認", "一致"), rows)
+            # それ以外と答えれば印は立たない（文面が同じなので、台帳を消して送り直す）
+            SCRIPT["退けるために示した説か"] = "それ以外"
+            (self.dir / "bridge/judgments.jsonl").unlink()
+            self.assertEqual(self.run_bridge("classify", "--send")[0], 0)
+            led = {(e["item"], e["type"]): e for e in self.ledger()}
+            e = led[("exc:doe2020#e1", "cite.rebuttal")]
+            self.assertEqual((e["label"], e["status"]), ("それ以外", "問題なし"))
+        finally:
+            del SCRIPT["退けるために示した説か"]
+
+    def test_rebuttal_example_leaves_defaults_and_their_judgments(self):
+        """cite.rebuttal は例で、既定の型は三つのまま。例を足しても、既定の型の判定は古くならない。"""
+        from cite_bridge import judge
+        self.assertEqual([c["type"] for c in judge.DEFAULT_CHECKS], ["cite.diff", "cite.attribution", "cite.not_said"])
+        self.run_bridge("classify", "--send")
+        self.assertEqual(len(self.ledger()), 7)
+        self.write("bridge/bridge.toml", self.read("bridge/bridge.toml") + self._rebuttal_example())
+        out = self.run_bridge("classify")[1]
+        self.assertIn("要求 3 回、問い 3 件", out)  # 送るのは新しい型の三件だけ
+        self.assertEqual(self.check_and_list_counts(), (7, 4, 0))  # 既定の型の判定は古くならない
+
     def test_manifest_has_no_classifier_when_unused(self):
         self.write("bridge/bridge.toml", tb.CONFIG)
         self.run_bridge("approve", "c001", "--by", "tester")
