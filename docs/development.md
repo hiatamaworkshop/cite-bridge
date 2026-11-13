@@ -60,5 +60,5 @@ English: [development.en.md](development.en.md)（正本はこの日本語の版
 
 ## 設計と項目
 
-- 設計は [docs/design-0.3.0.md](design-0.3.0.md)（0.3.0 で足した仕組みの設計。日本語だけ）。
+- 設計は [docs/design-0.3.0.md](design-0.3.0.md)（0.3.0 で足した仕組みの設計。日本語だけ）と、[docs/design-publication.md](design-publication.md)（公開物の設計の案。日本語だけ）。
 - 開いている項目と、閉じた項目の記録は [docs/roadmap.md](roadmap.md)（日本語だけ）。

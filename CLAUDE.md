@@ -11,6 +11,7 @@
 - [docs/development.md](docs/development.md) — 道具に手を入れる人向け (実装の構成、試験)
 - [docs/roadmap.md](docs/roadmap.md) — 開いている項目 (`### C<n>.`)。依頼で `C<n>` を指されたら、その節の `#### 完了条件` を満たして終える
 - [docs/design-0.3.0.md](docs/design-0.3.0.md) — 0.3.0 の設計 (各節の見出しに項目の番号)
+- [docs/design-publication.md](docs/design-publication.md) — 公開物の設計の案 (C46。利用者が決める点は §12)
 
 ## 守ること
 

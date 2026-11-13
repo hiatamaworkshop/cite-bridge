@@ -60,5 +60,5 @@ Not rules for users, but things that help before reading the code. The code is a
 
 ## Design and items
 
-- The design is in [docs/design-0.3.0.md](design-0.3.0.md) (the design of the mechanisms added in 0.3.0; Japanese only).
+- The design is in [docs/design-0.3.0.md](design-0.3.0.md) (the design of the mechanisms added in 0.3.0; Japanese only) and [docs/design-publication.md](design-publication.md) (a draft design of the published package; Japanese only).
 - Open items, and records of closed items, are in [docs/roadmap.md](roadmap.md) (Japanese only).
