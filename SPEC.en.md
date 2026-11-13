@@ -5,7 +5,7 @@ Japanese original: [SPEC.md](SPEC.md). This English version is a translation; th
 This document is the authoritative definition of the formats of the files the tool reads and writes. Where it disagrees with the implementation (bridge.py and cite_bridge/), fix the implementation or this document so that they agree.
 How to use and run the tool is in SKILL.md.
 
-- Format version: 0.5.1 (`TOOL_VERSION` in cite_bridge/config.py). It is recorded in the manifest. What is frozen, how changes are made, and migration steps are in §11.
+- Format version: 0.6.0 (`TOOL_VERSION` in cite_bridge/config.py). It is recorded in the manifest. What is frozen, how changes are made, and migration steps are in §11.
 - Character encoding is UTF-8; line endings are LF.
 - Japanese field names and values are canonical; English aliases are also accepted (§10). Internally everything is normalized to Japanese.
   In this translation, field names and values are given in Japanese with the English alias in parentheses, e.g. 逐語 (verbatim).
@@ -46,8 +46,10 @@ Directly under the source heading, the tool writes `@格` (grade) and `@抽出` 
 | 言っていないこと (not_said) | Required | What the original does not state. If it rests on another passage of the original, make that passage an excerpt too and refer to it by ID |
 | 記入 (written_by) | Required | Who wrote it and the date |
 | 原本での確認 (source_check) | When human check is needed (§2.2) | Checker, date, result, page and section, note (form below). Written by `confirm --source` or `apply` |
-| 要約の確認 (summary_check) | Optional | Record that a person checked the summary, what it does not say, and the strength (who and date). Written by `confirm` |
+| 要約の確認 (summary_check) | Optional | Record that a person checked the summary, what it does not say, and the strength (and the translation, if there is one) (who and date). Written by `confirm` |
 | 孫引き (secondary_source) | Optional | The original work the verbatim text cites. A bibliography key, or author and year (`山田（1996）`). Separate several with 「、」. English alias secondary_source |
+| 訳 (translation) | Optional | When the verbatim text is in a language other than the manuscript's, the writer's (the citing author's) own translation of the verbatim text. One line. Not used for matching. The tool does not decide whether the translation fits the verbatim text; a person looks at it in the summary check. English alias translation |
+| 別の所在 (alternate_location) | Optional | Page or section numbers by edition (the page in a translated edition, conventional section numbers and so on). Written by the writer. Separate several with 「、」. It does not change the derived location (§2.2) and is not used for matching. English alias alternate_location |
 
 Form of the 原本での確認 (source_check) value:
 
@@ -205,17 +207,17 @@ A fingerprint is made from the string in the table below: encode it as UTF-8, ta
 |---|---|
 | Sentence fingerprint | The sentence that contains the citation, without marks and HTML comments, with whitespace removed. It includes the inside of source parentheses, so changing how the parenthesis is written also leads to recheck |
 | Evidence fingerprint | The IDs written in the citation's `抜き書き` (excerpts) field (including the key) sorted, each as `<ID>\t<verbatim>`, joined by line breaks. If there is a human reading, `\n人の読み\t<human reading>` is appended |
-| Summary fingerprint | The excerpt's 逐語, 強さ, 要約 and 言っていないこと (verbatim, strength, summary, not_said), in this order, joined by line breaks. Only when there is a 孫引き (secondary_source), `\n孫引き\t<secondary source>` is appended (otherwise nothing is appended) |
+| Summary fingerprint | The excerpt's 逐語, 強さ, 要約 and 言っていないこと (verbatim, strength, summary, not_said), in this order, joined by line breaks. Only when there is a 孫引き (secondary_source), `\n孫引き\t<secondary source>` is appended (otherwise nothing is appended). Only when there is a 訳 (translation), `\n訳\t<translation>` is appended after that (otherwise nothing is appended). 別の所在 (alternate_location) is not included |
 | Verbatim fingerprint | The verbatim text with whitespace removed. Compared with the fingerprint at the check against the original (§2.3) |
 
 The string is built as follows. An implementation other than cite-bridge gets the same fingerprints by following these rules.
 
 - Removing whitespace means removing all of these 29 characters: U+0009 to U+000D, U+001C to U+001F, U+0020, U+0085, U+00A0, U+1680, U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F, U+3000.
   U+FEFF is not removed (in some languages the whitespace class of regular expressions includes this character and leaves out U+0085 and U+001C to U+001F).
-- Whitespace is removed from each value on its own (the sentence, the verbatim text, the strength, the summary, not_said, the human reading, the secondary source). The tab (U+0009) and the line break (U+000A) that join the values stay. Nothing is removed from an ID.
+- Whitespace is removed from each value on its own (the sentence, the verbatim text, the strength, the summary, not_said, the human reading, the secondary source, the translation). The tab (U+0009) and the line break (U+000A) that join the values stay. Nothing is removed from an ID.
 - Apart from removing whitespace, no character is changed. There is no Unicode normalization and no case folding.
 - A value is the field's value with the whitespace at both ends removed. A value written with a value alias (§10) is turned into the Japanese value first (`observation` becomes `観察`).
-- `人の読み` and `孫引き` are fixed words inside the string. They stay the same when the field names are written with their English aliases.
+- `人の読み`, `孫引き` and `訳` are fixed words inside the string. They stay the same when the field names are written with their English aliases.
 - The IDs of the evidence fingerprint are the characters written in the citation's `抜き書き` field, sorted by Unicode code point (`key#e10` comes before `key#e2`). When there is no excerpt with that ID, its verbatim text is empty.
 - For the sentence fingerprint, only the calculation after the sentence is cut out is defined here. How the sentence is cut out and the form of the mark depend on the settings (`manuscript` in §9).
 
@@ -230,7 +232,9 @@ Examples of inputs and fingerprints. `string` is the string before SHA-1. `sente
  {"kind": "evidence", "excerpts": {"doe2020#e2": "Trust is built slowly.", "doe2020#e10": "信頼は ゆっくり築かれる。"}, "human_reading": "", "string": "doe2020#e10\t信頼はゆっくり築かれる。\ndoe2020#e2\tTrustisbuiltslowly.", "fingerprint": "99be9079"},
  {"kind": "evidence", "excerpts": {"doe2020#e2": "Trust is built slowly.", "doe2020#e10": "信頼は ゆっくり築かれる。"}, "human_reading": "doe2020#e2 は 条件つきの主張と読む", "string": "doe2020#e10\t信頼はゆっくり築かれる。\ndoe2020#e2\tTrustisbuiltslowly.\n人の読み\tdoe2020#e2は条件つきの主張と読む", "fingerprint": "24f6f2fd"},
  {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。", "fingerprint": "6e98a8a3"},
- {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "山田（1996）、 doe2019", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。\n孫引き\t山田（1996）、doe2019", "fingerprint": "57652cea"}
+ {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "山田（1996）、 doe2019", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。\n孫引き\t山田（1996）、doe2019", "fingerprint": "57652cea"},
+ {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "", "translation": "信頼は ゆっくり築かれる。", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。\n訳\t信頼はゆっくり築かれる。", "fingerprint": "6bf2ea40"},
+ {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "山田（1996）、 doe2019", "translation": "信頼は ゆっくり築かれる。", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。\n孫引き\t山田（1996）、doe2019\n訳\t信頼はゆっくり築かれる。", "fingerprint": "88d2ed37"}
 ]
 ```
 
@@ -408,7 +412,7 @@ Written by `checkpoint` at a point that has passed `check --strict`. When there 
 
 ```json
 {"format": "cite-bridge-manifest/1",
- "tool": {"name": "cite-bridge", "version": "0.5.1", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
+ "tool": {"name": "cite-bridge", "version": "0.6.0", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
  "checkpoint": "<UTC 時刻>", "label": "",
  "git": {"head": "<HEAD>", "uncommitted": ["…"]},
  "files": {"config": {"path", "sha256"}, "bibliography": {…}, "manuscript": {…}, "citations": {…},
@@ -483,7 +487,8 @@ If there are two or more sources, each source is one item (`part` is the same nu
 | 対象 | target | 要約の確認時の指紋 | summary_check_fingerprint |
 | 承認時の指紋 | approved_fingerprint | 承認時の本文 | approved_text |
 | 承認時の根拠 | approved_evidence | 差し戻し時の指紋 | returned_fingerprint |
-| 差し戻し時の根拠 | returned_evidence | | |
+| 差し戻し時の根拠 | returned_evidence | 訳 | translation |
+| 別の所在 | alternate_location | | |
 
 Value aliases: 強さ (observation / suggestion / claim / generalization / conditional), 種類 (pointer / claim),
 原文との差 (identical / paraphrase / qualified_generalization / extrapolation), 承認 (none = 未, returned = 差し戻し).
@@ -545,6 +550,9 @@ Formats that are not frozen (worksheets, drafts, candidates, eval sets and resul
 - 0.5.1 fixes the manifest's `decided_by` (§8). A check against the original whose checker is not in the approvers list is counted under `unlisted` in `uncounted` (it used to be dropped).
   The family in the keys of `counted` and in review's kind heading is normalized by the same rule as names and written in lower case (families that differ only in case count as one).
   It also fixes `review --html` stopping when there is no approvers list and `approval.count_model` is true. Fields, format names, fingerprints and the counting of approvals do not change, so no migration steps are needed.
+- 0.6.0 adds two optional excerpt fields, `訳` (translation: the citing author's own translation of the verbatim text) and `別の所在` (alternate_location: page or section numbers by edition) (§2.1). `訳` enters the summary fingerprint (§4). `別の所在` does not enter any fingerprint.
+  The fingerprint of an excerpt with neither field does not change, so existing files pass the check as they are and the states of approvals and checks do not change. No migration steps are needed.
+  Adding `訳` to an excerpt whose summary check is done, or editing `訳`, sends it back to "check again". Format names do not change.
 
 ### Migration steps for 0.5.0
 

@@ -104,7 +104,8 @@ def spec_string(v):
         s = "\n".join(f"{i}\t{ws(v['excerpts'][i])}" for i in sorted(v["excerpts"]))
         return s + ("\n人の読み\t" + ws(v["human_reading"]) if v["human_reading"] else "")
     s = "\n".join(ws(v[n]) for n in ("verbatim", "strength", "summary", "not_said"))
-    return s + ("\n孫引き\t" + ws(v["secondary_source"]) if v["secondary_source"] else "")
+    s += "\n孫引き\t" + ws(v["secondary_source"]) if v["secondary_source"] else ""
+    return s + ("\n訳\t" + ws(v["translation"]) if v.get("translation") else "")
 
 
 class SpecFingerprintTest(unittest.TestCase):
@@ -137,8 +138,12 @@ class SpecFingerprintTest(unittest.TestCase):
                 got = evidence_hash(list(v["excerpts"]), {i: {"逐語": t} for i, t in v["excerpts"].items()}, v["human_reading"])
             else:
                 got = summary_fingerprint({"逐語": v["verbatim"], "強さ": v["strength"], "要約": v["summary"],
-                                           "言っていないこと": v["not_said"], "孫引き": v["secondary_source"]})
+                                           "言っていないこと": v["not_said"], "孫引き": v["secondary_source"],
+                                           "訳": v.get("translation", "")})
             self.assertEqual(got, v["fingerprint"], v)
+        # 訳だけの例と、孫引きと訳の両方の例がある（足す順を例で決める）
+        both = [(bool(v["secondary_source"]), bool(v.get("translation"))) for v in self.vectors if v["kind"] == "summary"]
+        self.assertEqual(sorted(both), [(False, False), (False, True), (True, False), (True, True)])
 
     def test_missing_excerpt_counts_as_empty_verbatim(self):
         from cite_bridge.manuscript import evidence_hash

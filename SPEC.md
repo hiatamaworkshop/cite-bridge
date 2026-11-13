@@ -5,7 +5,7 @@ English: [SPEC.en.md](SPEC.en.md)（正本はこの日本語の版で、英語�
 この文書は、道具が読み書きするファイルの形式の正本である。実装（bridge.py と cite_bridge/）と食い違ったときは、この文書に合わせて実装か文書を直す。
 使い方と運用の作法は SKILL.md にある。
 
-- 形式の版: 0.5.1（cite_bridge/config.py の `TOOL_VERSION`）。マニフェストに記録する。固める範囲、変えるときの手順、移行の手順は §11。
+- 形式の版: 0.6.0（cite_bridge/config.py の `TOOL_VERSION`）。マニフェストに記録する。固める範囲、変えるときの手順、移行の手順は §11。
 - 文字コードは UTF-8、改行は LF。
 - 欄名と値は日本語を正とし、英語の別名も受ける（§10）。内部では日本語にそろえる。
 
@@ -45,8 +45,10 @@ English: [SPEC.en.md](SPEC.en.md)（正本はこの日本語の版で、英語�
 | 言っていないこと | 要 | 原文が述べていないこと。原文の別の箇所に依るなら、その箇所も抜き書きにして ID で指す |
 | 記入 | 要 | 書いた者と日付 |
 | 原本での確認 | 要ヒューマンチェック（§2.2）のとき | 確認者、日付、結果、頁と節、メモ（下の形）。`confirm --source` か `apply` が書く |
-| 要約の確認 | 任意 | 人が要約・言っていないこと・強さを確かめた記録（者と日付）。`confirm` が書く |
+| 要約の確認 | 任意 | 人が要約・言っていないこと・強さ（訳があれば訳も）を確かめた記録（者と日付）。`confirm` が書く |
 | 孫引き | 任意 | 逐語が紹介している元の文献。書誌の key か著者と年（`山田（1996）`）。複数は「、」で区切る。英語の別名は secondary_source |
+| 訳 | 任意 | 逐語が原稿と別の言語のとき、書き手（引用者）が逐語を訳した文。一行。照合には使わない。訳が逐語に合うかは道具は決めず、人が要約の確認で見る。英語の別名は translation |
+| 別の所在 | 任意 | 版ごとの頁や節番号（訳書の頁、慣用の節番号など）。書き手が書く。複数は「、」で区切る。導く欄の所在（§2.2）は変えず、照合にも使わない。英語の別名は alternate_location |
 
 原本での確認の値の形:
 
@@ -196,17 +198,17 @@ extracted: <YYYY-MM-DD>
 |---|---|
 | 本文の指紋 | 引用を含む文から印と HTML コメントを除き、空白を除いたもの。出典の括弧の中も含むので、括弧の書き方を変えても要再確認になる |
 | 根拠の指紋 | 引用の `抜き書き` に書いた ID（key を含む）を整列し、各 `<ID>\t<逐語>` を改行で結んだもの。人の読みがあれば、末尾に `\n人の読み\t<人の読み>` を足す |
-| 要約の指紋 | 抜き書きの 逐語・強さ・要約・言っていないこと を、この順に改行で結んだもの。孫引きがあるときだけ、末尾に `\n孫引き\t<孫引き>` を足す（無ければ足さない） |
+| 要約の指紋 | 抜き書きの 逐語・強さ・要約・言っていないこと を、この順に改行で結んだもの。孫引きがあるときだけ、末尾に `\n孫引き\t<孫引き>` を足す（無ければ足さない）。訳があるときだけ、その後に `\n訳\t<訳>` を足す（無ければ足さない）。別の所在は入れない |
 | 逐語の指紋 | 逐語から空白を除いたもの。原本での確認時の指紋（§2.3）と照合する |
 
 文字列の作り方は、次のとおりである。cite-bridge でない実装も、これに従えば同じ指紋になる。
 
 - 空白を除くとは、次の 29 字をすべて除くことである。U+0009〜U+000D、U+001C〜U+001F、U+0020、U+0085、U+00A0、U+1680、U+2000〜U+200A、U+2028、U+2029、U+202F、U+205F、U+3000。
   U+FEFF は除かない（言語によっては、正規表現の空白にこの字を含み、U+0085 と U+001C〜U+001F を含まない）。
-- 空白は値ごとに除く（文、逐語、強さ、要約、言っていないこと、人の読み、孫引き）。値を結ぶタブ（U+0009）と改行（U+000A）は残す。ID からは除かない。
+- 空白は値ごとに除く（文、逐語、強さ、要約、言っていないこと、人の読み、孫引き、訳）。値を結ぶタブ（U+0009）と改行（U+000A）は残す。ID からは除かない。
 - 空白を除くほかには、字を変えない。Unicode の正規化も、大文字と小文字の統一もしない。
 - 値は、欄の値の前後の空白を除いたものである。値の別名（§10）で書いた値は、日本語の値に直してから使う（`observation` は `観察`）。
-- `人の読み` と `孫引き` は、文字列の中の決まった語である。欄の名前を英語の別名で書いても、この語は変えない。
+- `人の読み`、`孫引き`、`訳` は、文字列の中の決まった語である。欄の名前を英語の別名で書いても、この語は変えない。
 - 根拠の指紋の ID は、引用の `抜き書き` に書いたままの字で、Unicode の符号位置の順に並べる（`key#e10` は `key#e2` より前）。その ID の抜き書きが無いときは、逐語を空とする。
 - 本文の指紋は、文が切り出された後の計算だけをここで決める。文の切り出しと印の形は、設定（§9 の `manuscript`）に依る。
 
@@ -221,7 +223,9 @@ extracted: <YYYY-MM-DD>
  {"kind": "evidence", "excerpts": {"doe2020#e2": "Trust is built slowly.", "doe2020#e10": "信頼は ゆっくり築かれる。"}, "human_reading": "", "string": "doe2020#e10\t信頼はゆっくり築かれる。\ndoe2020#e2\tTrustisbuiltslowly.", "fingerprint": "99be9079"},
  {"kind": "evidence", "excerpts": {"doe2020#e2": "Trust is built slowly.", "doe2020#e10": "信頼は ゆっくり築かれる。"}, "human_reading": "doe2020#e2 は 条件つきの主張と読む", "string": "doe2020#e10\t信頼はゆっくり築かれる。\ndoe2020#e2\tTrustisbuiltslowly.\n人の読み\tdoe2020#e2は条件つきの主張と読む", "fingerprint": "24f6f2fd"},
  {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。", "fingerprint": "6e98a8a3"},
- {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "山田（1996）、 doe2019", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。\n孫引き\t山田（1996）、doe2019", "fingerprint": "57652cea"}
+ {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "山田（1996）、 doe2019", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。\n孫引き\t山田（1996）、doe2019", "fingerprint": "57652cea"},
+ {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "", "translation": "信頼は ゆっくり築かれる。", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。\n訳\t信頼はゆっくり築かれる。", "fingerprint": "6bf2ea40"},
+ {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "山田（1996）、 doe2019", "translation": "信頼は ゆっくり築かれる。", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。\n孫引き\t山田（1996）、doe2019\n訳\t信頼はゆっくり築かれる。", "fingerprint": "88d2ed37"}
 ]
 ```
 
@@ -388,7 +392,7 @@ status は pending / accepted / rejected。decided は、受け入れたとき�
 
 ```json
 {"format": "cite-bridge-manifest/1",
- "tool": {"name": "cite-bridge", "version": "0.5.1", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
+ "tool": {"name": "cite-bridge", "version": "0.6.0", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
  "checkpoint": "<UTC 時刻>", "label": "",
  "git": {"head": "<HEAD>", "uncommitted": ["…"]},
  "files": {"config": {"path", "sha256"}, "bibliography": {…}, "manuscript": {…}, "citations": {…},
@@ -461,7 +465,8 @@ SKILL.md の「設定」の節にひな形がある。表は鍵の一覧であ�
 | 対象 | target | 要約の確認時の指紋 | summary_check_fingerprint |
 | 承認時の指紋 | approved_fingerprint | 承認時の本文 | approved_text |
 | 承認時の根拠 | approved_evidence | 差し戻し時の指紋 | returned_fingerprint |
-| 差し戻し時の根拠 | returned_evidence | | |
+| 差し戻し時の根拠 | returned_evidence | 訳 | translation |
+| 別の所在 | alternate_location | | |
 
 値の別名: 強さ（observation / suggestion / claim / generalization / conditional）、種類（pointer / claim）、
 原文との差（identical / paraphrase / qualified_generalization / extrapolation）、承認（none = 未、returned = 差し戻し）。
@@ -523,6 +528,9 @@ SKILL.md の「設定」の節にひな形がある。表は鍵の一覧であ�
 - 0.5.1 で、マニフェストの `decided_by` の直しをした（§8）。原本での確認のうち、確認者が承認者の一覧に無い記録を `uncounted` の `unlisted` に数える（前は数えずに落としていた）。
   `counted` のキーと review の種類の見出しの系統を、名前と同じ規則でそろえて小文字で書く（大文字と小文字だけ違う系統を一つに数える）。
   あわせて、承認者の一覧が無く `approval.count_model` が true のとき、`review --html` が止まる不具合を直した。欄・形式名・指紋と承認の数え方は変わらないので、移行の手順は要らない。
+- 0.6.0 で、抜き書きの任意の欄 `訳`（引用者が逐語を訳した文）と `別の所在`（版ごとの頁や節番号）を足した（§2.1）。`訳` は要約の指紋に入る（§4）。`別の所在` は指紋に入らない。
+  どちらの欄も無い抜き書きの指紋は変わらないので、既存のファイルはそのまま検査を通り、承認と確認の状態も変わらない。移行の手順は要らない。
+  要約の確認が済んだ抜き書きに `訳` を足すか、`訳` を直すと、「確認し直す」に戻る。形式名は変えていない。
 
 ### 0.5.0 の移行の手順
 

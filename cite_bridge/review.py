@@ -142,6 +142,7 @@ def review_data(cids=None, images=None, include_done=False, all_orphans=False, c
         ok = bool(ef.get("要約の確認")) and rec.get("要約の確認時の指紋") == summary_fingerprint(ef)
         return {"id": r, "verbatim": ef.get("逐語", ""), "location": d.get("所在", ""), "match": st,
                 "grade": hd.get("格", ""), "source_check": ef.get("原本での確認", ""), "secondary": ef.get("孫引き", ""),
+                "translation": ef.get("訳", ""), "alternate_location": ef.get("別の所在", ""),
                 **source_check_fields(ef, rec, d),
                 "image": Path(img).as_posix() if img else None,
                 "before": d.get("前", ""), "sentence": d.get("含む文", ""), "after": d.get("後", ""),
@@ -372,6 +373,8 @@ def review_md(data):
                 continue
             out += [f"### 根拠 {i}: {e['id']}", "", f"- 所在: {e['location'] or '（導けない）'}", f"- 照合: {e['match']}",
                     f"- 格: {e['grade']}"]
+            if e.get("alternate_location"):
+                out.append(f"- 別の所在: {e['alternate_location']}")
             if e["secondary"]:
                 out.append(f"- 孫引き: {e['secondary']}")
             if e["source_check"]:
@@ -387,7 +390,9 @@ def review_md(data):
                     if e[k]] + [""]
             who = "確認済: " + e["summary_checked"] if e["summary_checked"] else "AI の候補、記入: " + e["written_by"]
             out += [f"要約と言っていないこと（{who}）:", "", f"- 強さ: {e['strength']}", f"- 要約: {e['summary']}",
-                    f"- 言っていないこと: {e['not_said']}", ""]
+                    f"- 言っていないこと: {e['not_said']}"]
+            # 訳は書き手（引用者）のもので、照合していない。要約と同じく、逐語と照らして人が確かめる
+            out += ([f"- 訳（引用者。照合しない）: {e['translation']}"] if e.get("translation") else []) + [""]
         out += [f"### 引用の欄（記入: {it['fields'].get('記入', '')}）", ""]
         shown = ("承認", "承認の理由") if m else ()  # model の承認は上の節に出した
         out += [f"- {n}: {it['fields'][n]}" for n in ("理由", "解釈", "人の読み", "人の読みの記入", "原文との差", "引用でない句", "承認", "承認の理由", "指摘")
@@ -445,6 +450,8 @@ def review_page(data):
         h.append(f'<div class="ev"><p class="evh">{label} {i} <b>{eid}</b> <span class="mut">'
                  f'{E(e["location"] or "所在を導けない")}・{E(e["match"])}・{E(e["grade"])}'
                  + (f'・他に {E("・".join(others))} の根拠' if others else "") + "</span></p>")
+        if e.get("alternate_location"):
+            h.append(f'<p class="mut sm">別の所在：{E(e["alternate_location"])}</p>')
         if e["secondary"]:
             h.append(f'<p class="mut sm">孫引き：{E(e["secondary"])}</p>')
         if e["source_check"]:
@@ -480,7 +487,9 @@ def review_page(data):
                    f'<label class="cf"><input type="checkbox" data-confirm="{eid}"> 原文と照らして確かめた</label>')
         h.append(f'<div class="ai{" done" if done else ""}"><p class="aih"><span class="tag">{E(e["strength"])}</span>{who}'
                  f'</p><p><span class="k">要約</span>{E(e["summary"])}</p>'
-                 f'<p><span class="k">言っていない</span>{E(e["not_said"])}</p></div></div>')
+                 f'<p><span class="k">言っていない</span>{E(e["not_said"])}</p>'
+                 + (f'<p><span class="k">訳（引用者）</span>{E(e["translation"])}</p>' if e.get("translation") else "")
+                 + '</div></div>')
         return "".join(h)
 
     def cand_card(it):
