@@ -1,14 +1,14 @@
 {
  "format": "cite-bridge-publication/1",
- "id": "sha256-f134f11089bd65903a41159453dea3fe9f06f7773f7e01dd58e89f5602e84f1c",
+ "id": "sha256-dd0e3a009d43eb6db416fdef2f367468d4e8ad26a40d6e32ed1b51a7317a9fea",
  "spec": {
   "fingerprint": "sha1-8",
   "identity": "sha256-jcs"
  },
  "tool": {
   "name": "cite-bridge",
-  "version": "0.8.1",
-  "sha256": "044ac5b3be6497da26257e2dddde3f6eb3f7792ffe7d4f37c03413c9dc63e4b7",
+  "version": "0.9.0",
+  "sha256": "a36e11358a3e69d2746c8196e5913011adcec5bac6cbce668f5b9cfcd3630cc9",
   "commit": null,
   "dirty": false
  },
@@ -114,7 +114,7 @@
     "by": "tester",
     "kind": "human",
     "family": null,
-    "date": "2026-11-13",
+    "date": "2026-11-15",
     "note": "原文のとおり",
     "sentence_fingerprint": "e4009397",
     "evidence_fingerprint": "d677ee63"
@@ -126,7 +126,7 @@
     "by": "tester",
     "kind": "human",
     "family": null,
-    "date": "2026-11-13",
+    "date": "2026-11-15",
     "summary_fingerprint": "f07c7f0b"
    }
   ],
@@ -136,7 +136,7 @@
     "by": "tester",
     "kind": "human",
     "family": null,
-    "date": "2026-11-13",
+    "date": "2026-11-15",
     "result": "一致",
     "page": "p.2 §3",
     "note": null,
@@ -174,15 +174,15 @@
  },
  "publication": {
   "published_by": "Example Lab",
-  "published_at": "2026-11-13T10:00:37Z",
+  "published_at": "2026-11-15T09:14:08Z",
   "license": "CC-BY-4.0",
   "reference": "https://doi.org/10.9999/example.paper",
-  "checkpoint": "2026-11-13T10:00:37Z",
+  "checkpoint": "2026-11-15T09:14:08Z",
   "replaces": null,
   "people": {},
   "files": {
    "source/bridge/citations.md": {
-    "sha256": "74a065f48a345d9928229550f5efd4c297d7f81bb810d93d7994613c43f814de",
+    "sha256": "61457eff898b4f4e6b254d131bc7481e515094b9c2502badb1471a0be44c3978",
     "included": false
    },
    "source/bridge/bridge.toml": {
@@ -190,11 +190,11 @@
     "included": false
    },
    "source/bridge/excerpts/doe2020.md": {
-    "sha256": "d4097ae6fed41b7f47e41ad5655546b39c8126128383e65402e552827864e946",
+    "sha256": "a57e57e53f45b26d5bbdcf57615d21c4627f3119c4de8ce2ee48f0176a196804",
     "included": false
    },
-   "source/bridge/checkpoints/20261113T100037Z.json": {
-    "sha256": "5e398c82e678ec8b2212fbf2da062ab18dc401aff3d6ea6ad5f97aaf3414abcf",
+   "source/bridge/checkpoints/20261115T091408Z.json": {
+    "sha256": "9efaa1924c068d59a50ce0c70406735cc17abfd118d118c8e11c318ecec66ab8",
     "included": false
    }
   }

@@ -278,6 +278,7 @@ INSTRUCTIONS = ("各件の逐語が、原本（頁の画像、無ければ原本
                 "字の違い（OCR の誤読、抜けた字、違う字）があれば結果を「違う」とし、メモに原本の字を書く。"
                 "逐語が見つからないときも「違う」とし、メモにそう書く。頁と節が分かれば書く。"
                 "根拠の種類（evidence_kind）が文でないもの（表・グラフ・図）は、原本のその表や図を見て確かめ、見た表や図の番号をメモに書く。"
+                "別の所在（alternate_location）があれば、その版の頁や節でも探す。"
                 "答えは answer_example の形の判断ファイルに書き、by には承認者の一覧に model として載っている自分の名前を書く。"
                 "抜き書きの書き手（written_by）と同じ名前では書けない。")
 
@@ -302,7 +303,7 @@ def source_check_items(images=None):
             items.append({"id": eid, "reasons": f["needs_check"], "verbatim": b["fields"].get("逐語", ""),
                           "location": bd.get(b["id"], {}).get("所在", ""), "fingerprint": f["verbatim_fp"],
                           "grade": hd.get("格", ""), "evidence_kind": cfg.evidence_kind(b["fields"]),
-                          "page_image": img, "record": f["check_record"],
+                          "alternate_location": b["fields"].get("別の所在", ""), "page_image": img, "record": f["check_record"],
                           "problem": f["check_problem"], "written_by": b["fields"].get("記入", "")})
     return items
 
@@ -332,6 +333,8 @@ def source_checks_md(data):
                 f"- 格: {it['grade']}"]
         if nontext(it):
             out.append(f"- 根拠の種類: {it['evidence_kind']}")
+        if it["alternate_location"]:
+            out.append(f"- 別の所在: {it['alternate_location']}")
         out += [f"- 問題: {it['problem']}", f"- 記入: {it['written_by']}", "", "逐語:", "",
                 f"> {it['verbatim']}", ""]
         if it["page_image"]:

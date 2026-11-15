@@ -5,7 +5,7 @@ Japanese original: [SPEC.md](SPEC.md). This English version is a translation; th
 This document is the authoritative definition of the formats of the files the tool reads and writes. Where it disagrees with the implementation (bridge.py and cite_bridge/), fix the implementation or this document so that they agree.
 How to use and run the tool is in SKILL.md.
 
-- Format version: 0.8.1 (`TOOL_VERSION` in cite_bridge/config.py). It is recorded in the manifest. What is frozen, how changes are made, and migration steps are in §11.
+- Format version: 0.9.0 (`TOOL_VERSION` in cite_bridge/config.py). It is recorded in the manifest. What is frozen, how changes are made, and migration steps are in §11.
 - Character encoding is UTF-8; line endings are LF.
 - Japanese field names and values are canonical; English aliases are also accepted (§10). Internally everything is normalized to Japanese.
   In this translation, field names and values are given in Japanese with the English alias in parentheses, e.g. 逐語 (verbatim).
@@ -296,11 +296,11 @@ An external AI or a person receives it and answers with a decisions file in the 
                     "source_checks": [{"id": "<id>", "fingerprint": "<fingerprint>", "result": "一致", "page": "", "note": ""}]},
  "items": [{"id": "key#e1", "reasons": "<要ヒューマンチェックの理由>", "verbatim": "<逐語>", "location": "<所在>",
             "fingerprint": "<逐語の指紋>", "grade": "<格>", "evidence_kind": "<根拠の種類。文 / 表 / グラフ / 図>",
-            "page_image": "<--images の PNG のパス、無ければ null>",
+            "alternate_location": "<別の所在。無ければ空の文字列>", "page_image": "<--images の PNG のパス、無ければ null>",
             "record": "<今の原本での確認の値>", "problem": "<問題の文（§2.1 の五つの条件のどれに欠けるか）>", "written_by": "<記入>"}]}
 ```
 
-(instructions: fixed text held by the tool (check each item's verbatim text against the original and answer the result and the original's characters); reasons: the human-check reasons; verbatim, location, fingerprint, grade, evidence_kind: of the excerpt;
+(instructions: fixed text held by the tool (check each item's verbatim text against the original and answer the result and the original's characters); reasons: the human-check reasons; verbatim, location, fingerprint, grade, evidence_kind: of the excerpt; alternate_location: the excerpt's 別の所在, or an empty string;
 page_image: path of the PNG from --images, or null; record: the current source_check value; problem: which of the five conditions of §2.1 is missing; written_by: the excerpt's 記入.)
 
 - The answer's `by` is a name listed as model in the approvers list. It cannot be the same name as the excerpt's writer (written_by) (condition 3 of §2.1).
@@ -425,7 +425,7 @@ Written by `checkpoint` at a point that has passed `check --strict`. When there 
 
 ```json
 {"format": "cite-bridge-manifest/1",
- "tool": {"name": "cite-bridge", "version": "0.8.1", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
+ "tool": {"name": "cite-bridge", "version": "0.9.0", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
  "checkpoint": "<UTC 時刻>", "label": "",
  "git": {"head": "<HEAD>", "uncommitted": ["…"]},
  "files": {"config": {"path", "sha256"}, "bibliography": {…}, "manuscript": {…}, "citations": {…},
@@ -577,6 +577,8 @@ Formats that are not frozen (worksheets, drafts, candidates, eval sets and resul
 - 0.8.1 normalizes `doi` in a published package's `sources` to the lower-case form that starts with `10.`, and no longer puts a DOI URL in `url` (§12.1). In 0.8.0 it was the text as written in the bibliography entry, and a DOI URL also went into `url`.
   If the bibliography has a DOI with upper-case letters or a DOI URL, writing the same package again changes its ID. Packages published with 0.8.0 stay as they are (a published package is never rewritten).
   check and grade gain a line (INFO) with the number of sources whose bibliography entry has a DOI. Fields, format names and fingerprints of working files do not change, so no migration steps are needed.
+- 0.9.0 adds the field `alternate_location` (the excerpt's `別の所在`, or an empty string) to each item of the request for checks against the original (§5.1). The format name stays `/1`.
+  The alternate location is used for neither matching nor any fingerprint (§2.1). Fields and fingerprints of working files and the states of approvals and checks do not change, so no migration steps are needed.
 
 ### Migration steps for 0.5.0
 

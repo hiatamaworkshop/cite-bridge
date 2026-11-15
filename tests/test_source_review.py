@@ -90,9 +90,10 @@ class SourceReviewTest(unittest.TestCase):
         ids = {it["id"]: it for it in d["items"]}
         self.assertEqual(set(ids), {"ocr2020#e1", "noisy2020#e1"})  # 印のある抜き書きだけ。doe2020 は印が無い
         it = ids["ocr2020#e1"]
-        self.assertEqual(set(it), {"id", "reasons", "verbatim", "location", "fingerprint", "grade", "evidence_kind", "page_image",
-                                   "record", "problem", "written_by"})
+        self.assertEqual(set(it), {"id", "reasons", "verbatim", "location", "fingerprint", "grade", "evidence_kind",
+                                   "alternate_location", "page_image", "record", "problem", "written_by"})
         self.assertEqual(it["evidence_kind"], "文")  # 欄の無い抜き書きは文（0.7.0）
+        self.assertEqual(it["alternate_location"], "")  # 欄の無い抜き書きは空の文字列（0.9.0）
         self.assertEqual(it["reasons"], "OCR の文字の層（PDF 2頁目）")
         self.assertEqual(it["fingerprint"], verbatim_fingerprint(OCR_SENTENCE))
         self.assertEqual(it["problem"], "原本での確認が無い")
@@ -100,6 +101,22 @@ class SourceReviewTest(unittest.TestCase):
         self.assertIsNone(it["page_image"])  # --images を渡していないので画像は無い
         self.assertEqual(it["written_by"], "test")
         self.assertIn("逐語の範囲に読めない字", ids["noisy2020#e1"]["reasons"])
+
+    def test_source_checks_carry_alternate_location(self):
+        """別の所在を書いた抜き書きの依頼の一件には、その文字列が出る。書いていない抜き書きは空（0.9.0）。照合は変わらない。"""
+        alt = "邦訳 p.45、第3章2節"
+        self.write("bridge/excerpts/ocr2020.md",
+                   excerpt("ocr2020", "e1", OCR_SENTENCE).replace("記入: test\n", f"別の所在: {alt}\n記入: test\n"))
+        self.run_bridge("derive")
+        ids = {it["id"]: it for it in self.source_checks_json()["items"]}
+        self.assertEqual(ids["ocr2020#e1"]["alternate_location"], alt)
+        self.assertEqual(ids["noisy2020#e1"]["alternate_location"], "")
+        self.assertEqual(ids["ocr2020#e1"]["fingerprint"], verbatim_fingerprint(OCR_SENTENCE))  # 指紋に入らない
+        code, md = self.run_bridge("review", "--source-checks")
+        self.assertEqual(code, 0, md)
+        self.assertEqual(md.count("- 別の所在:"), 1)  # あるものにだけ行を出す
+        self.assertIn(f"- 別の所在: {alt}", md)
+        self.assertIn("別の所在（alternate_location）があれば、その版の頁や節でも探す。", md)
 
     def test_source_checks_md_has_confirm_command(self):
         self.run_bridge("derive")

@@ -5,7 +5,7 @@ English: [SPEC.en.md](SPEC.en.md)（正本はこの日本語の版で、英語�
 この文書は、道具が読み書きするファイルの形式の正本である。実装（bridge.py と cite_bridge/）と食い違ったときは、この文書に合わせて実装か文書を直す。
 使い方と運用の作法は SKILL.md にある。
 
-- 形式の版: 0.8.1（cite_bridge/config.py の `TOOL_VERSION`）。マニフェストに記録する。固める範囲、変えるときの手順、移行の手順は §11。
+- 形式の版: 0.9.0（cite_bridge/config.py の `TOOL_VERSION`）。マニフェストに記録する。固める範囲、変えるときの手順、移行の手順は §11。
 - 文字コードは UTF-8、改行は LF。
 - 欄名と値は日本語を正とし、英語の別名も受ける（§10）。内部では日本語にそろえる。
 
@@ -284,7 +284,7 @@ extracted: <YYYY-MM-DD>
                     "source_checks": [{"id": "<id>", "fingerprint": "<fingerprint>", "result": "一致", "page": "", "note": ""}]},
  "items": [{"id": "key#e1", "reasons": "<要ヒューマンチェックの理由>", "verbatim": "<逐語>", "location": "<所在>",
             "fingerprint": "<逐語の指紋>", "grade": "<格>", "evidence_kind": "<根拠の種類。文 / 表 / グラフ / 図>",
-            "page_image": "<--images の PNG のパス、無ければ null>",
+            "alternate_location": "<別の所在。無ければ空の文字列>", "page_image": "<--images の PNG のパス、無ければ null>",
             "record": "<今の原本での確認の値>", "problem": "<問題の文（§2.1 の五つの条件のどれに欠けるか）>", "written_by": "<記入>"}]}
 ```
 
@@ -405,7 +405,7 @@ status は pending / accepted / rejected。decided は、受け入れたとき�
 
 ```json
 {"format": "cite-bridge-manifest/1",
- "tool": {"name": "cite-bridge", "version": "0.8.1", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
+ "tool": {"name": "cite-bridge", "version": "0.9.0", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
  "checkpoint": "<UTC 時刻>", "label": "",
  "git": {"head": "<HEAD>", "uncommitted": ["…"]},
  "files": {"config": {"path", "sha256"}, "bibliography": {…}, "manuscript": {…}, "citations": {…},
@@ -555,6 +555,8 @@ SKILL.md の「設定」の節にひな形がある。表は鍵の一覧であ�
 - 0.8.1 で、公開物の `sources` の `doi` を、`10.` で始まる小文字の形にそろえ、`url` に DOI の URL を入れないようにした（§12.1）。0.8.0 では書誌の文の字のままで、DOI の URL が `url` にも入った。
   書誌に大文字を含む DOI か DOI の URL があると、同じ一式を書き出し直したときに公開物の ID が変わる。0.8.0 で公開した公開物は、そのままでよい（公開物は書き換えない）。
   check と grade に、書誌に DOI のある文献の数の行（INFO）を足した。作業中のファイルの欄・形式名・指紋は変えていないので、移行の手順は要らない。
+- 0.9.0 で、原本での確認の依頼の一件に `alternate_location`（抜き書きの `別の所在`。無ければ空の文字列）を足した（§5.1）。形式名は `/1` のままである。
+  別の所在は照合にも指紋にも使わない（§2.1）。作業中のファイルの欄・指紋と、承認と確認の状態は変わらないので、移行の手順は要らない。
 
 ### 0.5.0 の移行の手順
 
