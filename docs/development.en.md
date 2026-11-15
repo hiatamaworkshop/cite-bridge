@@ -16,7 +16,7 @@ The entry point is `bridge.py` (it only takes arguments and passes them to `cite
 | blocks | Reading and writing the md of excerpts and citations |
 | derive | Making the derived fields (location, match, surrounding sentences) |
 | manuscript | Marks, sentences and fingerprints in the manuscript, coverage, computing approval states |
-| check | Consistency check (check), coverage list (coverage), grade list (grade) |
+| check | Consistency check (check), coverage list (coverage), spread of excerpted places (spread), grade list (grade) |
 | approve / apply | Writing approvals, send-backs, summary checks and remarks, and applying decisions files |
 | propose | Making candidates for sources without a mark |
 | judge / classifier | The core of the classifier check (type registry, material, ledger, comparison with records, requests and sending) and provider adapters. judge does not import review |

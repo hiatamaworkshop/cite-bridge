@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""整合の検査（check）、網羅の一覧（coverage）、文献の格の一覧（grade）。"""
+"""整合の検査（check）、網羅の一覧（coverage）、引いた箇所の広がり（spread）、文献の格の一覧（grade）。"""
 from pathlib import Path
 import re
 import sys
@@ -345,6 +345,63 @@ def cmd_coverage(args):
         span = c["paren"] if c["part"] is None else f"{c['source']}（括弧 {c['paren']} の出典 {c['part'] + 1}/{c['nparts']}）"
         print(f"{target.as_posix()}:{c['line']}  {span}  （{c['section']}）")
     print(f"--- 出典らしきもの {marked + len(unmarked)}（括弧 {parens}）、印のある文 {marked}、印の無い文 {len(unmarked)}")
+
+
+def spread_data():
+    """文献ごとに、抜き書きが原本のどの頁・どの節にあるかを数える（導く欄の所在をそのまま数える。何も書かない）。
+
+    一件は {key, total, used, pages（抽出の全頁数。頁の無い Web 写しと抽出なしは None）, web, by_page: [(頁の文字列, 数)],
+    by_section: [(見出し, 数)], unlocated: [(ID, 理由)]}。頁と節は、原本での順（頁の番号、同じ頁では抜き書きの順）に並べる。
+    """
+    bib, cache = parse_bib(), {}
+    used = {r.strip() for b in parse_blocks(cfg.CIT)[1] for r in b["fields"].get("抜き書き", "").split(",") if r.strip()}
+    rows = []
+    for path, (hd, bd) in derive_excerpts(bib, cache).items():
+        head, blocks = parse_blocks(path)
+        if not blocks:
+            continue
+        key = head["title"]
+        src = cache.get(Path(hd["抽出"])) if hd.get("抽出") else None
+        web = bool(src and src.web and src.web.get("type") != "pdf")
+        by_page, by_section, unlocated = {}, {}, []
+        for b in blocks:
+            d = bd.get(b["id"], {})
+            if "所在" not in d:
+                unlocated.append((b["id"], d.get("照合", "")))
+                continue
+            page, sec = d["所在"].split(" / ", 1)
+            m = re.search(r"PDF (\d+)頁目", page)
+            n = int(m.group(1)) if m else 0
+            if not web:
+                by_page.setdefault((n, page), 0)
+                by_page[(n, page)] += 1
+            by_section.setdefault(sec, [n, 0])
+            by_section[sec][0] = min(by_section[sec][0], n)
+            by_section[sec][1] += 1
+        rows.append({"key": key, "total": len(blocks), "used": sum(f"{key}#{b['id']}" in used for b in blocks),
+                     "pages": src.pages() if src and not web else None, "web": web,
+                     "by_page": [(p, c) for (_, p), c in sorted(by_page.items(), key=lambda x: x[0][0])],
+                     "by_section": [(s, c) for s, (_, c) in sorted(by_section.items(), key=lambda x: x[1][0])],
+                     "unlocated": unlocated})
+    return rows
+
+
+def cmd_spread(args):
+    """一つの原本から引いた箇所が、原本のどこに寄っているかを見せる。数だけを出し、偏りの判定はしない。"""
+    rows = spread_data()
+    for r in rows:
+        print(f"{r['key']}  抜き書き {r['total']}（引用に使う {r['used']}）")
+        if r["web"]:
+            print("  頁: 頁が無い（Web 写し）")
+        elif r["by_page"]:
+            print(f"  頁: 全 {r['pages']} 頁のうち {len(r['by_page'])} 頁  " + " / ".join(f"{p} {c}" for p, c in r["by_page"]))
+        if r["by_section"]:
+            print("  節: " + " / ".join(f"{s} {c}" for s, c in r["by_section"]))
+        if r["unlocated"]:
+            print(f"  所在なし {len(r['unlocated'])}: " + " / ".join(f"{i} {why}" for i, why in r["unlocated"]))
+        print()
+    print(f"--- 文献 {len(rows)}、抜き書き {sum(r['total'] for r in rows)}（引用に使う {sum(r['used'] for r in rows)}）、"
+          f"所在なし {sum(len(r['unlocated']) for r in rows)}")
 
 
 def cmd_check(args):

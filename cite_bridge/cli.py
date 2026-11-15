@@ -6,7 +6,7 @@ import sys
 from . import config as cfg
 from .apply import cmd_apply
 from .approve import cmd_approve, cmd_confirm
-from .check import cmd_check, cmd_coverage, cmd_grade
+from .check import cmd_check, cmd_coverage, cmd_grade, cmd_spread
 from .checkpoint import cmd_checkpoint, cmd_precommit, cmd_strip
 from .config import CONFIG, load_config
 from .derive import cmd_derive
@@ -72,6 +72,8 @@ def main():
     w.set_defaults(func=cmd_snapshot)
     cv = sub.add_parser("coverage")
     cv.set_defaults(func=cmd_coverage)
+    sp = sub.add_parser("spread")
+    sp.set_defaults(func=cmd_spread)
     pr = sub.add_parser("propose")
     pr.add_argument("items", nargs="*", help="作業票を作る item（省くと、絞り込みに当たる印の無い出典）")
     pr.add_argument("--section", help="見出しにこの文字列を含む節だけ")

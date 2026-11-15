@@ -308,6 +308,7 @@ python tools/cite-bridge/bridge.py review --html -o preview/cite_review.html    
 python tools/cite-bridge/bridge.py apply <decisions.json> [--dry-run]          # write the decisions saved by the approval HTML
 python tools/cite-bridge/bridge.py apply --latest [--from DIR] [--dry-run]       # use the latest decisions file in Downloads (default)
 python tools/cite-bridge/bridge.py coverage                                     # list of source-like parentheses in sentences without a mark
+python tools/cite-bridge/bridge.py spread                                       # per source, how many excerpts sit on which page and in which section of the original (read-only)
 python tools/cite-bridge/bridge.py propose [--section 2.2] [--lines 80-120] [--limit 15] [--add-key ITEM=KEY]  # worksheet of sources without a mark
 python tools/cite-bridge/bridge.py propose [--key smith2020 ...] [--checkable]  # only sources whose key candidates include the key / only sources whose first candidate has a machine-checkable grade (repeats drop out with --checkable)
 python tools/cite-bridge/bridge.py sentences <key> [--grep word ...] [--range 40-50]   # look up the source by the sentence numbers used in the worksheet
@@ -335,6 +336,9 @@ python tools/cite-bridge/bridge.py classify --eval <set.json> --variant <variant
 - OCR is not built into the tool. Put text made by OCR at `<text_dir>/<same name as the PDF>.txt` with a header starting with `<!-- ocr` (engine, date) at the top.
   Its grade becomes 「PDF所持（OCR の抽出）」 (PDF held, OCR extraction), and it is not counted as machine-checkable. Because of misreadings, matches are often approximate.
 - grade gives the grade per bibliography key. Given a mapping table with `--keys-from`, it also shows keys in the table's key column that are not in the bibliography (leftovers of renaming, etc.).
+- spread gives, for each source that has excerpts, the number of excerpts (and how many of them citations rest on), the count per page (with the total number of pages in the extracted text) and the count per section heading.
+  The numbers let the writer and readers see whether a manuscript draws only on a narrow part of one original. The tool only gives the numbers; it does not judge whether they are skewed.
+  It counts the derived location as it is, so headings are estimates, and a web copy without pages gets sections only. An excerpt whose location cannot be derived is counted as 「所在なし」 (no location) with its reason.
 - checkpoint writes `bridge/checkpoints/<UTC time>.json` only when there are neither consistency errors nor pending items (its contents are in SPEC.md §8).
 
 ## What an AI must follow

@@ -16,7 +16,7 @@ English: [development.en.md](development.en.md)（正本はこの日本語の版
 | blocks | 抜き書きと引用の md の読み書き |
 | derive | 導く欄（所在・照合・前後の文）を作る |
 | manuscript | 原稿の印・文・指紋、網羅、承認の状態の計算 |
-| check | 整合の検査（check）、網羅の一覧（coverage）、格の一覧（grade） |
+| check | 整合の検査（check）、網羅の一覧（coverage）、引いた箇所の広がり（spread）、格の一覧（grade） |
 | approve / apply | 承認・差し戻し・要約の確認・指摘の書き込みと、判断ファイルの適用 |
 | propose | 印の無い出典の候補づくり |
 | judge / classifier | 分類器による検査の核（型の登録、材料、台帳、記録との突き合わせ、要求と送信）と、提供元のアダプタ。judge は review を import しない |

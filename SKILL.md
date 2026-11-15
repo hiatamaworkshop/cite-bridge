@@ -303,6 +303,7 @@ python tools/cite-bridge/bridge.py review --html -o preview/cite_review.html    
 python tools/cite-bridge/bridge.py apply <判断ファイル.json> [--dry-run]          # 承認の HTML が保存した判断を書き込む
 python tools/cite-bridge/bridge.py apply --latest [--from DIR] [--dry-run]       # ダウンロード（既定）の最新の判断ファイルを使う
 python tools/cite-bridge/bridge.py coverage                                     # 印の無い文にある出典らしき括弧の一覧
+python tools/cite-bridge/bridge.py spread                                       # 文献ごとに、抜き書きが原本のどの頁・どの節にあるかの数（読むだけ）
 python tools/cite-bridge/bridge.py propose [--section 2.2] [--lines 80-120] [--limit 15] [--add-key ITEM=KEY]  # 印の無い出典の作業票
 python tools/cite-bridge/bridge.py propose [--key smith2020 ...] [--checkable]  # key の候補に当たる出典だけ／機械で照合できる格の第一候補の出典だけ（repeat は --checkable で外れる）
 python tools/cite-bridge/bridge.py sentences <key> [--grep 語 ...] [--range 40-50]   # 原典を作業票と同じ番号の文で引く
@@ -330,6 +331,9 @@ python tools/cite-bridge/bridge.py classify --eval <組.json> --variant <案.tom
 - OCR は道具に入れない。OCR で作ったテキストは、頭に `<!-- ocr` で始まる頭書き（エンジン、日付）を置いて `<text_dir>/<PDF と同じ名>.txt` に置く。
   格は「PDF所持（OCR の抽出）」になり、機械で照合できる範囲には数えない。誤読があるので、照合は近似一致が多くなる。
 - grade は書誌の key ごとに格を出す。`--keys-from` に対応表を渡すと、表の key 列にあって書誌に無い key（改名の取り残し等）も出す。
+- spread は、抜き書きのある文献ごとに、抜き書きの数（うち引用が根拠にしている数）、頁ごとの数（抽出の全頁数つき）、節の見出しごとの数を出す。
+  一つの原本の狭い範囲だけから引いていないかを、書き手と読み手が見るための数である。道具は数を出すだけで、偏っているかは判定しない。
+  導く欄の所在をそのまま数えるので、見出しは推定で、頁の無い Web 写しは節だけになる。所在を導けない抜き書きは「所在なし」として理由つきで数える。
 - checkpoint は、整合の崩れも確認待ちも無いときだけ `bridge/checkpoints/<UTC 時刻>.json` を書く（中身は SPEC.md §8）。
 
 ## AI が守ること
