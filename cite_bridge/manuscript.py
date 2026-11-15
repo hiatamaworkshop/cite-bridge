@@ -202,8 +202,9 @@ def _mark_sentence(cs, marks, bib, mark_keys):
 
 
 def evidence_hash(refs, excerpts, reading=""):
-    """引用の根拠（抜き書きの ID と逐語、あれば人の読み）の指紋。根拠を足す、逐語を直す、読みを直すと変わる。"""
-    s = "\n".join(f"{r}\t{re.sub(r'\s', '', excerpts.get(r, {}).get('逐語', ''))}" for r in sorted(refs))
+    """引用の根拠（抜き書きの ID と逐語、あれば人の読み）の指紋。根拠を足す、逐語を直す、読みを直すと変わる。
+    不在の抜き書きでは、逐語の代わりに探した語を使う（SPEC §4）。"""
+    s = "\n".join(f"{r}\t{re.sub(r'\s', '', cfg.checked_text(excerpts.get(r, {})))}" for r in sorted(refs))
     if reading:
         s += "\n人の読み\t" + re.sub(r"\s", "", reading)
     return hashlib.sha1(s.encode("utf-8")).hexdigest()[:8]
@@ -212,8 +213,10 @@ def evidence_hash(refs, excerpts, reading=""):
 def summary_fingerprint(fields):
     """抜き書きの、人が確かめる欄（逐語・要約・言っていないこと・強さ）の指紋（SPEC §4）。
     孫引き・訳・根拠の種類は、あるときだけ、この順に含める（欄の無い抜き書きの指紋は変えない）。
-    根拠の種類の 文 は、省いた場合と同じに数えて含めない。別の所在は含めない。"""
-    s = "\n".join(re.sub(r"\s", "", fields.get(n, "")) for n in ("逐語", "強さ", "要約", "言っていないこと"))
+    根拠の種類の 文 は、省いた場合と同じに数えて含めない。別の所在は含めない。
+    不在の抜き書きでは、逐語の代わりに探した語を使う。"""
+    s = "\n".join(re.sub(r"\s", "", cfg.checked_text(fields) if n == "逐語" else fields.get(n, ""))
+                  for n in ("逐語", "強さ", "要約", "言っていないこと"))
     for name in ("孫引き", "訳", "根拠の種類"):
         if fields.get(name) and (name, fields[name]) != ("根拠の種類", cfg.TEXT_KIND):
             s += f"\n{name}\t" + re.sub(r"\s", "", fields[name])
@@ -398,10 +401,12 @@ def source_check_state(f, rec, verbatim, writer):
     problem = independence_problem(checker, [writer])
     if problem:
         return checker, problem
+    absent = cfg.is_absence(f)  # 不在の抜き書きでは、verbatim に探した語が渡る（SPEC §4）
     if rec.get("原本での確認時の指紋") != verbatim_fingerprint(verbatim):
-        return checker, "確かめた後に逐語が変わった（または指紋が無い）"
+        return checker, f"確かめた後に{'探した語' if absent else '逐語'}が変わった（または指紋が無い）"
     if result == "違う":
-        return checker, "原本と違うと報告された。逐語を直して確かめ直す"
+        return checker, ("原本は触れていると報告された。要約か引用を直して確かめ直す" if absent
+                         else "原本と違うと報告された。逐語を直して確かめ直す")
     return checker, ""
 
 

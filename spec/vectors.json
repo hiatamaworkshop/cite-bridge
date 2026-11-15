@@ -129,6 +129,27 @@
    "evidence_kind": "表",
    "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。\n根拠の種類\t表",
    "fingerprint": "03546877"
+  },
+  {
+   "kind": "summary",
+   "verbatim": "",
+   "searched_terms": "latency、 遅延",
+   "strength": "",
+   "summary": "応答の遅延には 触れていない。",
+   "not_said": "",
+   "secondary_source": "",
+   "string": "latency、遅延\n\n応答の遅延には触れていない。\n",
+   "fingerprint": "885fa80a"
+  },
+  {
+   "kind": "evidence",
+   "excerpts": {
+    "doe2020#e2": "Trust is built slowly.",
+    "doe2020#e4": "latency、 遅延"
+   },
+   "human_reading": "",
+   "string": "doe2020#e2\tTrustisbuiltslowly.\ndoe2020#e4\tlatency、遅延",
+   "fingerprint": "dfea40cc"
   }
  ],
  "publication": [

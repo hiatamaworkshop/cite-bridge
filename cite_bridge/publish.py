@@ -210,15 +210,17 @@ def build(manifest, conf, published_at):
         f, d, rec, _ = exc[eid]
         key = eid.split("#")[0]
         out = key not in withhold and eid not in withhold
-        verbatim = f.get("逐語", "")
+        absent = cfg.is_absence(f)  # 不在の抜き書き。逐語は無く、指紋は探した語から作る（SPEC §4、§12.1）
+        verbatim = cfg.checked_text(f)
         excerpts.append({
-            "id": eid, "verbatim": verbatim if out else None, "verbatim_fingerprint": verbatim_fingerprint(verbatim),
-            "verbatim_sha256": verbatim_sha256(verbatim), "strength": f.get("強さ", ""), "summary": f.get("要約", ""),
+            "id": eid, "verbatim": verbatim if out and not absent else None, "verbatim_fingerprint": verbatim_fingerprint(verbatim),
+            "verbatim_sha256": None if absent else verbatim_sha256(verbatim),
+            "searched_terms": f["探した語"] if absent else "", "strength": f.get("強さ", ""), "summary": f.get("要約", ""),
             "not_said": f.get("言っていないこと", ""), "secondary_source": f.get("孫引き", ""), "translation": f.get("訳", ""),
             "alternate_location": f.get("別の所在", ""), "evidence_kind": cfg.evidence_kind(f),
             "written_by": _masked(f.get("記入", ""), hide), "summary_fingerprint": summary_fingerprint(f),
             "derived": {"match": d.get("照合", ""), "location": d.get("所在", ""), "section_kind": d.get("節の種類", ""),
-                        "human_check": d.get("要ヒューマンチェック", "")}})
+                        "human_check": d.get("要ヒューマンチェック", ""), "hits": d.get("当たり", "")}})
         writer = writer_of(f.get("記入"))
         if f.get("要約の確認"):
             name = f["要約の確認"].split()[0]
@@ -312,7 +314,7 @@ def cmd_publish(args):
         shutil.copyfile(src, dst)
     (out / "publication.json").write_text(json.dumps(doc, ensure_ascii=False, indent=1) + "\n", encoding="utf-8", newline="\n")
     c = doc["content"]
-    kept = sum(1 for e in c["excerpts"] if e["verbatim"] is None)
+    kept = sum(1 for e in c["excerpts"] if e["verbatim"] is None and not e["searched_terms"])  # 不在の抜き書きは逐語を持たない
     print(f"ok publish: {(out / 'publication.json').as_posix()}")
     print(f"  ID: {doc['id']}")
     print(f"  引用 {len(c['citations'])} 件、抜き書き {len(c['excerpts'])} 件（逐語を外したもの {kept} 件）、文献 {len(c['sources'])} 件、"

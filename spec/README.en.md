@@ -18,6 +18,7 @@ Both are JSON and language-neutral. SPEC.md is authoritative; what is here is a 
 - `whitespace` gives the code points (hexadecimal) of the 29 "whitespace" characters of SPEC §4. The whitespace class of a language's regular expressions may not match these 29 characters. Use this list.
 - For each example in `fingerprints`: build `string` from the input by the rules of SPEC §4, and the first 8 digits of the SHA-1 of its UTF-8 bytes match `fingerprint`.
   `kind` is one of `verbatim` (verbatim fingerprint), `sentence` (sentence fingerprint), `evidence` (evidence fingerprint) and `summary` (summary fingerprint).
+  A `summary` example with `searched_terms` is an absence excerpt; it uses the searched terms in place of the verbatim text (SPEC §4).
 - For the `identity` example in `publication`: `object` serialized by the rules of SPEC §12.2 matches `string`, and its SHA-256 prefixed with `sha256-` matches `id`.
 - For the `verbatim_sha256` example in `publication`: `verbatim` with whitespace removed matches `string`, and its SHA-256 matches `sha256`.
 

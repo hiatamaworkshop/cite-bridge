@@ -65,6 +65,7 @@ def run_check():
     excerpts = {}
     states = {}
     exc_where, summary_checked = [], {}
+    absences = {}  # 不在の抜き書きの数（照合の値ごと。あるときだけ INFO に出す）
     evidence_kinds = {}  # 根拠の種類ごとの抜き書きの数（文でないものがあるときだけ INFO に出す）
     for path, (hd, bd) in res.items():
         head, blocks = parse_blocks(path)
@@ -97,11 +98,18 @@ def run_check():
                 errors.append(f"{w}: ID の重複")
             seen.add(b["id"])
             f = b["fields"]
-            for name in EXC_REQUIRED:
+            absent = cfg.is_absence(f)  # 不在の抜き書き（逐語の代わりに探した語。SPEC §2.1）
+            for name in (cfg.ABSENCE_REQUIRED if absent else EXC_REQUIRED):
                 if not f.get(name):
                     errors.append(f"{w}: 欄 '{name}' が空")
             if f.get("強さ") and f["強さ"] not in STRENGTHS:
                 errors.append(f"{w}: 強さ '{f['強さ']}' は {sorted(STRENGTHS)} のどれか")
+            if f.get("探した語") and f.get("逐語"):
+                notes.append(f"{w}: 逐語と探した語の両方がある。逐語の抜き書きとして扱う（不在の抜き書きは逐語を書かない）")
+            if absent:
+                for term in cfg.searched_terms(f):
+                    if not any(c.isalnum() for c in term):
+                        notes.append(f"{w}: 探した語 '{term}' は文字と数字を含まず、探せない")
             ekind = cfg.evidence_kind(f)
             if ekind not in cfg.EVIDENCE_KINDS:  # 語彙の外は確認待ち。文でない根拠としては扱わない（要ヒューマンチェックにしない）
                 notes.append(f"{w}: 根拠の種類 '{ekind}' は {' / '.join(cfg.EVIDENCE_KINDS)} のどれか")
@@ -111,7 +119,9 @@ def run_check():
                 errors.append(f"{w}: 導く欄が古い。derive を実行する")
             d = bd.get(b["id"], {})
             st = d.get("照合", "")
-            checker, problem = source_check_state(f, b.get("records", {}), f.get("逐語", ""), writer_of(f.get("記入")))
+            if absent:
+                absences[st.split("（")[0]] = absences.get(st.split("（")[0], 0) + 1
+            checker, problem = source_check_state(f, b.get("records", {}), cfg.checked_text(f), writer_of(f.get("記入")))
             confirmed = not problem  # 有効な原本での確認（§5.2 の条件1〜5）
             if f.get("原本での確認") and checker:
                 if confirmed:
@@ -168,6 +178,8 @@ def run_check():
                      + (f"、無いもの {len(no_doi)}（{', '.join(no_doi)}）" if no_doi else ""))
     if set(evidence_kinds) - {cfg.TEXT_KIND}:  # 文だけの一式では出さない
         infos.append("抜き書きの根拠の種類: " + " / ".join(f"{k} {evidence_kinds[k]}" for k in cfg.EVIDENCE_KINDS if k in evidence_kinds))
+    if absences:
+        infos.append(f"不在の抜き書き: {sum(absences.values())} 件（" + " / ".join(f"{k} {v}" for k, v in sorted(absences.items())) + "）")
     infos.append(f"要ヒューマンチェック: 印のある抜き書き {marked} 件のうち、確認済 {done}"
                  f"（人 {by_kind['human']}、モデル {by_kind['model']}）、残り {marked - done}（一覧は review --source-checks）")
 
@@ -266,7 +278,7 @@ def run_check():
                     infos.append(f"{w}: 「{q}」は引用でない句として外した")
                     continue
                 qcjk = any(is_cjk(c) for c in q)
-                pool = [excerpts[r]["逐語"] for r in refs if r in excerpts]
+                pool = [excerpts[r]["逐語"] for r in refs if excerpts.get(r, {}).get("逐語")]  # 不在の抜き書きは逐語を持たない
                 same = [p for p in pool if any(is_cjk(c) for c in p) == qcjk]
                 if same and not any(normalize(q, "alnum")[0] in normalize(p, "alnum")[0] for p in same):
                     errors.append(f"{w}: 本文の引用「{q[:30]}…」が抜き書きの逐語に無い")
@@ -363,8 +375,11 @@ def spread_data():
         key = head["title"]
         src = cache.get(Path(hd["抽出"])) if hd.get("抽出") else None
         web = bool(src and src.web and src.web.get("type") != "pdf")
-        by_page, by_section, unlocated = {}, {}, []
+        by_page, by_section, unlocated, absent = {}, {}, [], 0
         for b in blocks:
+            if cfg.is_absence(b["fields"]):  # 不在の抜き書きは所在を持たない。所在なしには数えず、数だけを出す（C50）
+                absent += 1
+                continue
             d = bd.get(b["id"], {})
             if "所在" not in d:
                 unlocated.append((b["id"], d.get("照合", "")))
@@ -382,7 +397,7 @@ def spread_data():
                      "pages": src.pages() if src and not web else None, "web": web,
                      "by_page": [(p, c) for (_, p), c in sorted(by_page.items(), key=lambda x: x[0][0])],
                      "by_section": [(s, c) for s, (_, c) in sorted(by_section.items(), key=lambda x: x[1][0])],
-                     "unlocated": unlocated})
+                     "unlocated": unlocated, "absent": absent})
     return rows
 
 
@@ -399,9 +414,12 @@ def cmd_spread(args):
             print("  節: " + " / ".join(f"{s} {c}" for s, c in r["by_section"]))
         if r["unlocated"]:
             print(f"  所在なし {len(r['unlocated'])}: " + " / ".join(f"{i} {why}" for i, why in r["unlocated"]))
+        if r["absent"]:
+            print(f"  不在の抜き書き {r['absent']}（原本が触れていないことの記録。所在を持たない）")
         print()
+    absent = sum(r["absent"] for r in rows)
     print(f"--- 文献 {len(rows)}、抜き書き {sum(r['total'] for r in rows)}（引用に使う {sum(r['used'] for r in rows)}）、"
-          f"所在なし {sum(len(r['unlocated']) for r in rows)}")
+          f"所在なし {sum(len(r['unlocated']) for r in rows)}" + (f"、不在の抜き書き {absent}" if absent else ""))
 
 
 def cmd_check(args):

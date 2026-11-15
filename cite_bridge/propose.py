@@ -10,7 +10,7 @@ from .approve import load_excerpt_fields, rederive_later, write_approval, write_
 from .bib import extraction_diagnosis, grade_of, parse_bib, resolve_keys
 from .blocks import parse_blocks
 from .config import DIFFS, STRENGTHS, out_name
-from .derive import printed_page
+from .derive import CHECKABLE_GRADES, printed_page
 from .manuscript import (
     coverage_items,
     load_excluded,
@@ -127,7 +127,6 @@ def _manuscript():
     return Path(head["fields"].get("対象", ""))
 
 
-CHECKABLE_GRADES = ("PDF所持（抽出あり）", "Web 写し（保存あり）")
 
 
 def cmd_propose(args):

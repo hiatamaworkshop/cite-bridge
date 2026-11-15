@@ -60,6 +60,13 @@ Excerpts `bridge/excerpts/<key>.md` (one file per source; the heading is the bib
   The translation is not matched, so, like the summary, a person compares it with the verbatim text and records it with `confirm`. Editing the translation sends it back to "check again".
 - Optional field `根拠の種類` (evidence_kind): 文／表／グラフ／図 (text／table／chart／figure; figure covers figures and photographs). When omitted it is text. Write it when the evidence is numbers in a table, a reading of a chart, or a figure or photograph.
   Non-text evidence needs a human check even when the verbatim text matches. Look at that table or figure in the original and record it with `confirm --source`.
+- Absence excerpt: the evidence for saying in the manuscript that "the original does not mention this topic". Write `探した語` in place of `逐語` (`探した語: 雑音、ノイズ、noise`).
+  The required fields are 探した語, 要約 and 記入. The summary says what the original does not mention. A citation points to it like any other excerpt, with `key#e4`.
+  List every spelling variant and translation yourself. The tool does not expand terms. Terms match as substrings and match widely, so a short term also hits inside other words.
+  derive searches the whole extracted text and writes 「当たりなし」 (no hits) or 「当たりあり」 (hits, with terms and counts) in `@照合`. The places of the hits appear in `@当たり`.
+  With hits, with no extracted text, or with OCR, the excerpt needs a human check. Do not drop a term to make a hit go away. Read the place of the hit;
+  if it has another meaning, a person or an independent model checks the original and records it with `confirm --source` (saying in the note that the meaning differs); if the original does mention the topic, fix the manuscript.
+  The tool only checks that "the listed terms are not in the extracted text". Mentions that do not use the terms and characters inside figures cannot be searched, so a person judges them at the summary check and the approval.
 - Optional field `別の所在` (alternate_location): page or section numbers in the edition readers will look up (the page in a translated edition, conventional section numbers and so on). The derived location is the page of the PDF at hand, so write this when a different way of pointing is needed.
 - Derived fields: 照合 (match), 所在 (location: page and section), 節の種類 (section kind), 前 (before), 後 (after), 含む文 (sentence). Under the source heading, the grade and the location of the extracted text.
   If a section is derived wrongly, check the heading lines in the extracted text (heading detection is an estimate).

@@ -50,6 +50,9 @@ def derive_excerpt_file(path, bib, sources_cache):
             sources_cache[txt] = Source(txt)
         src = sources_cache[txt]
     for b in blocks:
+        if cfg.is_absence(b["fields"]):
+            bd[b["id"]] = derive_absence(b["fields"], grade, src, bib[key]["entry"] if key in bib else "")
+            continue
         d = {}
         quote = b["fields"].get("逐語", "")
         a = z = None
@@ -82,6 +85,56 @@ def derive_excerpt_file(path, bib, sources_cache):
             d["要ヒューマンチェック"] = "、".join(reasons)
         bd[b["id"]] = d
     return hd, bd
+
+
+HITS_SHOWN = 3  # 不在の抜き書きの @当たり に、語ごとに出す所在の数
+CHECKABLE_GRADES = ("PDF所持（抽出あり）", "Web 写し（保存あり）")  # 機械で照合できる格（SPEC §2.4）
+
+
+def term_hits(term, src):
+    """探した語が抽出テキストの本文にある位置（raw 上の開始位置の並び）。
+
+    逐語の照合の一番ゆるい正規化（NFKC、小文字、文字と数字だけ）で、部分一致で探す。広く当てる側に倒す（SPEC §2.2）。
+    文字と数字を含まない語は探せないので、空の並びを返す（check が確認待ちで出す）。
+    """
+    q, _ = normalize(term, "alnum")
+    t, tp = src.norm("alnum")
+    out, k = [], t.find(q) if q else -1
+    while k >= 0:
+        out.append(tp[k])
+        k = t.find(q, k + len(q))
+    return out
+
+
+def derive_absence(fields, grade, src, entry):
+    """不在の抜き書き（逐語の代わりに探した語を持つ）の導く欄（SPEC §2.2）。所在・節の種類・前後の文は持たない。"""
+    if not src:
+        return {"照合": f"照合不能（{grade}）", "要ヒューマンチェック": f"照合不能（{grade}）"}
+    d, counts, shown, reasons = {}, [], [], []
+    for term in cfg.searched_terms(fields):
+        hits = term_hits(term, src)
+        if not hits:
+            continue
+        counts.append(f"{term} {len(hits)}")
+        places = [printed_page(entry, src.page_of(a), src.pages(), src) + " / " + section_at(src, a)[0] for a in hits[:HITS_SHOWN]]
+        more = f"（ほか {len(hits) - HITS_SHOWN}）" if len(hits) > HITS_SHOWN else ""
+        shown.append(f"{term}：" + "、".join(places) + more)
+    if counts:
+        d["照合"] = "当たりあり（" + "、".join(counts) + "）"
+        d["当たり"] = "；".join(shown)
+        reasons.append("探した語に当たりがある")
+    else:
+        d["照合"] = "当たりなし"
+    # 文献の全体が対象なので、OCR の文字の層は頁を付けない。OCR の頁が一つでもあれば、当たりが無くても機械では保証できない
+    if grade == "PDF所持（OCR の抽出）":
+        reasons.append("OCR の抽出")
+    elif grade == "PDF所持（OCR の文字の層）":
+        reasons.append("OCR の文字の層")
+    elif grade not in CHECKABLE_GRADES:  # 抽出はあるが、機械で照合できる格でない（抽出が化けている等）。当たりが無くても不在を保証しない
+        reasons.append(f"照合不能（{grade}）")
+    if reasons:
+        d["要ヒューマンチェック"] = "、".join(reasons)
+    return d
 
 
 SHORT_WORDS, SHORT_CHARS = 3, 10  # 短い逐語の上限（欧文の語数、和文の字数。C20）

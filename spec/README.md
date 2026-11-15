@@ -18,6 +18,7 @@ cite-bridge でない実装（公開物を読む側の道具など）が、[SPEC
 - `whitespace` は、SPEC §4 の「空白」の 29 字の符号位置（16 進）である。言語の正規表現の空白は、この 29 字と一致しないことがある。この一覧を使う。
 - `fingerprints` の各例について、SPEC §4 の規則で入力から `string` を作り、その UTF-8 の SHA-1 の先頭 8 桁が `fingerprint` と合うこと。
   `kind` は `verbatim`（逐語の指紋）、`sentence`（本文の指紋）、`evidence`（根拠の指紋）、`summary`（要約の指紋）のどれかである。
+  `searched_terms` のある `summary` の例は不在の抜き書きで、逐語の代わりに探した語を使う（SPEC §4）。
 - `publication` の `identity` の例について、`object` を SPEC §12.2 の規則で直列化した文字列が `string` と合い、その SHA-256 に `sha256-` を付けたものが `id` と合うこと。
 - `publication` の `verbatim_sha256` の例について、`verbatim` から空白を除いた文字列が `string` と合い、その SHA-256 が `sha256` と合うこと。
 

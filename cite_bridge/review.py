@@ -83,9 +83,15 @@ def unconfirmed_source(e):
 
 def source_check_fields(ef, rec, d):
     """要ヒューマンチェックの印と、原本での確認の有効（§5.5 の 1）。原本での確認の判定は C2 の source_check_state を使う。"""
-    _, problem = source_check_state(ef, rec, ef.get("逐語", ""), writer_of(ef.get("記入")))
+    text = cfg.checked_text(ef)  # 逐語。不在の抜き書きでは探した語（SPEC §4）
+    _, problem = source_check_state(ef, rec, text, writer_of(ef.get("記入")))
     return {"needs_check": d.get("要ヒューマンチェック", ""), "check_ok": not problem, "check_problem": problem,
-            "check_record": ef.get("原本での確認", ""), "verbatim_fp": verbatim_fingerprint(ef.get("逐語", ""))}
+            "check_record": ef.get("原本での確認", ""), "verbatim_fp": verbatim_fingerprint(text)}
+
+
+def absence_fields(ef, d):
+    """不在の抜き書きの探した語と当たり（SPEC §2.1、§2.2）。逐語の抜き書きでは、どちらも空の文字列。"""
+    return {"searched_terms": ef.get("探した語", "") if cfg.is_absence(ef) else "", "hits": d.get("当たり", "")}
 
 
 def needs_review(it):
@@ -149,7 +155,7 @@ def review_data(cids=None, images=None, include_done=False, all_orphans=False, c
         return {"id": r, "verbatim": ef.get("逐語", ""), "location": d.get("所在", ""), "match": st,
                 "grade": hd.get("格", ""), "source_check": ef.get("原本での確認", ""), "secondary": ef.get("孫引き", ""),
                 "translation": ef.get("訳", ""), "alternate_location": ef.get("別の所在", ""),
-                "evidence_kind": cfg.evidence_kind(ef),
+                "evidence_kind": cfg.evidence_kind(ef), **absence_fields(ef, d),
                 **source_check_fields(ef, rec, d),
                 "image": Path(img).as_posix() if img else None,
                 "before": d.get("前", ""), "sentence": d.get("含む文", ""), "after": d.get("後", ""),
@@ -185,7 +191,7 @@ def review_data(cids=None, images=None, include_done=False, all_orphans=False, c
             return
         ef, _, hd, _ = exc[e["id"]]
         src = cache.get(Path(hd["抽出"])) if hd.get("抽出") else None
-        if src:
+        if src and not cfg.is_absence(ef):  # 不在の抜き書きは、指す頁が無い
             img = _page_image(e["id"].split("#")[0], bib, src, ef.get("逐語", ""), images)
             e["image"] = Path(img).as_posix() if img else None
 
@@ -279,6 +285,9 @@ INSTRUCTIONS = ("各件の逐語が、原本（頁の画像、無ければ原本
                 "逐語が見つからないときも「違う」とし、メモにそう書く。頁と節が分かれば書く。"
                 "根拠の種類（evidence_kind）が文でないもの（表・グラフ・図）は、原本のその表や図を見て確かめ、見た表や図の番号をメモに書く。"
                 "別の所在（alternate_location）があれば、その版の頁や節でも探す。"
+                "探した語（searched_terms）がある件は、原本がその話題に触れていないという不在の抜き書きである。"
+                "原本の全体でその語と話題を探し、触れていなければ「一致」（当たり hits の箇所が別の意味なら、メモにそう書く）、"
+                "触れていれば「違う」とし、メモに箇所を書く。"
                 "答えは answer_example の形の判断ファイルに書き、by には承認者の一覧に model として載っている自分の名前を書く。"
                 "抜き書きの書き手（written_by）と同じ名前では書けない。")
 
@@ -297,13 +306,14 @@ def source_check_items(images=None):
             eid = f"{head['title']}#{b['id']}"
             img = None
             src = cache.get(Path(hd["抽出"])) if hd.get("抽出") else None
-            if images and src:
+            if images and src and not cfg.is_absence(b["fields"]):
                 p = _page_image(head["title"], bib, src, b["fields"].get("逐語", ""), images)
                 img = Path(p).as_posix() if p else None
             items.append({"id": eid, "reasons": f["needs_check"], "verbatim": b["fields"].get("逐語", ""),
                           "location": bd.get(b["id"], {}).get("所在", ""), "fingerprint": f["verbatim_fp"],
                           "grade": hd.get("格", ""), "evidence_kind": cfg.evidence_kind(b["fields"]),
-                          "alternate_location": b["fields"].get("別の所在", ""), "page_image": img, "record": f["check_record"],
+                          "alternate_location": b["fields"].get("別の所在", ""),
+                          **absence_fields(b["fields"], bd.get(b["id"], {})), "page_image": img, "record": f["check_record"],
                           "problem": f["check_problem"], "written_by": b["fields"].get("記入", "")})
     return items
 
@@ -322,6 +332,19 @@ def source_check_data(images=None):
             "items": source_check_items(images)}
 
 
+def no_location(e):
+    """所在が無いときに md に出す語。不在の抜き書きは、もともと所在を持たない。"""
+    return "（不在の抜き書き。所在は無い）" if e.get("searched_terms") else "（導けない）"
+
+
+def quoted_md(e):
+    """md に出す、根拠の中身の段。逐語。不在の抜き書きでは、探した語と当たり（原本が触れていないことを確かめる材料）。"""
+    if e.get("searched_terms"):
+        return ["探した語（不在の抜き書き。原本がこの話題に触れていないことを確かめる）:", "", f"> {e['searched_terms']}", "",
+                f"- 当たり: {e['hits'] or 'なし'}", ""]
+    return ["逐語:", "", f"> {e['verbatim']}", ""]
+
+
 def source_checks_md(data):
     """要ヒューマンチェックの原本での確認の一覧（人が読む形）。"""
     tool = Path(sys.argv[0]).as_posix()
@@ -329,14 +352,13 @@ def source_checks_md(data):
     if not data["items"]:
         out.append("原本での確認が残っている抜き書きは無い。")
     for it in data["items"]:
-        out += [f"## {it['id']}", "", f"- 理由: {it['reasons']}", f"- 所在: {it['location'] or '（導けない）'}",
+        out += [f"## {it['id']}", "", f"- 理由: {it['reasons']}", f"- 所在: {it['location'] or no_location(it)}",
                 f"- 格: {it['grade']}"]
         if nontext(it):
             out.append(f"- 根拠の種類: {it['evidence_kind']}")
         if it["alternate_location"]:
             out.append(f"- 別の所在: {it['alternate_location']}")
-        out += [f"- 問題: {it['problem']}", f"- 記入: {it['written_by']}", "", "逐語:", "",
-                f"> {it['verbatim']}", ""]
+        out += [f"- 問題: {it['problem']}", f"- 記入: {it['written_by']}", ""] + quoted_md(it)
         if it["page_image"]:
             out += [f"頁の画像: {it['page_image']}", ""]
         out += [f"確かめた後: `python {tool} confirm {it['id']} --source --by <名前> --page \"…\"`", ""]
@@ -386,7 +408,7 @@ def review_md(data):
             if e.get("missing"):
                 out += [f"### 根拠 {i}: {e['id']}（抜き書きが無い）", ""]
                 continue
-            out += [f"### 根拠 {i}: {e['id']}", "", f"- 所在: {e['location'] or '（導けない）'}", f"- 照合: {e['match']}",
+            out += [f"### 根拠 {i}: {e['id']}", "", f"- 所在: {e['location'] or no_location(e)}", f"- 照合: {e['match']}",
                     f"- 格: {e['grade']}"]
             if nontext(e):
                 out.append(f"- 根拠の種類: {e['evidence_kind']}（文でない根拠。逐語の字ではなく、原本の{e['evidence_kind']}を見て確かめる）")
@@ -399,8 +421,8 @@ def review_md(data):
             if e["needs_check"]:
                 out.append(f"- 要ヒューマンチェック: {e['needs_check']}（確認済: {e['check_record'] if e['check_ok'] else 'なし'}"
                            f" / 未: {e['check_problem'] or 'なし'}）")
-            out += ["", "逐語:", "", f"> {e['verbatim']}", ""]
-            if e["needs_check"]:
+            out += [""] + quoted_md(e)
+            if e["needs_check"] and not e.get("searched_terms"):
                 out += ["要ヒューマンチェック。前後の文は頁の画像で読む" + (f": {e['image']}" if e["image"] else
                         "（--images で頁の画像を出せる。PDF が無ければ原本を見る）"), ""]
             out += [f"- {n}（抽出テキストのまま）: {e[k]}" for n, k in (("前", "before"), ("含む文", "sentence"), ("後", "after"))
@@ -465,7 +487,7 @@ def review_page(data):
         h = []
         others = [c for c in uses.get(e["id"], []) if c != owner]
         h.append(f'<div class="ev"><p class="evh">{label} {i} <b>{eid}</b> <span class="mut">'
-                 f'{E(e["location"] or "所在を導けない")}・{E(e["match"])}・{E(e["grade"])}'
+                 f'{E(e["location"] or ("所在は無い" if e.get("searched_terms") else "所在を導けない"))}・{E(e["match"])}・{E(e["grade"])}'
                  + (f'・他に {E("・".join(others))} の根拠' if others else "") + "</span></p>")
         if nontext(e):
             h.append(f'<p class="hc sm">根拠の種類：{E(e["evidence_kind"])}（文でない根拠。原本の{E(e["evidence_kind"])}を見て確かめる）</p>')
@@ -478,9 +500,15 @@ def review_page(data):
         if e["needs_check"]:
             h.append(f'<p class="hc sm">要ヒューマンチェック：{E(e["needs_check"])}・'
                      + (f'確認済：{E(e["check_record"])}' if e["check_ok"] else f'未：{E(e["check_problem"])}') + "</p>")
-        h.append(f'<blockquote>{E(e["verbatim"])}</blockquote><div class="tools">')
+        absent = bool(e.get("searched_terms"))  # 不在の抜き書き。逐語の代わりに、探した語と当たりを出す
+        if absent:
+            h.append(f'<p class="mut sm">不在の抜き書き（原本がこの話題に触れていないことを確かめる）。探した語：</p>'
+                     f'<blockquote>{E(e["searched_terms"])}</blockquote>'
+                     f'<p class="{"hc" if e["hits"] else "mut"} sm">当たり：{E(e["hits"] or "なし")}</p><div class="tools">')
+        else:
+            h.append(f'<blockquote>{E(e["verbatim"])}</blockquote><div class="tools">')
         ref = img_ref(e["image"]) if e.get("image") else None
-        if e["needs_check"]:
+        if e["needs_check"] and not absent:
             h.append(f'<details><summary>頁の画像（要ヒューマンチェック）</summary><img data-img="{E(ref)}" alt="{eid} の頁"></details>'
                      if ref else '<span class="mut sm">要ヒューマンチェック。前後は原本で読む</span>')
         ctx = [(n, e[k]) for n, k in (("前", "before"), ("含む文", "sentence"), ("後", "after")) if e[k]]
@@ -492,10 +520,11 @@ def review_page(data):
             name = f"sc-{E(owner)}-{eid}"
             h.append(f'<div class="scheck" data-scheck="{eid}"><span class="k">原本で確かめる</span>'
                      f'<label><input type="radio" name="{name}" value="" checked>未</label>'
-                     f'<label><input type="radio" name="{name}" value="一致">原本どおり</label>'
-                     f'<label><input type="radio" name="{name}" value="違う">原本と違う</label>'
+                     f'<label><input type="radio" name="{name}" value="一致">{"触れていない" if absent else "原本どおり"}</label>'
+                     f'<label><input type="radio" name="{name}" value="違う">{"触れている" if absent else "原本と違う"}</label>'
                      f'<input type="text" data-scheck-page="{eid}" placeholder="頁と節（例 p.49 §4・3）">'
-                     f'<input type="text" data-scheck-note="{eid}" placeholder="メモ（違うでは原本の字を書く）"></div>')
+                     f'<input type="text" data-scheck-note="{eid}" placeholder="'
+                     + ("メモ（触れているなら箇所を書く）" if absent else "メモ（違うでは原本の字を書く）") + '"></div>')
         done = bool(e["summary_checked"])
         if e.get("new"):  # 候補の新しい抜き書き。受け入れると要約の確認も記録されるので、確認の印は置かない
             who = '<span class="mut sm">AI の候補（受け入れると要約の確認も記録する）</span>'

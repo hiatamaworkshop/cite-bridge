@@ -91,7 +91,8 @@ class SourceReviewTest(unittest.TestCase):
         self.assertEqual(set(ids), {"ocr2020#e1", "noisy2020#e1"})  # 印のある抜き書きだけ。doe2020 は印が無い
         it = ids["ocr2020#e1"]
         self.assertEqual(set(it), {"id", "reasons", "verbatim", "location", "fingerprint", "grade", "evidence_kind",
-                                   "alternate_location", "page_image", "record", "problem", "written_by"})
+                                   "alternate_location", "searched_terms", "hits", "page_image", "record", "problem", "written_by"})
+        self.assertEqual((it["searched_terms"], it["hits"]), ("", ""))  # 逐語の抜き書きでは空の文字列（0.10.0）
         self.assertEqual(it["evidence_kind"], "文")  # 欄の無い抜き書きは文（0.7.0）
         self.assertEqual(it["alternate_location"], "")  # 欄の無い抜き書きは空の文字列（0.9.0）
         self.assertEqual(it["reasons"], "OCR の文字の層（PDF 2頁目）")

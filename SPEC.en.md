@@ -5,7 +5,7 @@ Japanese original: [SPEC.md](SPEC.md). This English version is a translation; th
 This document is the authoritative definition of the formats of the files the tool reads and writes. Where it disagrees with the implementation (bridge.py and cite_bridge/), fix the implementation or this document so that they agree.
 How to use and run the tool is in SKILL.md.
 
-- Format version: 0.9.0 (`TOOL_VERSION` in cite_bridge/config.py). It is recorded in the manifest. What is frozen, how changes are made, and migration steps are in §11.
+- Format version: 0.10.0 (`TOOL_VERSION` in cite_bridge/config.py). It is recorded in the manifest. What is frozen, how changes are made, and migration steps are in §11.
 - Character encoding is UTF-8; line endings are LF.
 - Japanese field names and values are canonical; English aliases are also accepted (§10). Internally everything is normalized to Japanese.
   In this translation, field names and values are given in Japanese with the English alias in parentheses, e.g. 逐語 (verbatim).
@@ -55,10 +55,20 @@ Directly under the source heading, the tool writes `@格` (grade) and `@抽出` 
 | 訳 (translation) | Optional | When the verbatim text is in a language other than the manuscript's, the writer's (the citing author's) own translation of the verbatim text. One line. Not used for matching. The tool does not decide whether the translation fits the verbatim text; a person looks at it in the summary check. English alias translation |
 | 別の所在 (alternate_location) | Optional | Page or section numbers by edition (the page in a translated edition, conventional section numbers and so on). Written by the writer. Separate several with 「、」. It does not change the derived location (§2.2) and is not used for matching. English alias alternate_location |
 | 根拠の種類 (evidence_kind) | Optional | 文 / 表 / グラフ / 図 (text / table / chart / figure) |
+| 探した語 (searched_terms) | Required for an absence excerpt | The terms searched for a topic the original is claimed not to mention. One line, separated with 「、」. Written in place of the verbatim text (see "Absence excerpts" below). English alias searched_terms |
 
 根拠の種類 (evidence_kind) says what in the original the excerpt rests on. When omitted it is `文` (text). `図` (figure) covers figures and photographs. For a kind other than `文` (numbers in a table, a reading of a chart, a figure or photograph),
 the machine cannot check the content of the evidence even when the characters of the verbatim text match the extracted text, so the excerpt needs a human check (§2.2).
 A value outside the vocabulary is reported by check as pending (NOTE) and is not treated as non-text evidence. English alias evidence_kind.
+
+An absence excerpt is the evidence for a claim that "the original does not mention this topic". It has `探した語` in place of `逐語`.
+Its required fields are 探した語, 要約 and 記入 (searched_terms, summary, written_by); 強さ and 言っていないこと (strength, not_said) are optional. The summary says what the original does not mention.
+
+- The writer lists every term, including spelling variants and translations (`雑音、ノイズ、noise`). The tool does not expand terms and does not read regular expressions.
+- A block that has both `逐語` and `探した語` is treated as a verbatim excerpt, and check reports it as pending (NOTE). A term with no letter or digit cannot be searched, and is also reported as pending (NOTE).
+- A citation points to it by ID like any other excerpt (`key#e4`).
+- For the check against the original, the result `一致` means "as the summary says, the original does not mention it (a hit, if any, has another meaning)", and `違う` means "the original does mention it", with the place in the note.
+  The fingerprint of condition 4 below is made from the searched terms (§4).
 
 Form of the 原本での確認 (source_check) value:
 
@@ -92,7 +102,7 @@ Form of the 原本での確認 (source_check) value:
 照合 (match), 所在 (location), 節の種類 (section_kind), 前 (before), 含む文 (sentence), 後 (after), 他の文献で一致 (also_found_in).
 
 - 照合 (match): 一致 / 正規化で一致 / 正規化で一致（句読点・記号が異なる） / 近似一致（重なり N%） / 照合不能（格）
-  (identical / matches after normalization / matches after normalization (punctuation and symbols differ) / approximate (N% overlap) / cannot be matched (grade)).
+  (identical / matches after normalization / matches after normalization (punctuation and symbols differ) / approximate (N% overlap) / cannot be matched (grade)). The values for an absence excerpt are below.
   Matching is done only within the extracted text bound to the key. A match in another source is shown only as a hint and is not used for matching.
 - 所在 (location): page and section (`PDF 5頁目 / §3.3 …`, i.e. PDF page 5). Heading detection is an estimate.
 - 節の種類 (section_kind): 序論 / 関連研究 / 方法 / 結果 / 議論 / 限界 / 結論 / 要旨 / 付録 / 参考文献 / 本論
@@ -105,6 +115,14 @@ Form of the 原本での確認 (source_check) value:
   Non-text evidence (「文でない根拠」): the 根拠の種類 (§2.1) is 表, グラフ or 図. It does not depend on the result of matching, and is added even when the verbatim text matches the extracted text.
   The field shows that the machine cannot guarantee the verbatim text exists. It stays regardless of records; whether the check is done is decided by the 原本での確認 (source_check) record (§2.1).
   A misplaced page break (extraction diagnosis 2, §2.4.2) is not a reason.
+- The derived fields of an absence excerpt (§2.1) are only 照合 (match), 当たり (hits) and 要ヒューマンチェック (human_check). 所在, 節の種類, 前, 含む文 and 後 are not written.
+  - 照合 (match): 当たりなし / 当たりあり（`<語> <数>、…`） / 照合不能（格） (no hits / hits (term and count) / cannot be matched (grade)). Each term is searched in the body of the extracted text bound to the key (the whole text without its header).
+    Both the term and the body go through NFKC, are lower-cased and keep only letters and digits (the loosest level of verbatim matching; punctuation and whitespace differences are ignored), and occurrences are counted as substrings. Overlapping occurrences are not counted.
+    The search leans toward finding too much. A false hit only goes to a person's check; it never hides a mention.
+  - 当たり (hits; English alias hits): written only when there are hits. Its form is `<語>：<所在>、<所在>；<語>：…` (term, then locations), with the first 3 places per term and `（ほか N）` (N more) for the rest.
+  - Human-check reasons: 「探した語に当たりがある」 (a searched term has hits), 照合不能（格） (no extracted text, or an extracted text whose grade is not machine-checkable, §2.4), OCR extraction, OCR text layer (without a page, because the whole source is the target).
+  - The machine counts an absence as checked only when the grade is machine-checkable and there are 0 hits. Characters inside figures and mentions that do not use the terms cannot be searched. What the tool guarantees is only that "the listed terms are not in the extracted text";
+    whether the original does not mention the topic is judged by the one who checks the summary and the one who approves.
 
 ### 2.3 Record fields
 
@@ -220,11 +238,13 @@ A fingerprint is made from the string in the table below: encode it as UTF-8, ta
 | Summary fingerprint | The excerpt's 逐語, 強さ, 要約 and 言っていないこと (verbatim, strength, summary, not_said), in this order, joined by line breaks. Only when there is a 孫引き (secondary_source), `\n孫引き\t<secondary source>` is appended (otherwise nothing is appended). Only when there is a 訳 (translation), `\n訳\t<translation>` is appended after that (otherwise nothing is appended). Only when the 根拠の種類 (evidence_kind) is not `文`, `\n根拠の種類\t<evidence kind>` is appended after that (nothing is appended when it is omitted or `文`). 別の所在 (alternate_location) is not included |
 | Verbatim fingerprint | The verbatim text with whitespace removed. Compared with the fingerprint at the check against the original (§2.3) |
 
+For an absence excerpt (§2.1), the evidence fingerprint, the summary fingerprint and the verbatim fingerprint all use the value of 探した語 (searched_terms) in place of the verbatim text. 強さ and 言っていないこと in the summary fingerprint are empty when absent.
+
 The string is built as follows. An implementation other than cite-bridge gets the same fingerprints by following these rules.
 
 - Removing whitespace means removing all of these 29 characters: U+0009 to U+000D, U+001C to U+001F, U+0020, U+0085, U+00A0, U+1680, U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F, U+3000.
   U+FEFF is not removed (in some languages the whitespace class of regular expressions includes this character and leaves out U+0085 and U+001C to U+001F).
-- Whitespace is removed from each value on its own (the sentence, the verbatim text, the strength, the summary, not_said, the human reading, the secondary source, the translation, the evidence kind). The tab (U+0009) and the line break (U+000A) that join the values stay. Nothing is removed from an ID.
+- Whitespace is removed from each value on its own (the sentence, the verbatim text, the searched terms, the strength, the summary, not_said, the human reading, the secondary source, the translation, the evidence kind). The tab (U+0009) and the line break (U+000A) that join the values stay. Nothing is removed from an ID.
 - Apart from removing whitespace, no character is changed. There is no Unicode normalization and no case folding.
 - A value is the field's value with the whitespace at both ends removed. A value written with a value alias (§10) is turned into the Japanese value first (`observation` becomes `観察`).
 - `人の読み`, `孫引き`, `訳` and `根拠の種類` are fixed words inside the string. They stay the same when the field names are written with their English aliases.
@@ -233,7 +253,7 @@ The string is built as follows. An implementation other than cite-bridge gets th
 
 A fingerprint is for noticing a change. It has only 32 bits, and another string with the same fingerprint can be computed, so it is not strong enough to prevent tampering.
 
-Examples of inputs and fingerprints. `string` is the string before SHA-1. `sentence` is the sentence after its marks are removed, and `excerpts` maps IDs to verbatim texts.
+Examples of inputs and fingerprints. `string` is the string before SHA-1. `sentence` is the sentence after its marks are removed, and `excerpts` maps IDs to verbatim texts (for an absence excerpt, to its searched terms). An example with `searched_terms` is an absence excerpt.
 
 ```json
 [
@@ -246,7 +266,9 @@ Examples of inputs and fingerprints. `string` is the string before SHA-1. `sente
  {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "", "translation": "信頼は ゆっくり築かれる。", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。\n訳\t信頼はゆっくり築かれる。", "fingerprint": "6bf2ea40"},
  {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "山田（1996）、 doe2019", "translation": "信頼は ゆっくり築かれる。", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。\n孫引き\t山田（1996）、doe2019\n訳\t信頼はゆっくり築かれる。", "fingerprint": "88d2ed37"},
  {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "", "evidence_kind": "文", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。", "fingerprint": "6e98a8a3"},
- {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "", "evidence_kind": "表", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。\n根拠の種類\t表", "fingerprint": "03546877"}
+ {"kind": "summary", "verbatim": "Trust is built slowly.", "strength": "観察", "summary": "信頼の形成は 遅い。", "not_said": "速さの原因は述べていない。", "secondary_source": "", "evidence_kind": "表", "string": "Trustisbuiltslowly.\n観察\n信頼の形成は遅い。\n速さの原因は述べていない。\n根拠の種類\t表", "fingerprint": "03546877"},
+ {"kind": "summary", "verbatim": "", "searched_terms": "latency、 遅延", "strength": "", "summary": "応答の遅延には 触れていない。", "not_said": "", "secondary_source": "", "string": "latency、遅延\n\n応答の遅延には触れていない。\n", "fingerprint": "885fa80a"},
+ {"kind": "evidence", "excerpts": {"doe2020#e2": "Trust is built slowly.", "doe2020#e4": "latency、 遅延"}, "human_reading": "", "string": "doe2020#e2\tTrustisbuiltslowly.\ndoe2020#e4\tlatency、遅延", "fingerprint": "dfea40cc"}
 ]
 ```
 
@@ -296,15 +318,18 @@ An external AI or a person receives it and answers with a decisions file in the 
                     "source_checks": [{"id": "<id>", "fingerprint": "<fingerprint>", "result": "一致", "page": "", "note": ""}]},
  "items": [{"id": "key#e1", "reasons": "<要ヒューマンチェックの理由>", "verbatim": "<逐語>", "location": "<所在>",
             "fingerprint": "<逐語の指紋>", "grade": "<格>", "evidence_kind": "<根拠の種類。文 / 表 / グラフ / 図>",
-            "alternate_location": "<別の所在。無ければ空の文字列>", "page_image": "<--images の PNG のパス、無ければ null>",
+            "alternate_location": "<別の所在。無ければ空の文字列>",
+            "searched_terms": "<探した語。不在の抜き書きでなければ空の文字列>", "hits": "<当たり。無ければ空の文字列>", "page_image": "<--images の PNG のパス、無ければ null>",
             "record": "<今の原本での確認の値>", "problem": "<問題の文（§2.1 の五つの条件のどれに欠けるか）>", "written_by": "<記入>"}]}
 ```
 
-(instructions: fixed text held by the tool (check each item's verbatim text against the original and answer the result and the original's characters); reasons: the human-check reasons; verbatim, location, fingerprint, grade, evidence_kind: of the excerpt; alternate_location: the excerpt's 別の所在, or an empty string;
+(instructions: fixed text held by the tool (check each item's verbatim text against the original and answer the result and the original's characters); reasons: the human-check reasons; verbatim, location, fingerprint, grade, evidence_kind: of the excerpt; alternate_location: the excerpt's 別の所在, or an empty string; searched_terms: the 探した語 of an absence excerpt, or an empty string; hits: its 当たり, or an empty string;
 page_image: path of the PNG from --images, or null; record: the current source_check value; problem: which of the five conditions of §2.1 is missing; written_by: the excerpt's 記入.)
 
 - The answer's `by` is a name listed as model in the approvers list. It cannot be the same name as the excerpt's writer (written_by) (condition 3 of §2.1).
 - The answer is written by `apply`. Only those whose fingerprint matches the current verbatim fingerprint are written (source_checks of §5).
+- An item for an absence excerpt (§2.1) has an empty string in `verbatim` and its searched terms in `searched_terms`. Its `fingerprint` is made from the searched terms (§4).
+  The answer's result is `一致` when the original does not mention the topic and `違う` when it does.
 
 ## 6. Making candidates
 
@@ -425,7 +450,7 @@ Written by `checkpoint` at a point that has passed `check --strict`. When there 
 
 ```json
 {"format": "cite-bridge-manifest/1",
- "tool": {"name": "cite-bridge", "version": "0.9.0", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
+ "tool": {"name": "cite-bridge", "version": "0.10.0", "sha256": "<道具のソースの指紋>", "commit": "<道具のフォルダの最終コミット | null>", "dirty": false},
  "checkpoint": "<UTC 時刻>", "label": "",
  "git": {"head": "<HEAD>", "uncommitted": ["…"]},
  "files": {"config": {"path", "sha256"}, "bibliography": {…}, "manuscript": {…}, "citations": {…},
@@ -503,6 +528,7 @@ If there are two or more sources, each source is one item (`part` is the same nu
 | 承認時の根拠 | approved_evidence | 差し戻し時の指紋 | returned_fingerprint |
 | 差し戻し時の根拠 | returned_evidence | 訳 | translation |
 | 別の所在 | alternate_location | 根拠の種類 | evidence_kind |
+| 探した語 | searched_terms | 当たり | hits |
 
 Value aliases: 強さ (observation / suggestion / claim / generalization / conditional), 種類 (pointer / claim),
 原文との差 (identical / paraphrase / qualified_generalization / extrapolation), 承認 (none = 未, returned = 差し戻し),
@@ -579,6 +605,10 @@ Formats that are not frozen (worksheets, drafts, candidates, eval sets and resul
   check and grade gain a line (INFO) with the number of sources whose bibliography entry has a DOI. Fields, format names and fingerprints of working files do not change, so no migration steps are needed.
 - 0.9.0 adds the field `alternate_location` (the excerpt's `別の所在`, or an empty string) to each item of the request for checks against the original (§5.1). The format name stays `/1`.
   The alternate location is used for neither matching nor any fingerprint (§2.1). Fields and fingerprints of working files and the states of approvals and checks do not change, so no migration steps are needed.
+- 0.10.0 adds the absence excerpt (an excerpt with `探した語` in place of `逐語`; the evidence for a claim that the original does not mention something) (§2.1, §2.2). Its fingerprints are made from the searched terms in place of the verbatim text (§4).
+  It adds `searched_terms` and `hits` to each item of the request for checks against the original (§5.1), and `searched_terms` and `hits` under `derived` to the excerpts of a published package (§12.1). Every format name stays `/1`.
+  An excerpt without `探した語` keeps its fingerprints and derived fields, so existing files pass the check as they are and the states of approvals and checks do not change. No migration steps are needed.
+  An absence excerpt needs a human check after `derive` when a searched term has hits or the extracted text's grade is not machine-checkable; without a check against the original, `check --strict` and `checkpoint` stop.
 
 ### Migration steps for 0.5.0
 
@@ -636,10 +666,11 @@ The reading side does not have to be cite-bridge; it can be implemented from thi
   "manuscript": {"title": "<原稿の最初の見出し | null>", "file": {"path": "<原稿のパス>", "sha256": "…"}},
   "sources": [{"key": "doe2020", "entry": "<書誌の一件の文>", "doi": null, "url": null, "accessed": null, "retrieved": null,
                "grade": "<格>", "file": {"sha256": "…", "pages": 12, "ocr_pages": null}, "verbatim_published": true}],
-  "excerpts": [{"id": "doe2020#e1", "verbatim": "<逐語 | null>", "verbatim_fingerprint": "<8 桁>", "verbatim_sha256": "<64 桁>",
+  "excerpts": [{"id": "doe2020#e1", "verbatim": "<逐語 | null>", "verbatim_fingerprint": "<8 桁>", "verbatim_sha256": "<64 桁 | null>",
+                "searched_terms": "",
                 "strength": "観察", "summary": "…", "not_said": "…", "secondary_source": "", "translation": "",
                 "alternate_location": "", "evidence_kind": "文", "written_by": "<記入>", "summary_fingerprint": "<8 桁>",
-                "derived": {"match": "一致", "location": "…", "section_kind": "結果", "human_check": ""}}],
+                "derived": {"match": "一致", "location": "…", "section_kind": "結果", "human_check": "", "hits": ""}}],
   "citations": [{"id": "c001", "kind": "主張", "sentence": "<印を外した文>", "sentence_fingerprint": "<8 桁>",
                  "excerpts": ["doe2020#e1"], "source": "", "reason": "…", "interpretation": "", "human_reading": "",
                  "human_reading_by": "", "diff": "言い換え", "not_quotes": "", "written_by": "<記入>",
@@ -665,7 +696,9 @@ The reading side does not have to be cite-bridge; it can be implemented from thi
 - `content.sources` lists the sources of the released excerpts and of pointer citations. `doi` is the DOI picked from the bibliography entry, normalized to the lower-case form that starts with `10.` (without `https://doi.org/`). `url` is the first URL in the entry that is not a DOI URL. Either is null when nothing is found. `accessed` is the access date in the bibliography; `retrieved` is the date the web copy was taken.
   `file` is the fingerprint and page count of the file the author used, taken from the header of the extracted text or web copy (§2.4.1), or null when there is no header.
 - `content.excerpts` lists only the excerpts that claim citations rest on, in the order of the citations. It has every written field (§2.1); an optional field that is absent is an empty string (`evidence_kind` is `文`).
-  `derived` holds the derived fields the writing tool produced (match, location, section kind, human check); it is a record that the writing side produced them.
+  `derived` holds the derived fields the writing tool produced (match, location, section kind, human check, hits); it is a record that the writing side produced them.
+  An absence excerpt (§2.1) has its searched terms in `searched_terms`, and `verbatim` and `verbatim_sha256` are null. Its `verbatim_fingerprint` is made from the searched terms (§4).
+  `searched_terms` of a verbatim excerpt is an empty string.
 - `content.citations` lists the citations that have a mark in the manuscript, in manuscript order. `sentence` is the sentence that contains the citation without marks and HTML comments, so a reader can check the sentence fingerprint without the settings.
   A pointer citation has an empty `excerpts`, the bibliography key in `source`, and an empty string as `evidence_fingerprint`.
 - The three lists in `records` hold only counted records (approvals counted as approved, valid summary checks, valid checks against the original; §2.1, §3.2), and only those about released excerpts and citations.
@@ -699,6 +732,7 @@ Verbatim text is released by default. For the sources (`doe2020`) and excerpts (
 - `verbatim_sha256` is all 64 hexadecimal digits (lower case) of the SHA-256 of the UTF-8 bytes of the verbatim text with whitespace (the 29 characters of §4) removed. It is present whether or not the verbatim text is released.
   A reader uses it to check that a string they copied from the original is the same as the author's verbatim text (the verbatim fingerprint has 32 bits, and a different string can match it).
 - An excerpt whose verbatim text is withheld still has its fingerprints, location, summary, not_said and translation. The summary and the translation are the writer's own text.
+- The searched terms of an absence excerpt are the writer's own text, so they are published even for a source listed in `withhold_verbatim`. A reader can search the same terms in their own copy of the original.
 - The excerpt file of a source that has a withheld excerpt is not attached under `source/` (`included` is false). That source's `verbatim_published` is false.
 - The evidence fingerprint of a citation that rests on a withheld excerpt cannot be recomputed from the package alone.
 

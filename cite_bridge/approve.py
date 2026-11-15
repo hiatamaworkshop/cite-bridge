@@ -208,9 +208,9 @@ def write_source_check(eid, by, result="一致", page=None, note=None, seen=None
         problem = independence_problem(by, [writer_of(b["fields"].get("記入"))])  # C41
         if problem:
             return False, f"{eid}: " + problem
-        vfp = verbatim_fingerprint(b["fields"].get("逐語", ""))
+        vfp = verbatim_fingerprint(cfg.checked_text(b["fields"]))  # 不在の抜き書きでは探した語の指紋（SPEC §4）
         if seen and seen != vfp:
-            return False, f"{eid}: 確かめた後に逐語が変わった。書かなかった"
+            return False, f"{eid}: 確かめた後に{'探した語' if cfg.is_absence(b['fields']) else '逐語'}が変わった。書かなかった"
         if dry:
             return True, f"{eid}: 原本での確認"
         today = datetime.date.today().isoformat()

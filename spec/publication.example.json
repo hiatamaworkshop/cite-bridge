@@ -1,14 +1,14 @@
 {
  "format": "cite-bridge-publication/1",
- "id": "sha256-dd0e3a009d43eb6db416fdef2f367468d4e8ad26a40d6e32ed1b51a7317a9fea",
+ "id": "sha256-a4fd8962994930dbc75413a9afac2429a7e558091daa243ffac32ea8547dcfeb",
  "spec": {
   "fingerprint": "sha1-8",
   "identity": "sha256-jcs"
  },
  "tool": {
   "name": "cite-bridge",
-  "version": "0.9.0",
-  "sha256": "a36e11358a3e69d2746c8196e5913011adcec5bac6cbce668f5b9cfcd3630cc9",
+  "version": "0.10.0",
+  "sha256": "1373bb47602946f90ff997f4fada16bb558730332a27c399e71aceb866bc1c67",
   "commit": null,
   "dirty": false
  },
@@ -68,6 +68,7 @@
     "verbatim": "Participants completed the task in 12 seconds on average.",
     "verbatim_fingerprint": "89689c89",
     "verbatim_sha256": "1993625bdb1f3ef9d13e5828f9a57e8bce0b9844ace3a9b6e1e1ae2adcc516d6",
+    "searched_terms": "",
     "strength": "観察",
     "summary": "平均12秒で課題を終えた。",
     "not_said": "雑音の中では測っていない。",
@@ -81,7 +82,8 @@
      "match": "一致",
      "location": "p.2（PDF 2頁目） / §3 Results",
      "section_kind": "結果",
-     "human_check": ""
+     "human_check": "",
+     "hits": ""
     }
    }
   ],
@@ -174,10 +176,10 @@
  },
  "publication": {
   "published_by": "Example Lab",
-  "published_at": "2026-11-15T09:14:08Z",
+  "published_at": "2026-11-15T12:45:55Z",
   "license": "CC-BY-4.0",
   "reference": "https://doi.org/10.9999/example.paper",
-  "checkpoint": "2026-11-15T09:14:08Z",
+  "checkpoint": "2026-11-15T12:45:55Z",
   "replaces": null,
   "people": {},
   "files": {
@@ -193,8 +195,8 @@
     "sha256": "a57e57e53f45b26d5bbdcf57615d21c4627f3119c4de8ce2ee48f0176a196804",
     "included": false
    },
-   "source/bridge/checkpoints/20261115T091408Z.json": {
-    "sha256": "9efaa1924c068d59a50ce0c70406735cc17abfd118d118c8e11c318ecec66ab8",
+   "source/bridge/checkpoints/20261115T124555Z.json": {
+    "sha256": "0e77ab5182e3c5243923fb358feb682f1bb5c22f581440aeacd41486efe4b262",
     "included": false
    }
   }

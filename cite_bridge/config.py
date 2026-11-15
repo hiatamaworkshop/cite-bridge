@@ -6,7 +6,7 @@ import sys
 
 
 TOOL_NAME = "cite-bridge"
-TOOL_VERSION = "0.9.0"  # 形式（欄・判断ファイル・マニフェスト）を変えたら副版を上げる（SPEC §11.2）。数え方の直しでも上げる。マニフェストに記録する
+TOOL_VERSION = "0.10.0"  # 形式（欄・判断ファイル・マニフェスト）を変えたら副版を上げる（SPEC §11.2）。数え方の直しでも上げる。マニフェストに記録する
 
 # 設定（bridge.toml）から main で埋める
 CONFIG = Path("bridge/bridge.toml")
@@ -102,6 +102,7 @@ STRENGTHS = {"観察", "示唆", "主張", "一般化", "条件付き"}
 DIFFS = {"一致", "言い換え", "限定つき一般化", "外挿"}
 KINDS = {"指示", "主張"}
 EXC_REQUIRED = ["逐語", "強さ", "要約", "言っていないこと", "記入"]
+ABSENCE_REQUIRED = ["探した語", "要約", "記入"]  # 不在の抜き書き（逐語の代わりに探した語を持つ。SPEC §2.1）の必須の欄
 EVIDENCE_KINDS = ("文", "表", "グラフ", "図")  # 抜き書きの任意の欄「根拠の種類」の語彙。省けば 文（SPEC §2.1）
 TEXT_KIND = "文"
 
@@ -109,6 +110,21 @@ TEXT_KIND = "文"
 def evidence_kind(fields):
     """抜き書きの根拠の種類。欄が無いか空なら 文。語彙の外の値はそのまま返す（check が確認待ちにする）。"""
     return fields.get("根拠の種類") or TEXT_KIND
+
+def is_absence(fields):
+    """不在の抜き書きか（SPEC §2.1）。探した語があり、逐語が無いブロック。両方があれば逐語の抜き書きとして扱う。"""
+    return bool(fields.get("探した語")) and not fields.get("逐語")
+
+
+def checked_text(fields):
+    """指紋に入れる文字列（SPEC §4）。逐語。不在の抜き書きでは、逐語の代わりに探した語。"""
+    return fields["探した語"] if is_absence(fields) else fields.get("逐語", "")
+
+
+def searched_terms(fields):
+    """探した語の並び（「、」区切り。前後の空白を除き、空の語は捨てる）。"""
+    return [t.strip() for t in fields.get("探した語", "").split("、") if t.strip()]
+
 
 # 欄名と値は日本語を正とし、英語の別名も受ける。導く欄を書く言語は設定の output.language で選ぶ
 FIELD_ALIASES = {
@@ -118,6 +134,7 @@ FIELD_ALIASES = {
     "human_reading": "人の読み", "human_reading_by": "人の読みの記入",
     "not_quotes": "引用でない句", "target": "対象", "secondary_source": "孫引き",
     "translation": "訳", "alternate_location": "別の所在", "evidence_kind": "根拠の種類",
+    "searched_terms": "探した語", "hits": "当たり",
     "grade": "格", "text": "抽出", "match": "照合", "location": "所在", "section_kind": "節の種類",
     "before": "前", "sentence": "含む文", "after": "後", "also_found_in": "他の文献で一致",
     "approved_fingerprint": "承認時の指紋", "approved_text": "承認時の本文",

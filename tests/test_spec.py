@@ -105,7 +105,8 @@ def spec_string(v):
     if v["kind"] == "evidence":
         s = "\n".join(f"{i}\t{ws(v['excerpts'][i])}" for i in sorted(v["excerpts"]))
         return s + ("\n人の読み\t" + ws(v["human_reading"]) if v["human_reading"] else "")
-    s = "\n".join(ws(v[n]) for n in ("verbatim", "strength", "summary", "not_said"))
+    # 不在の抜き書き（searched_terms のある例）は、逐語の代わりに探した語を使う
+    s = "\n".join(ws(v.get("searched_terms") or v[n] if n == "verbatim" else v[n]) for n in ("verbatim", "strength", "summary", "not_said"))
     s += "\n孫引き\t" + ws(v["secondary_source"]) if v["secondary_source"] else ""
     s += "\n訳\t" + ws(v["translation"]) if v.get("translation") else ""
     return s + ("\n根拠の種類\t" + ws(v["evidence_kind"]) if v.get("evidence_kind", "文") != "文" else "")
@@ -140,11 +141,13 @@ class SpecFingerprintTest(unittest.TestCase):
             elif v["kind"] == "evidence":
                 got = evidence_hash(list(v["excerpts"]), {i: {"逐語": t} for i, t in v["excerpts"].items()}, v["human_reading"])
             else:
-                got = summary_fingerprint({"逐語": v["verbatim"], "強さ": v["strength"], "要約": v["summary"],
+                got = summary_fingerprint({"逐語": v["verbatim"], "探した語": v.get("searched_terms", ""), "強さ": v["strength"], "要約": v["summary"],
                                            "言っていないこと": v["not_said"], "孫引き": v["secondary_source"],
                                            "訳": v.get("translation", ""), "根拠の種類": v.get("evidence_kind", "")})
             self.assertEqual(got, v["fingerprint"], v)
-        summaries = [v for v in self.vectors if v["kind"] == "summary"]
+        absent = [v for v in self.vectors if v.get("searched_terms")]
+        self.assertEqual([(v["kind"], v["verbatim"]) for v in absent], [("summary", "")])  # 不在の抜き書きの例が一つある
+        summaries = [v for v in self.vectors if v["kind"] == "summary" and not v.get("searched_terms")]
         # 訳だけの例と、孫引きと訳の両方の例がある（足す順を例で決める）
         both = {(bool(v["secondary_source"]), bool(v.get("translation"))) for v in summaries}
         self.assertEqual(both, {(False, False), (False, True), (True, False), (True, True)})
@@ -162,7 +165,7 @@ class SpecFingerprintTest(unittest.TestCase):
         import tempfile
         from cite_bridge.blocks import parse_blocks
         from cite_bridge.manuscript import summary_fingerprint
-        v = next(x for x in self.vectors if x["kind"] == "summary" and not x["secondary_source"])
+        v = next(x for x in self.vectors if x["kind"] == "summary" and not x["secondary_source"] and x["verbatim"])
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "doe2020.md"
             p.write_text(f"# doe2020\n\n## e1\nverbatim: {v['verbatim']}\nstrength: observation\n"

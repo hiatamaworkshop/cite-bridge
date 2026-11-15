@@ -128,7 +128,7 @@ class PublishTest(unittest.TestCase):
         e = c["excerpts"][0]
         self.assertEqual(e["verbatim"], "Participants completed the task in 12 seconds on average.")
         self.assertEqual((e["strength"], e["evidence_kind"], e["translation"]), ("観察", "文", ""))
-        self.assertEqual(set(e["derived"]), {"match", "location", "section_kind", "human_check"})  # 前後の文は持たない
+        self.assertEqual(set(e["derived"]), {"match", "location", "section_kind", "human_check", "hits"})  # 前後の文は持たない
         text = self.read("pub/publication.json")
         self.assertNotIn("No errors occurred during the study.", text)  # 抜き書き e1 の「後」の文
         cit = c["citations"][0]

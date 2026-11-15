@@ -175,7 +175,10 @@ def source_label(keys, bib):
 
 
 def units_from_data(data, bib=None):
-    """review_data の結果から、判定の単位を作る。引用（主張）ごとと、抜き書きごと。"""
+    """review_data の結果から、判定の単位を作る。引用（主張）ごとと、抜き書きごと。
+
+    不在の抜き書き（探した語を持つ）は、型の材料の逐語と前後の文を持たないので単位にしない。それに依る引用も単位にしない（C50）。
+    """
     if bib is None:
         from .bib import parse_bib
         bib = parse_bib()
@@ -184,6 +187,8 @@ def units_from_data(data, bib=None):
         if it["kind"] != "主張":
             continue
         ev = [e for e in it["evidence"] if not e.get("missing") and not e.get("new")]
+        if any(e.get("searched_terms") for e in ev):
+            continue
         keys = list(dict.fromkeys(e["id"].split("#")[0] for e in ev))
         units.append({"item": f"cite:{it['id']}", "scope": "citation", "id": it["id"], "sentence": clean_claim(it["sentence"]),
                       "source": source_label(keys, bib), "fields": it["fields"], "excerpts": ev})
@@ -192,7 +197,7 @@ def units_from_data(data, bib=None):
                 seen.add(e["id"])
                 units.append({"item": f"exc:{e['id']}", "scope": "excerpt", "id": e["id"], "excerpts": [e]})
     for e in data.get("excerpts_only", []):
-        if not e.get("missing") and e["id"] not in seen:
+        if not e.get("missing") and e["id"] not in seen and not e.get("searched_terms"):
             seen.add(e["id"])
             units.append({"item": f"exc:{e['id']}", "scope": "excerpt", "id": e["id"], "excerpts": [e]})
     return units
